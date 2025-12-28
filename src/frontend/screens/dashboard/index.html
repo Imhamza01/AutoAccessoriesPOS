@@ -1,0 +1,82 @@
+<!-- src/frontend/screens/dashboard/index.html -->
+<div class="dashboard-screen" id="dashboard-screen">
+    <!-- Dashboard Header -->
+    <div class="dashboard-header">
+        <h2>Dashboard</h2>
+        <div class="dashboard-controls">
+            <button class="btn btn-secondary btn-small" id="refresh-dashboard">
+                Refresh
+            </button>
+            <button class="btn btn-primary btn-small" onclick="POS.loadScreen('pos')">
+                New Sale
+            </button>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="quick-actions">
+        <button class="quick-action" data-action="new-sale">
+            <span class="action-icon">💰</span>
+            <span class="action-label">New Sale</span>
+        </button>
+        <button class="quick-action" data-action="add-product">
+            <span class="action-icon">📦</span>
+            <span class="action-label">Add Product</span>
+        </button>
+        <button class="quick-action" data-action="add-customer">
+            <span class="action-icon">👥</span>
+            <span class="action-label">Add Customer</span>
+        </button>
+        <button class="quick-action" data-action="quick-report">
+            <span class="action-icon">📊</span>
+            <span class="action-label">Quick Report</span>
+        </button>
+    </div>
+
+    <!-- Stats Grid -->
+    <div class="stats-grid">
+        <div class="stat-card" id="today-sales">
+            <!-- Filled by JavaScript -->
+        </div>
+        <div class="stat-card" id="total-products">
+            <!-- Filled by JavaScript -->
+        </div>
+        <div class="stat-card" id="low-stock">
+            <!-- Filled by JavaScript -->
+        </div>
+        <div class="stat-card" id="today-customers">
+            <!-- Filled by JavaScript -->
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="dashboard-main">
+        <!-- Left Column: Recent Activities -->
+        <div class="dashboard-column">
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <h3>Recent Activities</h3>
+                </div>
+                <div class="card-body">
+                    <div id="recent-activities" class="activities-list">
+                        <!-- Activities will be loaded here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Top Products -->
+        <div class="dashboard-column">
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <h3>Top Selling Products</h3>
+                </div>
+                <div class="card-body">
+                    <div id="top-products" class="products-list">
+                        <!-- Top products will be loaded here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

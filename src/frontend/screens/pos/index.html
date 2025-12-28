@@ -1,0 +1,139 @@
+<!-- src/frontend/screens/pos/index.html -->
+<div class="pos-screen" id="pos-screen">
+    <!-- POS Header -->
+    <div class="pos-header">
+        <div class="pos-title">
+            <h2>POS Terminal</h2>
+            <div class="pos-status">
+                <span class="status-indicator online"></span>
+                <span>Ready</span>
+            </div>
+        </div>
+        
+        <div class="pos-controls">
+            <button class="btn btn-secondary btn-small" id="hold-sale">
+                Hold Sale (F6)
+            </button>
+            <button class="btn btn-warning btn-small" id="apply-discount">
+                Discount (F7)
+            </button>
+            <button class="btn btn-danger btn-small" id="clear-cart">
+                Clear Cart (F5)
+            </button>
+            <button class="btn btn-success" id="process-payment" disabled>
+                Process Payment (F4)
+            </button>
+        </div>
+    </div>
+
+    <!-- Product Selection Methods -->
+    <div class="product-selection-methods">
+        <button class="method-btn active" data-method="search">
+            <span class="btn-icon">🔍</span>
+            Search & Browse
+        </button>
+        <button class="method-btn" data-method="scanner">
+            <span class="btn-icon">📷</span>
+            Barcode Scanner (F1)
+        </button>
+        <button class="method-btn" data-method="quick">
+            <span class="btn-icon">⚡</span>
+            Quick Entry (F3)
+        </button>
+    </div>
+
+    <!-- Main POS Area -->
+    <div class="pos-main">
+        <!-- Left Panel: Categories & Search -->
+        <div class="pos-left-panel">
+            <div class="pos-search-section">
+                <input type="text" 
+                       id="pos-search" 
+                       class="pos-search-input" 
+                       placeholder="Search products by name, code, or barcode... (F2)"
+                       autocomplete="off">
+            </div>
+            
+            <div class="pos-categories-section">
+                <h4>Categories</h4>
+                <div id="categories-container">
+                    <!-- Categories will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Panel: Products -->
+        <div class="pos-center-panel">
+            <div class="pos-products-header">
+                <h3 id="category-title">All Products</h3>
+                <div class="product-count" id="product-count">0 products</div>
+            </div>
+            
+            <div class="pos-products-section">
+                <div id="products-container" class="products-grid">
+                    <!-- Products will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel: Cart -->
+        <div class="pos-right-panel">
+            <div class="pos-cart-section">
+                <div class="cart-header">
+                    <h3>Shopping Cart</h3>
+                    <div class="cart-count" id="cart-count" style="display: none;">0</div>
+                </div>
+                
+                <div class="cart-items" id="cart-items">
+                    <!-- Cart items will be loaded here -->
+                </div>
+                
+                <div class="cart-footer">
+                    <div id="cart-summary" class="cart-summary">
+                        <!-- Cart summary will be loaded here -->
+                    </div>
+                    
+                    <div class="cart-actions">
+                        <button class="btn btn-secondary" id="print-receipt">
+                            Print Receipt
+                        </button>
+                        <button class="btn btn-primary" id="checkout-btn" disabled>
+                            Checkout
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Keyboard Shortcuts Help -->
+    <div class="keyboard-shortcuts">
+        <h4>Keyboard Shortcuts</h4>
+        <div class="shortcut-list">
+            <div class="shortcut-item">
+                <span class="shortcut-key">F1</span>
+                <span>Scanner</span>
+            </div>
+            <div class="shortcut-item">
+                <span class="shortcut-key">F2</span>
+                <span>Search</span>
+            </div>
+            <div class="shortcut-item">
+                <span class="shortcut-key">F3</span>
+                <span>Quick Entry</span>
+            </div>
+            <div class="shortcut-item">
+                <span class="shortcut-key">F4</span>
+                <span>Payment</span>
+            </div>
+            <div class="shortcut-item">
+                <span class="shortcut-key">F5</span>
+                <span>Clear Cart</span>
+            </div>
+            <div class="shortcut-item">
+                <span class="shortcut-key">ESC</span>
+                <span>Close Modals</span>
+            </div>
+        </div>
+    </div>
+</div>
