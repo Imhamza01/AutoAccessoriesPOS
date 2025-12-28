@@ -1,0 +1,20 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Runtime data
+data/
+*.db
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
