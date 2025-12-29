@@ -511,6 +511,16 @@ class AuthenticationManager:
                 password_expired = self.check_password_expiry(user_dict)
                 
                 # Prepare user response
+                # Ensure values are JSON serializable (datetimes -> ISO strings)
+                last_login_val = user_dict.get("last_login")
+                if isinstance(last_login_val, (str,)):
+                    last_login_serialized = last_login_val
+                else:
+                    try:
+                        last_login_serialized = last_login_val.isoformat() if last_login_val is not None else None
+                    except Exception:
+                        last_login_serialized = None
+
                 user_response = {
                     "id": user_dict["id"],
                     "username": user_dict["username"],
@@ -519,7 +529,7 @@ class AuthenticationManager:
                     "role_name": PAKISTANI_ROLES.get(user_dict["role"], {}).get("name", user_dict["role"]),
                     "status": user_dict["status"],
                     "phone": user_dict.get("phone"),
-                    "last_login": user_dict.get("last_login"),
+                    "last_login": last_login_serialized,
                     "password_expired": password_expired,
                     "session_token": session_token,
                     "permissions": PAKISTANI_ROLES.get(user_dict["role"], {}).get("permissions", []),
@@ -556,7 +566,14 @@ class AuthenticationManager:
         except HTTPException:
             raise
         except Exception as e:
-            logger.exception("Authentication error")
+            import traceback as _tb
+            tb = _tb.format_exc()
+            # Log and print traceback to ensure it appears in console logs
+            logger.exception(f"Authentication error: {e}\n{tb}")
+            try:
+                print('Authentication exception traceback:\n', tb)
+            except Exception:
+                pass
             raise HTTPException(
                 status_code=500,
                 detail="Internal server error during authentication"

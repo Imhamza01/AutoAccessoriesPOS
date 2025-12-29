@@ -4,6 +4,7 @@ SECURITY MIDDLEWARE FOR RATE LIMITING AND SECURITY HEADERS
 """
 
 import time
+import threading
 from collections import defaultdict
 from datetime import datetime, timedelta
 from fastapi import Request, HTTPException
@@ -46,7 +47,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+        response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:;"
         
         # Log security events for failed requests
         if response.status_code >= 400 and response.status_code != 404:
@@ -165,9 +166,6 @@ class CORSMiddleware(BaseHTTPMiddleware):
             response.status_code = 200
         
         return response
-
-# Import threading for rate limiting middleware
-import threading
 
 # Middleware configuration
 middleware = [

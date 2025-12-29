@@ -1,0 +1,51 @@
+<div id="sales-screen" class="screen">
+  <div class="screen-header">
+    <h1>Sales Management</h1>
+  </div>
+
+  <div class="screen-content">
+    <div class="filters">
+      <input type="date" id="sales-start-date" placeholder="From">
+      <input type="date" id="sales-end-date" placeholder="To">
+      <select id="sales-status" onchange="app.screens.sales.filter()">
+        <option value="">All Status</option>
+        <option value="completed">Completed</option>
+        <option value="pending">Pending</option>
+      </select>
+      <button class="btn btn-primary" onclick="app.screens.sales.filter()">Filter</button>
+    </div>
+
+    <div class="summary-cards">
+      <div class="card">
+        <h3>Today's Revenue</h3>
+        <p id="today-revenue">PKR 0</p>
+      </div>
+      <div class="card">
+        <h3>Total Transactions</h3>
+        <p id="total-transactions">0</p>
+      </div>
+      <div class="card">
+        <h3>Avg Transaction</h3>
+        <p id="avg-transaction">PKR 0</p>
+      </div>
+    </div>
+
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Invoice #</th>
+          <th>Date</th>
+          <th>Customer</th>
+          <th>Items</th>
+          <th>Total</th>
+          <th>Payment Type</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="sales-table">
+        <tr><td colspan="8" class="loading">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>

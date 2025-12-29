@@ -1,0 +1,625 @@
+<!-- Auto Accessories POS - Data Table Component -->
+<div class="data-table-wrapper">
+    <!-- Table Toolbar -->
+    <div class="table-toolbar">
+        <div class="toolbar-left">
+            <div class="selection-info" id="selection-info" style="display: none;">
+                <span id="selected-count">0</span>
+                <span>items selected</span>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="deselectAll()">Clear</button>
+            </div>
+        </div>
+        <div class="toolbar-right">
+            <button type="button" class="btn btn-sm btn-secondary" id="export-btn" title="Export table data">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>Export</span>
+            </button>
+            <button type="button" class="btn btn-sm btn-secondary" id="refresh-btn" title="Refresh table">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <path d="M20.49 15a9 9 0 1 1-2-8.83"></path>
+                </svg>
+                <span>Refresh</span>
+            </button>
+            <button type="button" class="btn btn-sm btn-secondary" id="columns-btn" title="Show/hide columns">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="14" width="7" height="7"></rect>
+                    <rect x="3" y="14" width="7" height="7"></rect>
+                </svg>
+                <span>Columns</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Table Container -->
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr class="table-header-row">
+                    <th class="table-header-cell checkbox-cell">
+                        <input type="checkbox" class="table-select-all" id="select-all" title="Select all rows">
+                    </th>
+                    <th class="table-header-cell">Column Header</th>
+                </tr>
+            </thead>
+            <tbody class="table-body">
+                <!-- Rows will be populated dynamically -->
+                <tr class="table-row">
+                    <td class="table-cell checkbox-cell">
+                        <input type="checkbox" class="table-row-checkbox">
+                    </td>
+                    <td class="table-cell">No data available</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Empty State -->
+    <div class="table-empty-state" id="table-empty-state" style="display: none;">
+        <div class="empty-state-icon">📭</div>
+        <h3>No Data Available</h3>
+        <p id="empty-state-message">No records to display</p>
+    </div>
+
+    <!-- Table Footer -->
+    <div class="table-footer">
+        <div class="footer-left">
+            <div class="rows-per-page">
+                <label>Show:</label>
+                <select id="rows-per-page" class="input-select">
+                    <option value="10">10</option>
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
+                <span>rows</span>
+            </div>
+            <div class="table-info" id="table-info">
+                Showing <span id="info-from">0</span> to <span id="info-to">0</span> of <span id="info-total">0</span> entries
+            </div>
+        </div>
+
+        <div class="footer-right">
+            <div class="pagination">
+                <button type="button" class="pagination-btn" id="first-page-btn" title="First page">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                        <polyline points="9 18 3 12 9 6"></polyline>
+                    </svg>
+                </button>
+                <button type="button" class="pagination-btn" id="prev-page-btn" title="Previous page">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
+                </button>
+
+                <div class="pagination-numbers" id="pagination-numbers">
+                    <!-- Page numbers will be generated here -->
+                </div>
+
+                <button type="button" class="pagination-btn" id="next-page-btn" title="Next page">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="9 18 15 12 9 6"></polyline>
+                    </svg>
+                </button>
+                <button type="button" class="pagination-btn" id="last-page-btn" title="Last page">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="9 18 15 12 9 6"></polyline>
+                        <polyline points="15 18 21 12 15 6"></polyline>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Data Table Wrapper */
+.data-table-wrapper {
+    display: flex;
+    flex-direction: column;
+    background: white;
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+}
+
+/* Table Toolbar */
+.table-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem;
+    border-bottom: 1px solid #ecf0f1;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.toolbar-left,
+.toolbar-right {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.selection-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 1rem;
+    background: #d5f4e6;
+    border-radius: 0.375rem;
+    color: #27ae60;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+/* Table Container */
+.table-container {
+    overflow-x: auto;
+    flex: 1;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+/* Table Header */
+.table-header-row {
+    background: #f8f9fa;
+    border-bottom: 2px solid #ecf0f1;
+}
+
+.table-header-cell {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: #2c3e50;
+    font-size: 0.875rem;
+    text-transform: capitalize;
+    user-select: none;
+    position: relative;
+}
+
+.table-header-cell.checkbox-cell {
+    width: 48px;
+    padding: 0.75rem;
+    text-align: center;
+}
+
+.table-header-cell.sortable {
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.table-header-cell.sortable:hover {
+    background: #ecf0f1;
+}
+
+/* Table Body */
+.table-body {
+    display: table-row-group;
+}
+
+.table-row {
+    border-bottom: 1px solid #ecf0f1;
+    transition: all 0.2s;
+}
+
+.table-row:hover {
+    background: #f8f9fa;
+}
+
+.table-row.selected {
+    background: #d6eaf8;
+}
+
+.table-cell {
+    padding: 0.75rem 1rem;
+    color: #2c3e50;
+    font-size: 0.9rem;
+}
+
+.table-cell.checkbox-cell {
+    width: 48px;
+    padding: 0.75rem;
+    text-align: center;
+}
+
+/* Checkboxes */
+.table-select-all,
+.table-row-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+/* Table Actions */
+.table-actions {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.table-action-btn {
+    background: none;
+    border: none;
+    color: #3498db;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    transition: all 0.2s;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.table-action-btn:hover {
+    background: #d6eaf8;
+    color: #2980b9;
+}
+
+.table-action-btn.danger {
+    color: #e74c3c;
+}
+
+.table-action-btn.danger:hover {
+    background: #fadbd8;
+    color: #c0392b;
+}
+
+/* Empty State */
+.table-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1rem;
+    text-align: center;
+    color: #7f8c8d;
+}
+
+.empty-state-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
+
+.table-empty-state h3 {
+    margin: 0 0 0.5rem 0;
+    color: #2c3e50;
+}
+
+.table-empty-state p {
+    margin: 0;
+    font-size: 0.9rem;
+}
+
+/* Table Footer */
+.table-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem;
+    border-top: 1px solid #ecf0f1;
+    background: #f8f9fa;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.footer-left,
+.footer-right {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+/* Rows Per Page */
+.rows-per-page {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+}
+
+.rows-per-page label {
+    color: #2c3e50;
+    font-weight: 500;
+}
+
+.rows-per-page .input-select {
+    padding: 0.375rem 0.5rem;
+    border: 1px solid #bdc3c7;
+    border-radius: 0.25rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+/* Table Info */
+.table-info {
+    font-size: 0.9rem;
+    color: #7f8c8d;
+}
+
+/* Pagination */
+.pagination {
+    display: flex;
+    gap: 0.25rem;
+    align-items: center;
+}
+
+.pagination-btn {
+    background: white;
+    border: 1px solid #bdc3c7;
+    border-radius: 0.375rem;
+    color: #7f8c8d;
+    cursor: pointer;
+    padding: 0.5rem 0.75rem;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pagination-btn:hover:not(:disabled) {
+    background: #3498db;
+    border-color: #3498db;
+    color: white;
+}
+
+.pagination-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.pagination-numbers {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.pagination-number {
+    background: white;
+    border: 1px solid #bdc3c7;
+    border-radius: 0.375rem;
+    color: #2c3e50;
+    cursor: pointer;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.2s;
+    min-width: 36px;
+    text-align: center;
+}
+
+.pagination-number:hover {
+    background: #3498db;
+    border-color: #3498db;
+    color: white;
+}
+
+.pagination-number.active {
+    background: #3498db;
+    border-color: #3498db;
+    color: white;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .table-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .toolbar-left,
+    .toolbar-right {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .table-footer {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .footer-left,
+    .footer-right {
+        width: 100%;
+    }
+
+    .table-cell {
+        padding: 0.5rem;
+        font-size: 0.85rem;
+    }
+
+    .table-header-cell {
+        padding: 0.5rem;
+        font-size: 0.8rem;
+    }
+
+    .pagination {
+        width: 100%;
+        justify-content: center;
+    }
+}
+</style>
+
+<script>
+// Data Table Manager
+class DataTableManager {
+    constructor(tableSelector = '.data-table') {
+        this.table = document.querySelector(tableSelector);
+        this.allData = [];
+        this.displayData = [];
+        this.currentPage = 1;
+        this.rowsPerPage = 10;
+        this.sortColumn = null;
+        this.sortOrder = 'asc';
+        this.selectedRows = new Set();
+
+        this.initializeEvents();
+    }
+
+    initializeEvents() {
+        // Select all checkbox
+        const selectAllCheckbox = document.getElementById('select-all');
+        if (selectAllCheckbox) {
+            selectAllCheckbox.addEventListener('change', (e) => this.selectAll(e.target.checked));
+        }
+
+        // Rows per page
+        const rowsPerPageSelect = document.getElementById('rows-per-page');
+        if (rowsPerPageSelect) {
+            rowsPerPageSelect.addEventListener('change', (e) => {
+                this.rowsPerPage = parseInt(e.target.value);
+                this.currentPage = 1;
+                this.render();
+            });
+        }
+
+        // Pagination buttons
+        document.getElementById('first-page-btn')?.addEventListener('click', () => {
+            this.currentPage = 1;
+            this.render();
+        });
+
+        document.getElementById('prev-page-btn')?.addEventListener('click', () => {
+            if (this.currentPage > 1) {
+                this.currentPage--;
+                this.render();
+            }
+        });
+
+        document.getElementById('next-page-btn')?.addEventListener('click', () => {
+            const maxPages = Math.ceil(this.displayData.length / this.rowsPerPage);
+            if (this.currentPage < maxPages) {
+                this.currentPage++;
+                this.render();
+            }
+        });
+
+        document.getElementById('last-page-btn')?.addEventListener('click', () => {
+            this.currentPage = Math.ceil(this.displayData.length / this.rowsPerPage);
+            this.render();
+        });
+    }
+
+    setData(data) {
+        this.allData = data;
+        this.displayData = [...data];
+        this.currentPage = 1;
+        this.selectedRows.clear();
+        this.render();
+    }
+
+    render() {
+        if (this.displayData.length === 0) {
+            this.showEmptyState();
+            return;
+        }
+
+        // Calculate pagination
+        const totalPages = Math.ceil(this.displayData.length / this.rowsPerPage);
+        const startIndex = (this.currentPage - 1) * this.rowsPerPage;
+        const endIndex = Math.min(startIndex + this.rowsPerPage, this.displayData.length);
+        const pageData = this.displayData.slice(startIndex, endIndex);
+
+        // Update pagination controls
+        this.updatePaginationControls(totalPages);
+        this.updateTableInfo(startIndex, endIndex);
+    }
+
+    selectAll(checked) {
+        this.selectedRows.clear();
+        const checkboxes = document.querySelectorAll('.table-row-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = checked;
+            const row = checkbox.closest('.table-row');
+            if (checked) {
+                this.selectedRows.add(row.dataset.rowId);
+                row.classList.add('selected');
+            } else {
+                row.classList.remove('selected');
+            }
+        });
+        this.updateSelectionInfo();
+    }
+
+    updateSelectionInfo() {
+        const selectionInfo = document.getElementById('selection-info');
+        const selectedCount = document.getElementById('selected-count');
+        if (this.selectedRows.size > 0) {
+            selectionInfo.style.display = 'flex';
+            selectedCount.textContent = this.selectedRows.size;
+        } else {
+            selectionInfo.style.display = 'none';
+        }
+    }
+
+    updatePaginationControls(totalPages) {
+        const paginationNumbers = document.getElementById('pagination-numbers');
+        paginationNumbers.innerHTML = '';
+
+        const maxVisiblePages = 5;
+        let startPage = Math.max(1, this.currentPage - Math.floor(maxVisiblePages / 2));
+        let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+
+        if (endPage - startPage + 1 < maxVisiblePages) {
+            startPage = Math.max(1, endPage - maxVisiblePages + 1);
+        }
+
+        for (let i = startPage; i <= endPage; i++) {
+            const btn = document.createElement('button');
+            btn.className = `pagination-number${i === this.currentPage ? ' active' : ''}`;
+            btn.textContent = i;
+            btn.onclick = () => {
+                this.currentPage = i;
+                this.render();
+            };
+            paginationNumbers.appendChild(btn);
+        }
+
+        // Update button states
+        document.getElementById('first-page-btn').disabled = this.currentPage === 1;
+        document.getElementById('prev-page-btn').disabled = this.currentPage === 1;
+        document.getElementById('next-page-btn').disabled = this.currentPage === totalPages;
+        document.getElementById('last-page-btn').disabled = this.currentPage === totalPages;
+    }
+
+    updateTableInfo(from, to) {
+        document.getElementById('info-from').textContent = from + 1;
+        document.getElementById('info-to').textContent = to;
+        document.getElementById('info-total').textContent = this.displayData.length;
+    }
+
+    showEmptyState() {
+        const emptyState = document.getElementById('table-empty-state');
+        const tableContainer = document.querySelector('.table-container');
+        const tableFooter = document.querySelector('.table-footer');
+
+        if (emptyState) {
+            emptyState.style.display = 'flex';
+        }
+        if (tableContainer) {
+            tableContainer.style.display = 'none';
+        }
+        if (tableFooter) {
+            tableFooter.style.display = 'none';
+        }
+    }
+}
+
+// Global instance
+const dataTableManager = new DataTableManager();
+
+function deselectAll() {
+    const selectAllCheckbox = document.getElementById('select-all');
+    if (selectAllCheckbox) {
+        selectAllCheckbox.checked = false;
+        dataTableManager.selectAll(false);
+    }
+}
+</script>

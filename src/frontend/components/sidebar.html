@@ -1,0 +1,463 @@
+<!-- Auto Accessories POS - Sidebar Navigation Component -->
+<div class="sidebar-wrapper">
+    <!-- Sidebar Header -->
+    <div class="sidebar-header">
+        <h2 class="sidebar-title">Navigation</h2>
+        <button class="sidebar-close-btn" style="display: none;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+        </button>
+    </div>
+
+    <!-- Navigation Menu -->
+    <div class="sidebar-menu">
+        <!-- Main Menu -->
+        <div class="menu-section">
+            <h3 class="menu-label">Main</h3>
+            <nav class="menu-items">
+                <button class="sidebar-btn active" data-screen="dashboard" title="Dashboard">
+                    <span class="btn-icon">📊</span>
+                    <span class="btn-text">Dashboard</span>
+                </button>
+                
+                <button class="sidebar-btn" data-screen="pos" title="Point of Sale">
+                    <span class="btn-icon">🛒</span>
+                    <span class="btn-text">POS</span>
+                </button>
+            </nav>
+        </div>
+
+        <!-- Products & Inventory -->
+        <div class="menu-section">
+            <h3 class="menu-label">Products & Inventory</h3>
+            <nav class="menu-items">
+                <button class="sidebar-btn" data-screen="products" title="Product Management">
+                    <span class="btn-icon">📦</span>
+                    <span class="btn-text">Products</span>
+                </button>
+                
+                <button class="sidebar-btn" data-screen="inventory" title="Inventory Management">
+                    <span class="btn-icon">📋</span>
+                    <span class="btn-text">Inventory</span>
+                </button>
+            </nav>
+        </div>
+
+        <!-- Sales & Customers -->
+        <div class="menu-section">
+            <h3 class="menu-label">Sales & Customers</h3>
+            <nav class="menu-items">
+                <button class="sidebar-btn" data-screen="sales" title="Sales Management">
+                    <span class="btn-icon">💳</span>
+                    <span class="btn-text">Sales</span>
+                </button>
+                
+                <button class="sidebar-btn" data-screen="customers" title="Customer Management">
+                    <span class="btn-icon">👥</span>
+                    <span class="btn-text">Customers</span>
+                </button>
+            </nav>
+        </div>
+
+        <!-- Reports & Analytics -->
+        <div class="menu-section">
+            <h3 class="menu-label">Reports & Analytics</h3>
+            <nav class="menu-items">
+                <button class="sidebar-btn" data-screen="reports" title="Reports & Analytics">
+                    <span class="btn-icon">📈</span>
+                    <span class="btn-text">Reports</span>
+                </button>
+            </nav>
+        </div>
+
+        <!-- Administration -->
+        <div class="menu-section">
+            <h3 class="menu-label">Administration</h3>
+            <nav class="menu-items">
+                <button class="sidebar-btn" data-screen="expenses" title="Expenses Management">
+                    <span class="btn-icon">💰</span>
+                    <span class="btn-text">Expenses</span>
+                </button>
+                
+                <button class="sidebar-btn" data-screen="users" id="users-menu-btn" title="User Management" style="display: none;">
+                    <span class="btn-icon">🔐</span>
+                    <span class="btn-text">Users</span>
+                </button>
+                
+                <button class="sidebar-btn" data-screen="settings" title="Settings & Configuration">
+                    <span class="btn-icon">⚙️</span>
+                    <span class="btn-text">Settings</span>
+                </button>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Sidebar Footer -->
+    <div class="sidebar-footer">
+        <div class="quick-info">
+            <div class="info-item">
+                <span class="info-label">Shop Status</span>
+                <span class="info-value" id="sidebar-shop-status">🟢 Open</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Connection</span>
+                <span class="info-value" id="sidebar-connection-status">🟢 Online</span>
+            </div>
+        </div>
+        
+        <div class="sidebar-version">
+            <small>Auto Accessories POS v1.0.0</small>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Sidebar Styles */
+.sidebar-wrapper {
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(180deg, #2c3e50 0%, #34495e 100%);
+    border-right: 2px solid #27ae60;
+    color: #ecf0f1;
+    height: 100%;
+    overflow-y: auto;
+    width: 250px;
+    min-width: 250px;
+    position: relative;
+}
+
+/* Sidebar Header */
+.sidebar-header {
+    padding: 1.25rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.sidebar-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #2ecc71;
+}
+
+.sidebar-close-btn {
+    background: none;
+    border: none;
+    color: white;
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 0.375rem;
+    transition: all 0.2s;
+}
+
+.sidebar-close-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Sidebar Menu */
+.sidebar-menu {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem 0;
+}
+
+.menu-section {
+    margin-bottom: 0;
+    padding: 0.75rem 0;
+}
+
+.menu-label {
+    margin: 0;
+    padding: 0 1.25rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #95a5a6;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.75rem;
+}
+
+.menu-items {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0 0.75rem;
+    margin: 0;
+    list-style: none;
+}
+
+/* Sidebar Buttons */
+.sidebar-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 0.75rem;
+    background: none;
+    border: 2px solid transparent;
+    color: #ecf0f1;
+    cursor: pointer;
+    border-radius: 0.5rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    white-space: nowrap;
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: 500;
+    width: 100%;
+    text-align: left;
+    position: relative;
+    overflow: hidden;
+}
+
+.sidebar-btn:hover:not(.active) {
+    background: rgba(255, 255, 255, 0.08);
+    transform: translateX(2px);
+}
+
+.sidebar-btn.active {
+    background: linear-gradient(90deg, #27ae60 0%, #229954 100%);
+    border-color: #2ecc71;
+    color: white;
+    box-shadow: 0 2px 8px rgba(39, 174, 96, 0.3);
+    position: relative;
+}
+
+.sidebar-btn.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: #2ecc71;
+}
+
+.btn-icon {
+    font-size: 1.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    flex-shrink: 0;
+}
+
+.btn-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Sidebar Footer */
+.sidebar-footer {
+    padding: 1rem 1.25rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.quick-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 0.375rem;
+    border-left: 2px solid #27ae60;
+}
+
+.info-label {
+    font-size: 0.75rem;
+    color: #95a5a6;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.info-value {
+    font-size: 0.875rem;
+    color: #2ecc71;
+    font-weight: 600;
+}
+
+.sidebar-version {
+    text-align: center;
+    font-size: 0.75rem;
+    color: #7f8c8d;
+    margin-top: 0.5rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Scrollbar Styling */
+.sidebar-wrapper::-webkit-scrollbar {
+    width: 8px;
+}
+
+.sidebar-wrapper::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.sidebar-wrapper::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    transition: all 0.3s;
+}
+
+.sidebar-wrapper::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .sidebar-wrapper {
+        width: 250px;
+        position: fixed;
+        top: 70px;
+        left: 0;
+        height: calc(100vh - 70px);
+        z-index: 999;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
+    }
+
+    .sidebar-wrapper.mobile-open {
+        transform: translateX(0);
+    }
+
+    .sidebar-close-btn {
+        display: block !important;
+    }
+
+    .menu-label {
+        padding-left: 1rem;
+    }
+
+    .menu-items {
+        padding: 0 0.5rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .sidebar-wrapper {
+        width: 200px;
+    }
+
+    .btn-text {
+        font-size: 0.875rem;
+    }
+
+    .sidebar-footer {
+        font-size: 0.75rem;
+    }
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+    .sidebar-wrapper {
+        background: linear-gradient(180deg, #1e2d3d 0%, #2c3e50 100%);
+    }
+}
+</style>
+
+<script>
+// Sidebar Component JavaScript
+document.addEventListener('DOMContentLoaded', function() {
+    setupSidebarEvents();
+    updateSidebarStatus();
+    setInterval(updateSidebarStatus, 5000);
+    
+    // Show/hide Users menu based on permissions
+    checkUserManagementPermission();
+});
+
+function setupSidebarEvents() {
+    // Menu button click handler
+    const sidebarBtns = document.querySelectorAll('.sidebar-btn[data-screen]');
+    sidebarBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const screen = this.getAttribute('data-screen');
+            if (window.app && window.app.loadScreen) {
+                window.app.loadScreen(screen);
+            }
+            
+            // Update active state
+            sidebarBtns.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            
+            // Close mobile sidebar
+            const sidebar = document.getElementById('app-sidebar');
+            if (sidebar && window.innerWidth <= 768) {
+                sidebar.classList.remove('mobile-open');
+            }
+        });
+    });
+
+    // Sidebar close button for mobile
+    const closeBtn = document.querySelector('.sidebar-close-btn');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', function() {
+            const sidebar = document.getElementById('app-sidebar');
+            if (sidebar) {
+                sidebar.classList.remove('mobile-open');
+            }
+        });
+    }
+}
+
+function updateSidebarStatus() {
+    // Update shop status
+    const shopStatusEl = document.getElementById('sidebar-shop-status');
+    if (shopStatusEl) {
+        const hour = new Date().getHours();
+        const isOpen = hour >= 9 && hour < 17;
+        shopStatusEl.textContent = isOpen ? '🟢 Open' : '🔴 Closed';
+    }
+
+    // Update connection status
+    const connectionEl = document.getElementById('sidebar-connection-status');
+    if (connectionEl) {
+        if (navigator.onLine) {
+            connectionEl.textContent = '🟢 Online';
+        } else {
+            connectionEl.textContent = '🔴 Offline';
+        }
+    }
+}
+
+function checkUserManagementPermission() {
+    if (window.app && window.app.currentUser) {
+        const usersBtn = document.getElementById('users-menu-btn');
+        if (usersBtn) {
+            // Show users menu only for admin
+            if (window.app.currentUser.role === 'admin' || window.app.currentUser.is_admin) {
+                usersBtn.style.display = 'flex';
+            } else {
+                usersBtn.style.display = 'none';
+            }
+        }
+    }
+}
+
+// Set active menu item based on current screen
+function setSidebarActiveScreen(screenName) {
+    const buttons = document.querySelectorAll('.sidebar-btn[data-screen]');
+    buttons.forEach(btn => {
+        if (btn.getAttribute('data-screen') === screenName) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+}
+</script>

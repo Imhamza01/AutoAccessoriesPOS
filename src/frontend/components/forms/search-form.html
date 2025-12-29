@@ -1,0 +1,373 @@
+<!-- Auto Accessories POS - Search Form Component -->
+<div class="search-form-wrapper">
+    <div class="search-form">
+        <!-- Search Input -->
+        <div class="search-input-group">
+            <input type="text" class="search-input" placeholder="Search..." id="search-input">
+            <button type="button" class="search-btn" id="search-btn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <path d="m21 21-4.35-4.35"></path>
+                </svg>
+            </button>
+            <button type="button" class="clear-btn" id="clear-search-btn" style="display: none;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Filter Toggle -->
+        <button type="button" class="filter-toggle-btn" id="filter-toggle-btn" title="Toggle filters">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+            </svg>
+            <span>Filters</span>
+        </button>
+    </div>
+
+    <!-- Filter Options (Hidden by default) -->
+    <div class="search-filters" id="search-filters" style="display: none;">
+        <div class="filter-row">
+            <div class="filter-group">
+                <label class="filter-label">Date Range</label>
+                <input type="date" class="filter-input" id="filter-start-date">
+                <span class="filter-to">to</span>
+                <input type="date" class="filter-input" id="filter-end-date">
+            </div>
+
+            <div class="filter-group">
+                <label class="filter-label">Status</label>
+                <select class="filter-input" id="filter-status">
+                    <option value="">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="completed">Completed</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label class="filter-label">Category</label>
+                <select class="filter-input" id="filter-category">
+                    <option value="">All Categories</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="filter-actions">
+            <button type="button" class="btn btn-secondary" onclick="clearSearchFilters()">Clear Filters</button>
+            <button type="button" class="btn btn-primary" id="apply-filters-btn">Apply Filters</button>
+        </div>
+    </div>
+
+    <!-- Recent Searches (Optional) -->
+    <div class="recent-searches" id="recent-searches" style="display: none;">
+        <div class="recent-searches-label">Recent Searches</div>
+        <div class="recent-searches-list" id="recent-searches-list">
+            <!-- Will be populated dynamically -->
+        </div>
+    </div>
+
+    <!-- Search Results Count -->
+    <div class="search-results-info" id="search-results-info" style="display: none;">
+        <span id="results-count">0</span>
+        <span id="results-text">results found</span>
+    </div>
+</div>
+
+<style>
+.search-form-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem;
+    background: white;
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.search-form {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.search-input-group {
+    display: flex;
+    gap: 0;
+    flex: 1;
+    border: 1px solid #bdc3c7;
+    border-radius: 0.375rem;
+    overflow: hidden;
+    transition: all 0.2s;
+}
+
+.search-input-group:focus-within {
+    border-color: #3498db;
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+}
+
+.search-input {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    border: none;
+    outline: none;
+    font-size: 0.95rem;
+    font-family: inherit;
+}
+
+.search-btn,
+.clear-btn {
+    background: none;
+    border: none;
+    color: #7f8c8d;
+    cursor: pointer;
+    padding: 0.75rem 1rem;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.search-btn:hover {
+    color: #3498db;
+}
+
+.clear-btn:hover {
+    color: #e74c3c;
+}
+
+.filter-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: white;
+    border: 1px solid #bdc3c7;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #2c3e50;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.filter-toggle-btn:hover {
+    background: #ecf0f1;
+    border-color: #95a5a6;
+}
+
+.filter-toggle-btn.active {
+    background: #3498db;
+    color: white;
+    border-color: #3498db;
+}
+
+.search-filters {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem;
+    background: #f8f9fa;
+    border-radius: 0.375rem;
+    border-left: 4px solid #3498db;
+}
+
+.filter-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.filter-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.filter-input {
+    padding: 0.625rem;
+    border: 1px solid #bdc3c7;
+    border-radius: 0.375rem;
+    font-size: 0.9rem;
+    font-family: inherit;
+}
+
+.filter-input:focus {
+    outline: none;
+    border-color: #3498db;
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+}
+
+.filter-to {
+    align-self: flex-end;
+    font-size: 0.85rem;
+    color: #7f8c8d;
+    margin-bottom: 0.625rem;
+}
+
+.filter-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+}
+
+.recent-searches {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    background: #f8f9fa;
+    border-radius: 0.375rem;
+}
+
+.recent-searches-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #7f8c8d;
+    text-transform: uppercase;
+}
+
+.recent-searches-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.recent-search-item {
+    padding: 0.375rem 0.75rem;
+    background: white;
+    border: 1px solid #bdc3c7;
+    border-radius: 0.25rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.recent-search-item:hover {
+    background: #3498db;
+    color: white;
+    border-color: #3498db;
+}
+
+.search-results-info {
+    padding: 0.75rem;
+    background: #d5f4e6;
+    border-left: 4px solid #27ae60;
+    border-radius: 0.375rem;
+    font-size: 0.9rem;
+    color: #27ae60;
+}
+
+@media (max-width: 768px) {
+    .search-form {
+        flex-direction: column;
+    }
+
+    .filter-row {
+        grid-template-columns: 1fr;
+    }
+
+    .filter-actions {
+        flex-direction: column-reverse;
+    }
+
+    .filter-actions .btn {
+        width: 100%;
+    }
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    setupSearchFormEvents();
+});
+
+function setupSearchFormEvents() {
+    const searchInput = document.getElementById('search-input');
+    const searchBtn = document.getElementById('search-btn');
+    const clearBtn = document.getElementById('clear-search-btn');
+    const filterToggle = document.getElementById('filter-toggle-btn');
+    const searchFilters = document.getElementById('search-filters');
+
+    // Search input change
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            clearBtn.style.display = this.value ? 'flex' : 'none';
+        });
+
+        searchInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                performSearch();
+            }
+        });
+    }
+
+    // Search button click
+    if (searchBtn) {
+        searchBtn.addEventListener('click', performSearch);
+    }
+
+    // Clear search
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function() {
+            if (searchInput) {
+                searchInput.value = '';
+                searchInput.focus();
+                clearBtn.style.display = 'none';
+                // Reset results
+                const resultsInfo = document.getElementById('search-results-info');
+                if (resultsInfo) resultsInfo.style.display = 'none';
+            }
+        });
+    }
+
+    // Filter toggle
+    if (filterToggle && searchFilters) {
+        filterToggle.addEventListener('click', function() {
+            const isVisible = searchFilters.style.display !== 'none';
+            searchFilters.style.display = isVisible ? 'none' : 'block';
+            filterToggle.classList.toggle('active');
+        });
+    }
+}
+
+function performSearch() {
+    const searchInput = document.getElementById('search-input');
+    const searchTerm = searchInput.value.trim();
+    
+    if (!searchTerm) {
+        return;
+    }
+
+    // Trigger search event
+    const event = new CustomEvent('search', {
+        detail: { query: searchTerm }
+    });
+    document.dispatchEvent(event);
+
+    // Show results info
+    const resultsInfo = document.getElementById('search-results-info');
+    if (resultsInfo) {
+        resultsInfo.style.display = 'flex';
+    }
+}
+
+function clearSearchFilters() {
+    document.getElementById('filter-start-date').value = '';
+    document.getElementById('filter-end-date').value = '';
+    document.getElementById('filter-status').value = '';
+    document.getElementById('filter-category').value = '';
+    
+    // Trigger filter change event
+    const event = new CustomEvent('filterchange');
+    document.dispatchEvent(event);
+}
+</script>

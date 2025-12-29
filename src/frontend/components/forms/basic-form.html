@@ -1,0 +1,219 @@
+<!-- Auto Accessories POS - Basic Form Component -->
+<form class="basic-form" id="generic-form">
+    <!-- Form will be dynamically populated with form fields -->
+    <div class="form-fields"></div>
+    
+    <!-- Form Actions -->
+    <div class="form-actions">
+        <button type="reset" class="btn btn-secondary" onclick="resetForm(this)">
+            <span>Clear</span>
+        </button>
+        <button type="submit" class="btn btn-primary">
+            <span id="submit-btn-text">Submit</span>
+        </button>
+    </div>
+
+    <!-- Form Validation Message -->
+    <div class="form-validation-message" style="display: none;"></div>
+</form>
+
+<style>
+.basic-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    padding: 1.5rem;
+    background: white;
+    border-radius: 0.5rem;
+}
+
+.form-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.form-group.form-row {
+    flex-direction: row;
+    gap: 1rem;
+}
+
+.form-group.form-row .form-group {
+    flex: 1;
+}
+
+.input-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #2c3e50;
+    text-transform: capitalize;
+}
+
+.input-label.required::after {
+    content: ' *';
+    color: #e74c3c;
+}
+
+.input-field,
+.input-select,
+.input-textarea {
+    padding: 0.75rem;
+    border: 1px solid #bdc3c7;
+    border-radius: 0.375rem;
+    font-size: 0.95rem;
+    font-family: inherit;
+    transition: all 0.2s;
+    background: white;
+}
+
+.input-field:focus,
+.input-select:focus,
+.input-textarea:focus {
+    outline: none;
+    border-color: #3498db;
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+}
+
+.input-field:disabled,
+.input-select:disabled,
+.input-textarea:disabled {
+    background: #ecf0f1;
+    color: #7f8c8d;
+    cursor: not-allowed;
+}
+
+.input-field.error,
+.input-select.error,
+.input-textarea.error {
+    border-color: #e74c3c;
+    background: #fadbd8;
+}
+
+.input-field.success,
+.input-select.success,
+.input-textarea.success {
+    border-color: #27ae60;
+    background: #d5f4e6;
+}
+
+.input-textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+.input-hint {
+    font-size: 0.8rem;
+    color: #7f8c8d;
+    margin-top: 0.25rem;
+}
+
+.input-error {
+    font-size: 0.8rem;
+    color: #e74c3c;
+    margin-top: 0.25rem;
+    display: none;
+}
+
+.input-field.error ~ .input-error,
+.input-select.error ~ .input-error,
+.input-textarea.error ~ .input-error {
+    display: block;
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #ecf0f1;
+}
+
+.form-validation-message {
+    padding: 1rem;
+    border-radius: 0.375rem;
+    font-size: 0.9rem;
+    margin-top: 1rem;
+}
+
+.form-validation-message.success {
+    background: #d5f4e6;
+    color: #27ae60;
+    border-left: 4px solid #27ae60;
+}
+
+.form-validation-message.error {
+    background: #fadbd8;
+    color: #e74c3c;
+    border-left: 4px solid #e74c3c;
+}
+
+.form-validation-message.warning {
+    background: #fdebd0;
+    color: #e67e22;
+    border-left: 4px solid #e67e22;
+}
+
+@media (max-width: 768px) {
+    .basic-form {
+        padding: 1rem;
+        gap: 1rem;
+    }
+
+    .form-group.form-row {
+        flex-direction: column;
+    }
+
+    .form-actions {
+        flex-direction: column-reverse;
+    }
+
+    .form-actions .btn {
+        width: 100%;
+    }
+}
+</style>
+
+<script>
+function resetForm(btn) {
+    const form = btn.closest('form');
+    if (form) {
+        form.reset();
+        const inputs = form.querySelectorAll('.input-field, .input-select, .input-textarea');
+        inputs.forEach(input => {
+            input.classList.remove('error', 'success');
+            const errorMsg = input.nextElementSibling;
+            if (errorMsg && errorMsg.classList.contains('input-error')) {
+                errorMsg.style.display = 'none';
+            }
+        });
+    }
+}
+
+function validateForm(form) {
+    const inputs = form.querySelectorAll('.input-field[required], .input-select[required], .input-textarea[required]');
+    let isValid = true;
+
+    inputs.forEach(input => {
+        if (!input.value.trim()) {
+            input.classList.add('error');
+            const errorMsg = input.nextElementSibling;
+            if (errorMsg && errorMsg.classList.contains('input-error')) {
+                errorMsg.textContent = `${input.previousElementSibling?.textContent || 'Field'} is required`;
+                errorMsg.style.display = 'block';
+            }
+            isValid = false;
+        } else {
+            input.classList.remove('error');
+        }
+    });
+
+    return isValid;
+}
+</script>

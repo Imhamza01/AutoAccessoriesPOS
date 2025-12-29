@@ -1,82 +1,313 @@
 <!-- src/frontend/screens/dashboard/index.html -->
-<div class="dashboard-screen" id="dashboard-screen">
-    <!-- Dashboard Header -->
+<div class="dashboard-screen">
+    <!-- Header -->
     <div class="dashboard-header">
-        <h2>Dashboard</h2>
-        <div class="dashboard-controls">
-            <button class="btn btn-secondary btn-small" id="refresh-dashboard">
-                Refresh
+        <div class="header-title">
+            <h1>Dashboard</h1>
+            <p class="header-subtitle" id="dashboardDate">Today's Overview</p>
+        </div>
+        <div class="dashboard-actions">
+            <button class="btn btn-primary" onclick="loadScreen('pos')">
+                <span class="btn-icon">💰</span> Quick Sale
             </button>
-            <button class="btn btn-primary btn-small" onclick="POS.loadScreen('pos')">
-                New Sale
+            <button class="btn btn-secondary" onclick="refreshDashboard()">
+                <span class="btn-icon">🔄</span> Refresh
+            </button>
+            <button class="btn btn-success" onclick="loadScreen('reports')">
+                <span class="btn-icon">📊</span> Reports
             </button>
         </div>
-    </div>
-
-    <!-- Quick Actions -->
-    <div class="quick-actions">
-        <button class="quick-action" data-action="new-sale">
-            <span class="action-icon">💰</span>
-            <span class="action-label">New Sale</span>
-        </button>
-        <button class="quick-action" data-action="add-product">
-            <span class="action-icon">📦</span>
-            <span class="action-label">Add Product</span>
-        </button>
-        <button class="quick-action" data-action="add-customer">
-            <span class="action-icon">👥</span>
-            <span class="action-label">Add Customer</span>
-        </button>
-        <button class="quick-action" data-action="quick-report">
-            <span class="action-icon">📊</span>
-            <span class="action-label">Quick Report</span>
-        </button>
     </div>
 
     <!-- Stats Grid -->
     <div class="stats-grid">
-        <div class="stat-card" id="today-sales">
-            <!-- Filled by JavaScript -->
+        <!-- Today's Sales -->
+        <div class="stat-card">
+            <div class="stat-icon" style="background: rgba(22, 163, 74, 0.1); color: #16A34A;">
+                💰
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">Today's Sales</div>
+                <div class="stat-value" id="todaySales">₹0.00</div>
+                <div class="stat-trend" id="todaySalesTrend">Loading...</div>
+            </div>
         </div>
-        <div class="stat-card" id="total-products">
-            <!-- Filled by JavaScript -->
+
+        <!-- Today's Profit -->
+        <div class="stat-card">
+            <div class="stat-icon" style="background: rgba(59, 130, 246, 0.1); color: #3B82F6;">
+                📈
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">Today's Profit</div>
+                <div class="stat-value" id="todayProfit">₹0.00</div>
+                <div class="stat-trend" id="todayProfitTrend">Loading...</div>
+            </div>
         </div>
-        <div class="stat-card" id="low-stock">
-            <!-- Filled by JavaScript -->
+
+        <!-- Total Products -->
+        <div class="stat-card">
+            <div class="stat-icon" style="background: rgba(245, 158, 11, 0.1); color: #F59E0B;">
+                🛒
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">Total Products</div>
+                <div class="stat-value" id="totalProducts">0</div>
+                <div class="stat-trend" id="productsTrend">Loading...</div>
+            </div>
         </div>
-        <div class="stat-card" id="today-customers">
-            <!-- Filled by JavaScript -->
+
+        <!-- Low Stock Items -->
+        <div class="stat-card">
+            <div class="stat-icon" style="background: rgba(239, 68, 68, 0.1); color: #EF4444;">
+                ⚠️
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">Low Stock Items</div>
+                <div class="stat-value" id="lowStockCount">0</div>
+                <div class="stat-trend" id="stockTrend">Loading...</div>
+            </div>
+        </div>
+
+        <!-- Today's Customers -->
+        <div class="stat-card">
+            <div class="stat-icon" style="background: rgba(139, 92, 246, 0.1); color: #8B5CF6;">
+                👥
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">Today's Customers</div>
+                <div class="stat-value" id="todayCustomers">0</div>
+                <div class="stat-trend" id="customersTrend">Loading...</div>
+            </div>
+        </div>
+
+        <!-- Pending Credit -->
+        <div class="stat-card">
+            <div class="stat-icon" style="background: rgba(236, 72, 153, 0.1); color: #EC4899;">
+                🏦
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">Pending Credit</div>
+                <div class="stat-value" id="pendingCredit">₹0.00</div>
+                <div class="stat-trend" id="creditTrend">Loading...</div>
+            </div>
         </div>
     </div>
 
-    <!-- Main Content -->
-    <div class="dashboard-main">
-        <!-- Left Column: Recent Activities -->
-        <div class="dashboard-column">
-            <div class="dashboard-card">
-                <div class="card-header">
-                    <h3>Recent Activities</h3>
+    <!-- Quick Actions -->
+    <div class="quick-actions-section">
+        <h2>Quick Actions</h2>
+        <div class="quick-actions-grid">
+            <button class="quick-action-btn" onclick="loadScreen('pos')">
+                <div class="quick-action-icon">💰</div>
+                <div class="quick-action-text">POS Terminal</div>
+                <div class="quick-action-desc">Start new sale</div>
+            </button>
+
+            <button class="quick-action-btn" onclick="loadScreen('products')">
+                <div class="quick-action-icon">🛍️</div>
+                <div class="quick-action-text">Add Product</div>
+                <div class="quick-action-desc">Add new product</div>
+            </button>
+
+            <button class="quick-action-btn" onclick="loadScreen('customers')">
+                <div class="quick-action-icon">👤</div>
+                <div class="quick-action-text">Add Customer</div>
+                <div class="quick-action-desc">Register new customer</div>
+            </button>
+
+            <button class="quick-action-btn" onclick="loadScreen('inventory')">
+                <div class="quick-action-icon">📦</div>
+                <div class="quick-action-text">Stock Check</div>
+                <div class="quick-action-desc">Check inventory</div>
+            </button>
+
+            <button class="quick-action-btn" onclick="showDailySummary()">
+                <div class="quick-action-icon">📊</div>
+                <div class="quick-action-text">Daily Report</div>
+                <div class="quick-action-desc">View today's report</div>
+            </button>
+
+            <button class="quick-action-btn" onclick="showExpenseModal()">
+                <div class="quick-action-icon">💸</div>
+                <div class="quick-action-text">Add Expense</div>
+                <div class="quick-action-desc">Record shop expense</div>
+            </button>
+
+            <button class="quick-action-btn" onclick="loadScreen('sales')">
+                <div class="quick-action-icon">🧾</div>
+                <div class="quick-action-text">View Sales</div>
+                <div class="quick-action-desc">Today's sales list</div>
+            </button>
+
+            <button class="quick-action-btn" onclick="makeBackup()">
+                <div class="quick-action-icon">💾</div>
+                <div class="quick-action-text">Backup Data</div>
+                <div class="quick-action-desc">Create backup</div>
+            </button>
+        </div>
+    </div>
+
+    <!-- Charts Section -->
+    <div class="charts-section">
+        <div class="chart-card">
+            <div class="chart-header">
+                <h3>7-Day Sales Trend</h3>
+                <div class="chart-controls">
+                    <button class="chart-control-btn" onclick="updateSalesChart('week')">Week</button>
+                    <button class="chart-control-btn" onclick="updateSalesChart('month')">Month</button>
                 </div>
-                <div class="card-body">
-                    <div id="recent-activities" class="activities-list">
-                        <!-- Activities will be loaded here -->
-                    </div>
-                </div>
+            </div>
+            <canvas id="salesTrendChart"></canvas>
+        </div>
+
+        <div class="chart-card">
+            <div class="chart-header">
+                <h3>Top Selling Products</h3>
+                <button class="btn btn-small btn-secondary" onclick="loadScreen('reports')">View All</button>
+            </div>
+            <canvas id="topProductsChart"></canvas>
+        </div>
+
+        <div class="chart-card">
+            <div class="chart-header">
+                <h3>Sales by Category</h3>
+                <p class="chart-subtitle">Revenue distribution</p>
+            </div>
+            <canvas id="categoryChart"></canvas>
+        </div>
+
+        <div class="chart-card">
+            <div class="chart-header">
+                <h3>Payment Methods</h3>
+                <p class="chart-subtitle">Today's transactions</p>
+            </div>
+            <canvas id="paymentMethodChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Recent Sales & Low Stock Items -->
+    <div class="dashboard-tables">
+        <div class="table-section">
+            <div class="table-header">
+                <h3>Recent Sales</h3>
+                <button class="btn btn-small btn-secondary" onclick="window.POS.loadScreen('sales')">
+                    View All
+                </button>
+            </div>
+            <div class="table-container">
+                <table class="table" id="recentSalesTable">
+                    <thead>
+                        <tr>
+                            <th>Invoice #</th>
+                            <th>Customer</th>
+                            <th>Items</th>
+                            <th>Amount</th>
+                            <th>Time</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recentSalesBody">
+                        <!-- Data will be loaded here -->
+                        <tr>
+                            <td colspan="6" class="text-center">Loading recent sales...</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
 
-        <!-- Right Column: Top Products -->
-        <div class="dashboard-column">
-            <div class="dashboard-card">
-                <div class="card-header">
-                    <h3>Top Selling Products</h3>
+        <div class="table-section">
+            <div class="table-header">
+                <h3>Low Stock Items (Need Restock)</h3>
+                <button class="btn btn-small btn-danger" onclick="window.POS.loadScreen('inventory')">
+                    Restock
+                </button>
+            </div>
+            <div class="table-container">
+                <table class="table" id="lowStockTable">
+                    <thead>
+                        <tr>
+                            <th>Product Code</th>
+                            <th>Product Name</th>
+                            <th>Current Stock</th>
+                            <th>Min Stock</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="lowStockBody">
+                        <!-- Data will be loaded here -->
+                        <tr>
+                            <td colspan="6" class="text-center">Loading low stock items...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Performance Metrics -->
+    <div class="performance-section">
+        <h2>Performance Metrics</h2>
+        <div class="performance-grid">
+            <div class="performance-card">
+                <div class="performance-header">
+                    <div class="performance-title">Sales Today vs Yesterday</div>
+                    <div class="performance-change" id="salesChange">0%</div>
                 </div>
-                <div class="card-body">
-                    <div id="top-products" class="products-list">
-                        <!-- Top products will be loaded here -->
-                    </div>
+                <div class="performance-value">
+                    <span id="todaySalesAmount">₹0.00</span>
+                    <span class="performance-subtext">vs <span id="yesterdaySales">₹0.00</span></span>
+                </div>
+                <div class="performance-bar">
+                    <div class="performance-bar-fill" id="salesBar"></div>
                 </div>
             </div>
+
+            <div class="performance-card">
+                <div class="performance-header">
+                    <div class="performance-title">Customer Growth</div>
+                    <div class="performance-change" id="customersChange">0%</div>
+                </div>
+                <div class="performance-value">
+                    <span id="todayCustomersCount">0</span>
+                    <span class="performance-subtext">vs <span id="yesterdayCustomers">0</span></span>
+                </div>
+                <div class="performance-bar">
+                    <div class="performance-bar-fill" id="customersBar"></div>
+                </div>
+            </div>
+
+            <div class="performance-card">
+                <div class="performance-header">
+                    <div class="performance-title">Average Bill Value</div>
+                    <div class="performance-change" id="avgBillChange">0%</div>
+                </div>
+                <div class="performance-value">
+                    <span id="avgBillValue">₹0.00</span>
+                    <span class="performance-subtext">per transaction</span>
+                </div>
+                <div class="performance-bar">
+                    <div class="performance-bar-fill" id="avgBillBar"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer Notes -->
+    <div class="dashboard-footer">
+        <div class="footer-note">
+            <span class="note-icon">📋</span>
+            <span>Last updated: <span id="lastUpdatedTime">Just now</span></span>
+        </div>
+        <div class="footer-note">
+            <span class="note-icon">👤</span>
+            <span>Logged in as: <strong id="loggedInUser">Loading...</strong></span>
+        </div>
+        <div class="footer-note">
+            <span class="note-icon">🏪</span>
+            <span>Shop status: <span class="status-badge online" id="shopStatus">Open</span></span>
         </div>
     </div>
 </div>

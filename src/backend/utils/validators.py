@@ -28,3 +28,44 @@ def validate_category_data(data: Dict[str, Any]):
 	if not data.get("name"):
 		raise ValueError("name is required")
 
+
+def validate_customer_data(data: Dict[str, Any]):
+	"""Validate customer data."""
+	if not isinstance(data, dict):
+		raise ValueError("Customer data must be an object")
+	if not data.get("name"):
+		raise ValueError("Customer name is required")
+	if not data.get("phone"):
+		raise ValueError("Customer phone is required")
+
+
+def validate_sale_data(data: Dict[str, Any]):
+	"""Validate sale data."""
+	if not isinstance(data, dict):
+		raise ValueError("Sale data must be an object")
+	if not data.get("items"):
+		raise ValueError("Sale must have at least one item")
+	if data.get("total_amount", 0) <= 0:
+		raise ValueError("Sale total must be positive")
+
+
+def validate_expense_data(data: Dict[str, Any]):
+	"""Validate expense data."""
+	if not isinstance(data, dict):
+		raise ValueError("Expense data must be an object")
+	if not data.get("category"):
+		raise ValueError("Expense category is required")
+	if data.get("amount", 0) <= 0:
+		raise ValueError("Expense amount must be positive")
+
+
+def validate_user_data(data: Dict[str, Any]):
+	"""Validate user data."""
+	if not isinstance(data, dict):
+		raise ValueError("User data must be an object")
+	if not data.get("username"):
+		raise ValueError("Username is required")
+	if not data.get("password"):
+		raise ValueError("Password is required")
+	if len(data.get("password", "")) < 6:
+		raise ValueError("Password must be at least 6 characters")

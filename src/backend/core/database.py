@@ -14,6 +14,7 @@ import sqlite3
 import logging
 import json
 import hashlib
+import secrets
 import threading
 import time
 import shutil
@@ -102,18 +103,40 @@ class DatabaseManager:
         Returns:
             SQLite connection object
         """
-        with self.pool_lock:
-            if self.connection_pool:
-                conn = self.connection_pool.pop()
-                try:
-                    # Test connection
-                    conn.execute("SELECT 1").fetchone()
-                    return conn
-                except sqlite3.Error:
-                    conn.close()
-                    return self.create_new_connection()
-            else:
-                return self.create_new_connection()
+        # Retry loop to handle transient 'database is locked' situations
+        attempts = 5
+        delay = 0.2
+        for attempt in range(attempts):
+            with self.pool_lock:
+                if self.connection_pool:
+                    conn = self.connection_pool.pop()
+                    try:
+                        # Test connection
+                        conn.execute("SELECT 1").fetchone()
+                        return conn
+                    except sqlite3.Error:
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+                        # Fall through to create a new connection
+                        pass
+                else:
+                    try:
+                        return self.create_new_connection()
+                    except sqlite3.OperationalError as e:
+                        # If DB is locked, retry a few times
+                        if 'locked' in str(e).lower() and attempt < attempts - 1:
+                            logger.warning(f"Database locked, retrying (attempt {attempt+1}/{attempts})")
+                            time.sleep(delay)
+                            delay *= 2
+                            continue
+                        raise
+            # If we couldn't get a connection from pool, wait and retry
+            time.sleep(delay)
+            delay *= 2
+        # Final attempt: create connection or raise
+        return self.create_new_connection()
     
     def create_new_connection(self) -> sqlite3.Connection:
         """
@@ -130,14 +153,15 @@ class DatabaseManager:
             conn = sqlite3.connect(
                 str(self.db_path),
                 timeout=30.0,
-                detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES
+                detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
+                check_same_thread=False
             )
             
             # Optimize for POS usage
             conn.execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging for concurrency
             conn.execute("PRAGMA synchronous = NORMAL")  # Good balance of speed and safety
             conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
-            conn.execute("PRAGMA busy_timeout = 5000")  # 5 second timeout
+            conn.execute("PRAGMA busy_timeout = 10000")  # 10 second timeout to reduce transient locks
             conn.execute("PRAGMA cache_size = -2000")  # 2MB cache
             conn.execute("PRAGMA temp_store = MEMORY")  # Store temp tables in memory
             
@@ -1166,7 +1190,11 @@ class DatabaseManager:
                     # Insert default admin user (username: admin, password: admin123)
                     cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'admin'")
                     if cursor.fetchone()[0] == 0:
-                        password_hash = hashlib.sha256('admin123'.encode()).hexdigest()
+                        # Use proper password hashing with salt (format: sha256$salt$hash)
+                        salt = secrets.token_hex(16)
+                        password = 'admin123'
+                        hash_obj = hashlib.sha256(f"{password}{salt}".encode())
+                        password_hash = f"sha256${salt}${hash_obj.hexdigest()}"
                         cursor.execute('''
                             INSERT INTO users (username, password_hash, full_name, role, permissions)
                             VALUES (?, ?, ?, ?, ?)

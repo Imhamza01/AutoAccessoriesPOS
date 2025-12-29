@@ -3,6 +3,7 @@
 AUTHENTICATION API ENDPOINTS
 """
 
+import datetime
 from fastapi import APIRouter, HTTPException, Depends, Request, Body
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -48,19 +49,20 @@ async def login(
             login_data.password,
             request
         )
-        
-        return JSONResponse(
-            content=result,
-            status_code=200
-        )
+
+        # Return the raw result and let FastAPI handle serialization/validation
+        return result
         
     except HTTPException as e:
         raise e
     except Exception as e:
-        logger.error(f"Login error: {e}")
+        import traceback as _tb
+        tb = _tb.format_exc()
+        logger.error(f"Login error: {e}\n{tb}")
+        # Return error detail for debugging (temporary)
         raise HTTPException(
             status_code=500,
-            detail="Internal server error during login"
+            detail=f"Internal server error during login: {str(e)}"
         )
 
 @router.post("/refresh")

@@ -6,6 +6,7 @@ MAIN FASTAPI APPLICATION - Updated
 import os
 import sys
 from pathlib import Path
+from datetime import datetime
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 import logging
@@ -16,7 +17,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 from core.security import middleware
 from core.logger import setup_logging
 from api.auth import router as auth_router
-from api.products import router as products_router  # Add this line
+from api.products import router as products_router
+from api.customers import router as customers_router
+from api.sales import router as sales_router
+from api.inventory import router as inventory_router
+from api.expenses import router as expenses_router
+from api.pos import router as pos_router
+from api.reports import router as reports_router
+from api.users import router as users_router
+from api.settings import router as settings_router
 
 # Setup logging
 setup_logging()
@@ -35,14 +44,15 @@ app = FastAPI(
 
 # Include routers
 app.include_router(auth_router)
-app.include_router(products_router)  # Add this line
-
-# Mount static files
-frontend_path = Path(__file__).parent.parent / "frontend"
-if frontend_path.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
-else:
-    logger.warning(f"Frontend directory not found: {frontend_path}")
+app.include_router(products_router)
+app.include_router(customers_router)
+app.include_router(sales_router)
+app.include_router(inventory_router)
+app.include_router(expenses_router)
+app.include_router(pos_router)
+app.include_router(reports_router)
+app.include_router(users_router)
+app.include_router(settings_router)
 
 # Health check endpoint
 @app.get("/health")
@@ -55,8 +65,12 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
-# Import datetime
-from datetime import datetime
+# Mount static files (mounted after routes so API endpoints like /health take precedence)
+frontend_path = Path(__file__).parent.parent / "frontend"
+if frontend_path.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
+else:
+    logger.warning(f"Frontend directory not found: {frontend_path}")
 
 # Startup event
 @app.on_event("startup")

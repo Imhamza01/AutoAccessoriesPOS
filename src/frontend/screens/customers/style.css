@@ -1,0 +1,36 @@
+#customers-screen {
+  padding: 20px;
+}
+
+.customers-screen .data-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+
+.customers-screen .data-table thead {
+  background-color: #f5f5f5;
+  font-weight: bold;
+}
+
+.customers-screen .data-table td,
+.customers-screen .data-table th {
+  padding: 12px;
+  border-bottom: 1px solid #ddd;
+  text-align: left;
+}
+
+.customers-screen .data-table tbody tr:hover {
+  background-color: #f9f9f9;
+}
+
+.customers-screen .loading {
+  text-align: center;
+  color: #999;
+}
+
+.customers-screen .empty {
+  text-align: center;
+  color: #999;
+  padding: 40px;
+}

@@ -13,6 +13,7 @@ class AutoAccessoriesPOS {
         this.isLoading = false;
         this.notifications = [];
         this.modals = [];
+        this.keyboardShortcuts = new Map();
         
         this.init();
     }
@@ -30,6 +31,11 @@ class AutoAccessoriesPOS {
             
             // Hide loading screen
             this.hideLoading();
+            
+            // Show welcome notification
+            if (this.currentUser) {
+                this.showNotification(`Welcome back, ${this.currentUser.full_name}!`, 'success', 3000);
+            }
             
         } catch (error) {
             console.error('Initialization error:', error);
@@ -117,6 +123,9 @@ class AutoAccessoriesPOS {
         // Initialize event listeners
         this.initEventListeners();
         
+        // Initialize keyboard shortcuts
+        this.initKeyboardShortcuts();
+        
         // Load default screen
         await this.loadScreen('dashboard');
         
@@ -127,19 +136,70 @@ class AutoAccessoriesPOS {
     }
 
     async loadAppStructure() {
-        // Load header
-        const headerHtml = await this.loadTemplate('components/header.html');
-        document.getElementById('app-header').innerHTML = headerHtml;
-        
-        // Load sidebar
-        const sidebarHtml = await this.loadTemplate('components/sidebar.html');
-        document.getElementById('app-sidebar').innerHTML = sidebarHtml;
-        
-        // Update user info in header
-        this.updateUserInfo();
-        
-        // Show main app
-        document.getElementById('main-app').style.display = 'flex';
+        try {
+            // Load header component
+            const headerHtml = await this.loadTemplate('components/header/header.html');
+            document.getElementById('app-header').innerHTML = headerHtml;
+            
+            // Load header CSS
+            this.loadComponentCSS('header');
+            
+            // Load header JavaScript
+            await this.loadComponentScript('header');
+            // Legacy header scripts register handlers on DOMContentLoaded which already fired.
+            // Call known init functions if they exist so header becomes interactive.
+            if (window.setupHeaderEvents) try { window.setupHeaderEvents(); } catch(e){console.warn('setupHeaderEvents error', e);} 
+            if (window.updateHeaderTime) try { window.updateHeaderTime(); } catch(e){console.warn('updateHeaderTime error', e);} 
+            if (window.updateUserDisplay) try { window.updateUserDisplay(); } catch(e){console.warn('updateUserDisplay error', e);} 
+            
+            // Load sidebar component
+            const sidebarHtml = await this.loadTemplate('components/sidebar/sidebar.html');
+            document.getElementById('app-sidebar').innerHTML = sidebarHtml;
+            
+            // Load sidebar CSS
+            this.loadComponentCSS('sidebar');
+            
+            // Load sidebar JavaScript
+            await this.loadComponentScript('sidebar');
+            // Initialize sidebar legacy handlers
+            if (window.setupSidebarEvents) try { window.setupSidebarEvents(); } catch(e){console.warn('setupSidebarEvents error', e);} 
+            if (window.updateSidebarStatus) try { window.updateSidebarStatus(); } catch(e){console.warn('updateSidebarStatus error', e);} 
+            if (window.checkUserManagementPermission) try { window.checkUserManagementPermission(); } catch(e){console.warn('checkUserManagementPermission error', e);} 
+            // Keep sidebar status updated periodically
+            if (window.updateSidebarStatus) setInterval(() => { try { window.updateSidebarStatus(); } catch(e){/*ignore*/} }, 5000);
+            
+            // Update user info in header
+            this.updateUserInfo();
+            
+            // Show main app
+            document.getElementById('main-app').style.display = 'flex';
+            
+        } catch (error) {
+            console.error('Failed to load app structure:', error);
+            this.showError('Failed to load application interface');
+        }
+    }
+
+    loadComponentCSS(componentName) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = `components/${componentName}/${componentName}.css?v=${Date.now()}`;
+        document.head.appendChild(link);
+    }
+
+    loadComponentScript(componentName) {
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = `components/${componentName}/${componentName}.js?v=${Date.now()}`;
+            
+            script.onload = () => resolve();
+            script.onerror = () => {
+                console.warn(`Failed to load component script: ${componentName}`);
+                resolve(); // Don't fail on missing JS
+            };
+            
+            document.head.appendChild(script);
+        });
     }
 
     async loadTemplate(templatePath) {
@@ -177,6 +237,7 @@ class AutoAccessoriesPOS {
     async updateShopInfo() {
         try {
             // This would come from settings API
+            // For now, use default
             const shopName = 'Auto Accessories Shop';
             const shopElement = document.getElementById('shop-name');
             if (shopElement) {
@@ -208,6 +269,9 @@ class AutoAccessoriesPOS {
         if (timeElement) {
             timeElement.textContent = timeStr;
         }
+        // Also update header time if header component uses different IDs
+        const headerTimeEl = document.getElementById('header-time');
+        if (headerTimeEl) headerTimeEl.textContent = timeStr;
         
         // Update date in header
         const dateOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
@@ -217,6 +281,9 @@ class AutoAccessoriesPOS {
         if (dateElement) {
             dateElement.textContent = dateStr;
         }
+        // Also update header date if header component uses different IDs
+        const headerDateEl = document.getElementById('header-date');
+        if (headerDateEl) headerDateEl.textContent = dateStr;
     }
 
     initEventListeners() {
@@ -243,16 +310,74 @@ class AutoAccessoriesPOS {
             }
         });
         
-        // Keyboard shortcuts
+        // Window resize handling
+        window.addEventListener('resize', this.debounce(() => {
+            this.handleResize();
+        }, 250));
+        
+        // Before unload - warn about unsaved changes
+        window.addEventListener('beforeunload', (e) => {
+            if (this.hasUnsavedChanges()) {
+                e.preventDefault();
+                e.returnValue = '';
+                return 'You have unsaved changes. Are you sure you want to leave?';
+            }
+        });
+    }
+
+    initKeyboardShortcuts() {
         document.addEventListener('keydown', (e) => {
+            // Don't trigger shortcuts when typing in input fields
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+                return;
+            }
+            
             // Logout with Ctrl+Shift+L
             if (e.ctrlKey && e.shiftKey && e.key === 'L') {
+                e.preventDefault();
                 this.handleLogout();
             }
             
             // Escape to close modals
             if (e.key === 'Escape') {
+                e.preventDefault();
                 this.closeCurrentModal();
+            }
+            
+            // F1 - Help
+            if (e.key === 'F1') {
+                e.preventDefault();
+                this.showHelp();
+            }
+            
+            // F2 - Quick Sale
+            if (e.key === 'F2') {
+                e.preventDefault();
+                this.openQuickSale();
+            }
+            
+            // F3 - Search Products
+            if (e.key === 'F3') {
+                e.preventDefault();
+                this.quickProductSearch();
+            }
+            
+            // F5 - Refresh current screen
+            if (e.key === 'F5') {
+                e.preventDefault();
+                this.refreshCurrentScreen();
+            }
+            
+            // Ctrl+S - Save
+            if (e.ctrlKey && e.key === 's') {
+                e.preventDefault();
+                this.handleSave();
+            }
+            
+            // Ctrl+P - Print
+            if (e.ctrlKey && e.key === 'p') {
+                e.preventDefault();
+                this.handlePrint();
             }
         });
     }
@@ -262,7 +387,13 @@ class AutoAccessoriesPOS {
             try {
                 await this.api.post('/auth/logout');
                 this.clearAuthData();
-                window.location.href = '/login.html';
+                this.showNotification('Logged out successfully', 'success', 2000);
+                
+                // Redirect after short delay
+                setTimeout(() => {
+                    window.location.href = '/login.html';
+                }, 500);
+                
             } catch (error) {
                 console.error('Logout error:', error);
                 // Still redirect even if logout fails
@@ -277,7 +408,7 @@ class AutoAccessoriesPOS {
             return; // Screen already loaded
         }
         
-        this.showLoading(`Loading ${screenName}...`);
+        this.showLoading(`Loading ${this.getScreenDisplayName(screenName)}...`);
         this.currentScreen = screenName;
         
         try {
@@ -308,16 +439,12 @@ class AutoAccessoriesPOS {
                 const html = await response.text();
                 screenElement.innerHTML = html;
                 
+                // Load screen CSS if exists
+                this.loadScreenCSS(screenName);
+                
                 // Load screen JavaScript
-                const script = document.createElement('script');
-                script.src = `screens/${screenName}/script.js`;
-                script.onload = () => {
-                    if (window[this.getScreenClassName(screenName)]) {
-                        this.screens[screenName] = new window[this.getScreenClassName(screenName)](this);
-                        this.screens[screenName].init();
-                    }
-                };
-                document.head.appendChild(script);
+                await this.loadScreenScript(screenName, screenElement);
+                
             } else {
                 // Refresh existing screen
                 this.screens[screenName].refresh();
@@ -326,16 +453,95 @@ class AutoAccessoriesPOS {
             screenElement.style.display = 'block';
             screenElement.classList.add('active');
             
+            // Update browser title
+            document.title = `${this.getScreenDisplayName(screenName)} - Auto Accessories POS`;
+            
         } catch (error) {
             console.error(`Failed to load screen ${screenName}:`, error);
             this.showNotification(`Failed to load ${screenName} screen`, 'error');
+            
+            // Fallback to dashboard
+            if (screenName !== 'dashboard') {
+                this.loadScreen('dashboard');
+            }
         } finally {
             this.hideLoading();
         }
     }
 
+    async loadScreenScript(screenName, screenElement) {
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = `screens/${screenName}/script.js?v=${Date.now()}`;
+            
+            script.onload = () => {
+                try {
+                    const className = this.getScreenClassName(screenName);
+                    
+                    // Check for function-based initialization (new style - e.g., dashboard)
+                    if (window[`init${className}`]) {
+                        window[`init${className}`]();
+                        resolve();
+                    }
+                    // Check for class-based initialization (old style)
+                    else if (window[className]) {
+                        this.screens[screenName] = new window[className](this);
+                        this.screens[screenName].init();
+                        resolve();
+                    } else {
+                        console.warn(`No init function or class found for ${screenName}, continuing anyway...`);
+                        resolve(); // Don't fail, just warn
+                    }
+                } catch (error) {
+                    console.error('Error in screen script:', error);
+                    resolve(); // Don't fail, just warn
+                }
+            };
+            
+            script.onerror = () => {
+                console.error(`Failed to load script for screen: ${screenName}`);
+                resolve(); // Don't fail on script load error
+            };
+            
+            document.head.appendChild(script);
+        });
+    }
+
+    loadScreenCSS(screenName) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = `screens/${screenName}/style.css?v=${Date.now()}`;
+        link.onerror = () => {
+            // CSS file might not exist, that's okay
+        };
+        document.head.appendChild(link);
+    }
+
     getScreenClassName(screenName) {
         return screenName.charAt(0).toUpperCase() + screenName.slice(1) + 'Screen';
+    }
+
+    getScreenDisplayName(screenName) {
+        const names = {
+            'dashboard': 'Dashboard',
+            'pos': 'POS Terminal',
+            'products': 'Products',
+            'customers': 'Customers',
+            'inventory': 'Inventory',
+            'sales': 'Sales',
+            'reports': 'Reports',
+            'expenses': 'Expenses',
+            'users': 'Users',
+            'settings': 'Settings'
+        };
+        return names[screenName] || screenName;
+    }
+
+    refreshCurrentScreen() {
+        if (this.screens[this.currentScreen]) {
+            this.screens[this.currentScreen].refresh();
+            this.showNotification(`${this.getScreenDisplayName(this.currentScreen)} refreshed`, 'success');
+        }
     }
 
     showLoading(message = 'Loading...') {
@@ -375,18 +581,20 @@ class AutoAccessoriesPOS {
                 ${type === 'success' ? '✓' : type === 'error' ? '✗' : type === 'warning' ? '⚠' : 'ℹ'}
             </span>
             <span>${message}</span>
+            <button class="notification-close" onclick="window.POS.removeNotification('${id}')">&times;</button>
         `;
         
         container.appendChild(notification);
         this.notifications.push(id);
         
         // Auto-remove after duration
-        setTimeout(() => {
-            this.removeNotification(id);
-        }, duration);
+        if (duration > 0) {
+            setTimeout(() => {
+                this.removeNotification(id);
+            }, duration);
+        }
         
-        // Click to dismiss
-        notification.addEventListener('click', () => this.removeNotification(id));
+        return id;
     }
 
     removeNotification(id) {
@@ -461,16 +669,57 @@ class AutoAccessoriesPOS {
         this.showNotification(message, 'error', 10000);
     }
 
-    // Utility methods
+    // ==================== DASHBOARD QUICK ACTIONS ====================
+
+    openQuickSale() {
+        this.loadScreen('pos');
+        this.showNotification('Opening POS Terminal...', 'info');
+    }
+
+    showTodayReports() {
+        this.showNotification('Opening today\'s reports...', 'info');
+        this.loadScreen('reports');
+    }
+
+    openCashRegister() {
+        this.showNotification('Cash register functionality coming soon', 'info');
+        // Would open cash register modal
+    }
+
+    showDailySummary() {
+        this.showNotification('Showing daily summary...', 'info');
+        // Would open daily summary modal
+    }
+
+    showExpenseModal() {
+        this.showNotification('Opening expense form...', 'info');
+        this.loadScreen('expenses');
+    }
+
+    showBackupModal() {
+        this.showNotification('Opening backup dialog...', 'info');
+        // Would open backup modal
+    }
+
+    reorderProduct(productCode) {
+        this.showNotification(`Creating purchase order for ${productCode}`, 'info');
+        // Would navigate to purchase order screen
+    }
+
+    // ==================== UTILITY METHODS ====================
+
     formatCurrency(amount) {
+        if (amount === null || amount === undefined) return '₹0.00';
         return new Intl.NumberFormat('en-PK', {
             style: 'currency',
             currency: 'PKR',
-            minimumFractionDigits: 2
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
         }).format(amount);
     }
 
     formatDate(dateString) {
+        if (!dateString) return 'N/A';
         const date = new Date(dateString);
         return date.toLocaleDateString('en-PK', {
             year: 'numeric',
@@ -478,6 +727,16 @@ class AutoAccessoriesPOS {
             day: 'numeric',
             hour: '2-digit',
             minute: '2-digit'
+        });
+    }
+
+    formatTime(dateString) {
+        if (!dateString) return 'N/A';
+        const date = new Date(dateString);
+        return date.toLocaleTimeString('en-PK', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
         });
     }
 
@@ -492,14 +751,146 @@ class AutoAccessoriesPOS {
             timeout = setTimeout(later, wait);
         };
     }
+
+    // ==================== HELPER METHODS ====================
+
+    handleResize() {
+        // Handle responsive layout changes
+        const isMobile = window.innerWidth <= 768;
+        document.body.classList.toggle('mobile-view', isMobile);
+        
+        // Notify current screen about resize
+        if (this.screens[this.currentScreen] && this.screens[this.currentScreen].handleResize) {
+            this.screens[this.currentScreen].handleResize(isMobile);
+        }
+    }
+
+    hasUnsavedChanges() {
+        // Check if any screen has unsaved changes
+        if (this.screens[this.currentScreen] && this.screens[this.currentScreen].hasUnsavedChanges) {
+            return this.screens[this.currentScreen].hasUnsavedChanges();
+        }
+        return false;
+    }
+
+    showHelp() {
+        this.showNotification('Help documentation coming soon', 'info');
+    }
+
+    quickProductSearch() {
+        this.showNotification('Quick product search coming soon', 'info');
+    }
+
+    handleSave() {
+        if (this.screens[this.currentScreen] && this.screens[this.currentScreen].save) {
+            this.screens[this.currentScreen].save();
+        } else {
+            this.showNotification('No save action available for this screen', 'info');
+        }
+    }
+
+    handlePrint() {
+        if (this.screens[this.currentScreen] && this.screens[this.currentScreen].print) {
+            this.screens[this.currentScreen].print();
+        } else {
+            this.showNotification('No print action available for this screen', 'info');
+        }
+    }
+
+    closeCurrentModal() {
+        // Close the top-most modal
+        if (this.modals.length > 0) {
+            const modalId = this.modals.pop();
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+    }
+
+    showModal(modalId) {
+        const modal = document.getElementById(modalId);
+        if (modal) {
+            modal.style.display = 'flex';
+            this.modals.push(modalId);
+        }
+    }
+
+    hideModal(modalId) {
+        const modal = document.getElementById(modalId);
+        if (modal) {
+            modal.style.display = 'none';
+            this.modals = this.modals.filter(id => id !== modalId);
+        }
+    }
+
+    // ==================== API HELPER METHODS ====================
+
+    async fetchWithRetry(endpoint, options = {}, retries = 3) {
+        for (let i = 0; i < retries; i++) {
+            try {
+                return await this.api.request('GET', endpoint, options);
+            } catch (error) {
+                if (i === retries - 1) throw error;
+                await this.sleep(1000 * (i + 1)); // Exponential backoff
+            }
+        }
+    }
+
+    sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // ==================== SESSION MANAGEMENT ====================
+
+    updateLastActivity() {
+        // Update last activity timestamp
+        localStorage.setItem('last_activity', Date.now());
+    }
+
+    checkSessionTimeout() {
+        const lastActivity = localStorage.getItem('last_activity');
+        if (lastActivity) {
+            const idleTime = Date.now() - parseInt(lastActivity);
+            const timeoutMinutes = 30; // 30 minutes timeout
+            if (idleTime > timeoutMinutes * 60 * 1000) {
+                this.showNotification('Session timeout due to inactivity', 'warning');
+                this.handleLogout();
+            }
+        }
+    }
+
+    // ==================== DATA VALIDATION ====================
+
+    validateEmail(email) {
+        const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return re.test(email);
+    }
+
+    validatePhone(phone) {
+        const re = /^[\+]?[1-9][\d]{0,15}$/;
+        return re.test(phone.replace(/[\s\-\(\)]/g, ''));
+    }
+
+    validateCNIC(cnic) {
+        const re = /^[0-9]{5}-[0-9]{7}-[0-9]{1}$/;
+        return re.test(cnic);
+    }
 }
 
 // Initialize application when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     window.POS = new AutoAccessoriesPOS();
+    // Legacy component scripts expect `window.app` and some helper aliases.
+    // Provide a lightweight compatibility layer so older components keep working.
+    window.app = window.POS;
+    // Common aliases used by components
+    if (!window.app.logout && window.app.handleLogout) window.app.logout = window.app.handleLogout.bind(window.app);
+    if (!window.app.loadScreen && window.app.loadScreen) window.app.loadScreen = window.app.loadScreen.bind(window.app);
+    if (!window.app.showChangePasswordModal && window.app.showChangePasswordModal) window.app.showChangePasswordModal = window.app.showChangePasswordModal.bind(window.app);
 });
 
-// Global functions for modals
+// Global functions for HTML onclick handlers
 function hideChangePasswordModal() {
     if (window.POS) {
         window.POS.hideChangePasswordModal();
@@ -509,5 +900,45 @@ function hideChangePasswordModal() {
 function handlePasswordChange() {
     if (window.POS) {
         window.POS.handlePasswordChange();
+    }
+}
+
+// Global helper functions
+function formatNumber(num, decimals = 2) {
+    if (num === null || num === undefined) return '0.00';
+    return parseFloat(num).toFixed(decimals);
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function showConfirm(message, callback) {
+    if (confirm(message)) {
+        callback();
+    }
+}
+
+// Legacy global notification shim: components sometimes call `showNotification(type, title, message)`
+function showNotification(a, b, c) {
+    // If POS is available, map to its API: showNotification(message, type, duration)
+    if (window.POS && typeof window.POS.showNotification === 'function') {
+        if (arguments.length === 1) {
+            window.POS.showNotification(a);
+        } else if (arguments.length === 2) {
+            // (message, type)
+            window.POS.showNotification(a, b);
+        } else {
+            // (type, title, message) => combine title and message
+            const type = a || 'info';
+            const title = b || '';
+            const msg = c || '';
+            window.POS.showNotification(title ? `${title}: ${msg}` : msg, type);
+        }
+    } else {
+        // Fallback to alert
+        alert(b || a || 'Notification');
     }
 }

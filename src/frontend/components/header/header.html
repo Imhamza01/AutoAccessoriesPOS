@@ -1,0 +1,123 @@
+<!-- Auto Accessories POS - Main Header Component -->
+<div class="header-wrapper">
+    <!-- Left Section: Shop & Menu Toggle -->
+    <div class="header-left">
+        <button id="menu-toggle" class="menu-toggle-btn" title="Toggle sidebar">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+        </button>
+        
+        <div class="shop-info">
+            <h1 class="shop-name" id="shop-name">Auto Accessories POS</h1>
+            <span class="business-status" id="business-status">Ready</span>
+        </div>
+    </div>
+
+    <!-- Center Section: Shop Time & Status -->
+    <div class="header-center">
+        <div class="header-time-display">
+            <span class="header-date" id="header-date">--/--/----</span>
+            <span class="header-time" id="header-time">--:--:--</span>
+        </div>
+    </div>
+
+    <!-- Right Section: User & Controls -->
+    <div class="header-right">
+        <!-- Notifications -->
+        <div class="header-notifications">
+            <button id="notifications-btn" class="notification-btn" title="Notifications">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                </svg>
+                <span class="notification-badge" id="notification-badge" style="display: none;">0</span>
+            </button>
+            <div id="notifications-dropdown" class="notifications-dropdown" style="display: none;">
+                <div class="notifications-list">
+                    <!-- Notifications will be populated here -->
+                    <div class="no-notifications">No new notifications</div>
+                </div>
+                <div class="notifications-footer">
+                    <a href="#" class="view-all-link" onclick="handleViewAllNotifications(); return false;">View all notifications</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- User Menu -->
+        <div class="header-user-menu">
+            <button id="user-menu-btn" class="user-menu-btn" title="User menu">
+                <div class="user-avatar" id="user-avatar">
+                    <span id="user-initials">--</span>
+                </div>
+                <div class="user-info">
+                    <span class="user-name" id="logged-user">Guest</span>
+                    <span class="user-role" id="user-role">User</span>
+                </div>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+            </button>
+
+            <!-- User Dropdown Menu -->
+            <div id="user-dropdown" class="user-dropdown" style="display: none;">
+                <div class="dropdown-header">
+                    <h4 id="dropdown-user-name">Guest User</h4>
+                    <p id="dropdown-user-role">User Role</p>
+                </div>
+                <div class="dropdown-divider"></div>
+                <a href="#" class="dropdown-item" onclick="handleSettingsClick(); return false;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="1"></circle>
+                        <path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m2.12 2.12l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m2.12-2.12l4.24-4.24M19.78 19.78l-4.24-4.24m-2.12-2.12l-4.24-4.24"></path>
+                    </svg>
+                    <span>Settings</span>
+                </a>
+                <a href="#" class="dropdown-item" onclick="handleChangePassword(); return false;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 1C6.48 1 2 5.48 2 11v.5c0 1.38.56 2.63 1.46 3.54M12 1c5.52 0 10 4.48 10 10v.5c0 1.38-.56 2.63-1.46 3.54"></path>
+                        <path d="M7 12c0 .55.45 1 1 1h8c.55 0 1-.45 1-1s-.45-1-1-1H8c-.55 0-1 .45-1 1z"></path>
+                    </svg>
+                    <span>Change Password</span>
+                </a>
+                <div class="dropdown-divider"></div>
+                <a href="#" class="dropdown-item text-danger" onclick="handleLogout(); return false;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                        <polyline points="16 17 21 12 16 7"></polyline>
+                        <line x1="21" y1="12" x2="9" y2="12"></line>
+                    </svg>
+                    <span>Logout</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Quick Actions Menu -->
+        <button id="quick-actions-btn" class="quick-actions-btn" title="Quick actions">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="1"></circle>
+                <circle cx="19" cy="12" r="1"></circle>
+                <circle cx="5" cy="12" r="1"></circle>
+            </svg>
+        </button>
+
+        <!-- Quick Actions Dropdown -->
+        <div id="quick-actions-dropdown" class="quick-actions-dropdown" style="display: none;">
+            <a href="#" class="action-item" onclick="handleQuickPOS(); return false;">
+                <span>🛒 Start POS</span>
+            </a>
+            <a href="#" class="action-item" onclick="handleQuickAddCustomer(); return false;">
+                <span>👥 Add Customer</span>
+            </a>
+            <a href="#" class="action-item" onclick="handleQuickAddProduct(); return false;">
+                <span>📦 Add Product</span>
+            </a>
+            <div class="action-divider"></div>
+            <a href="#" class="action-item" onclick="handleQuickBackup(); return false;">
+                <span>💾 Backup</span>
+            </a>
+        </div>
+    </div>
+</div>
