@@ -334,7 +334,8 @@
     <script>
         class LoginManager {
             constructor() {
-                this.apiBaseUrl = 'http://127.0.0.1:8000';
+                // Use the same origin as the current page (allows running on any port)
+                this.apiBaseUrl = window.location.origin;
                 this.isLoading = false;
                 this.init();
             }

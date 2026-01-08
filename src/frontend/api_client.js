@@ -5,7 +5,8 @@
 
 class APIClient {
     constructor() {
-        this.baseURL = 'http://127.0.0.1:8000';
+        // Use the same origin as the current page (allows running on any port)
+        this.baseURL = window.location.origin;
         this.token = localStorage.getItem('access_token');
         this.sessionToken = localStorage.getItem('session_token');
     }
@@ -49,9 +50,29 @@ class APIClient {
 
         try {
             const response = await fetch(url, config);
-            
+
             // Handle 401 Unauthorized (token expired)
             if (response.status === 401) {
+                // If running in a local preview mode, don't redirect to login
+                // (helps with development when backend auth isn't available).
+                // Preview mode should only be enabled explicitly via `?preview=1`.
+                // Treating localhost/127.0.0.1 as implicit preview caused the
+                // app to swallow 401 responses during local development and
+                // continue with stale user data (showing the change-password
+                // modal while the API actually rejected the request).
+                let previewMode = false;
+                try {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    previewMode = urlParams.get('preview') === '1';
+                } catch (e) {
+                    // ignore
+                }
+
+                if (previewMode) {
+                    console.warn('Received 401 from API but running in preview mode — skipping redirect.');
+                    return {}; // return empty object so callers can fall back to defaults
+                }
+
                 // Try to refresh token
                 const refreshToken = localStorage.getItem('refresh_token');
                 if (refreshToken) {
@@ -59,26 +80,26 @@ class APIClient {
                         const refreshResponse = await this.post('/auth/refresh', {
                             refresh_token: refreshToken
                         });
-                        
+
                         // Update token and retry request
                         this.setToken(refreshResponse.access_token);
                         headers['Authorization'] = `Bearer ${refreshResponse.access_token}`;
-                        
+
                         // Retry the original request
                         const retryConfig = { ...config, headers };
                         if (data) {
                             retryConfig.body = JSON.stringify(data);
                         }
-                        
+
                         const retryResponse = await fetch(url, retryConfig);
                         const retryData = await retryResponse.json();
-                        
+
                         if (!retryResponse.ok) {
                             throw new Error(retryData.detail || 'Request failed');
                         }
-                        
+
                         return retryData;
-                        
+
                     } catch (refreshError) {
                         // Refresh failed, clear auth data
                         this.clearAuthData();
@@ -97,6 +118,22 @@ class APIClient {
 
             if (!response.ok) {
                 throw new Error(responseData.detail || 'Request failed');
+            }
+
+            // Handle different response formats from backend
+            if (responseData && typeof responseData === 'object') {
+                // If response has a success field and data, return the data
+                if (responseData.success !== undefined && responseData.data !== undefined) {
+                    return responseData.data;
+                }
+                // If response has a specific data field, return that
+                if (responseData.data !== undefined) {
+                    return responseData.data;
+                }
+                // If response has specific fields like products, customers, sales, etc., return as is
+                if (responseData.products || responseData.customers || responseData.sales || responseData.expenses || responseData.users) {
+                    return responseData;
+                }
             }
 
             return responseData;

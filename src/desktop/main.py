@@ -53,6 +53,28 @@ def start_frontend():
     try:
         import webview
         
+        class JsApi:
+            def select_file(self, file_types="All files (*.*)"):
+                """Open file dialog and return selected path."""
+                try:
+                    active_window = webview.windows[0]
+                    # Format file_types for pywebview if needed, or pass as is
+                    # user might pass "Image Files (*.png;*.jpg)"
+                    # pywebview expects tuple of strings like ("Image Files (*.png;*.jpg)", "All files (*.*)")
+                    
+                    # For simplicity, we just pass the raw types
+                    result = active_window.create_file_dialog(
+                        webview.OPEN_DIALOG, 
+                        allow_multiple=False, 
+                        file_types=(file_types, "All files (*.*)")
+                    )
+                    return result[0] if result else None
+                except Exception as e:
+                    print(f"Error in select_file: {e}")
+                    return None
+
+        js_api = JsApi()
+        
         # Create window
         window = webview.create_window(
             title="Auto Accessories POS System",
@@ -61,7 +83,8 @@ def start_frontend():
             height=768,
             resizable=True,
             fullscreen=False,
-            min_size=(1024, 768)
+            min_size=(1024, 768),
+            js_api=js_api
         )
         
         # Start webview

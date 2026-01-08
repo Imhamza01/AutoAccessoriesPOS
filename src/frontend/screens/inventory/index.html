@@ -1,27 +1,123 @@
-<div id="inventory-screen" class="screen">
-  <div class="screen-header">
-    <h1>Inventory Management</h1>
-  </div>
+<!-- Inventory Management Screen -->
 
-  <div class="screen-content">
-    <div class="alerts-section">
-      <div id="stock-alerts"></div>
-    </div>
-
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Product</th>
-          <th>SKU</th>
-          <th>Current Stock</th>
-          <th>Reorder Level</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody id="inventory-table">
-        <tr><td colspan="6" class="loading">Loading...</td></tr>
-      </tbody>
-    </table>
+<div class="screen-header">
+  <h2>Inventory Management</h2>
+  <div class="header-controls">
+    <button class="btn btn-secondary btn-small" id="refresh-inventory">
+      <span class="btn-icon">🔄</span>
+      Refresh
+    </button>
+    <button class="btn btn-success" id="export-inventory">
+      <span class="btn-icon">📥</span>
+      Export CSV
+    </button>
   </div>
 </div>
+
+<!-- Filters & Search -->
+<div class="filters-section">
+  <div class="filter-row">
+    <div class="filter-group">
+      <input type="text" id="inventory-search" class="input-field" placeholder="Search by product name or SKU...">
+    </div>
+
+    <div class="filter-group">
+      <select id="category-filter" class="input-field">
+        <option value="">All Categories</option>
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <select id="stock-filter" class="input-field">
+        <option value="">All Stock Status</option>
+        <option value="low_stock">Low Stock</option>
+        <option value="out_of_stock">Out of Stock</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<!-- Inventory Table -->
+<div class="table-container">
+  <div class="table-header">
+    <div class="table-info">
+      Showing <span id="product-count">0</span> products
+    </div>
+    <div class="table-actions">
+      <div class="pagination-controls">
+        <button class="pagination-btn" id="prev-page" disabled>← Prev</button>
+        <span class="page-info">
+          Page <span id="current-page">1</span> of <span id="total-pages">1</span>
+        </span>
+        <button class="pagination-btn" id="next-page" disabled>Next →</button>
+      </div>
+    </div>
+  </div>
+
+  <table class="table">
+    <thead>
+      <tr>
+        <th style="width: 100px;">SKU</th>
+        <th>Product Name</th>
+        <th style="width: 100px;">Current Stock</th>
+        <th style="width: 100px;">Reorder Level</th>
+        <th style="width: 100px;">Unit Cost</th>
+        <th style="width: 120px;">Stock Value</th>
+        <th style="width: 100px;">Status</th>
+        <th style="width: 100px;">Action</th>
+      </tr>
+    </thead>
+    <tbody id="inventory-tbody">
+      <tr>
+        <td colspan="8" class="loading-cell">
+          <div class="loading-spinner"></div>
+          <div>Loading inventory...</div>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<style>
+.inventory-row {
+  border-bottom: 1px solid #eee;
+}
+
+.inventory-row:hover {
+  background-color: #f9f9f9;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-badge.success {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.status-badge.warning {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.status-badge.danger {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+.empty-cell {
+  text-align: center;
+  padding: 40px;
+  color: #999;
+}
+
+.empty-icon {
+  font-size: 48px;
+  margin-bottom: 10px;
+}
+</style>

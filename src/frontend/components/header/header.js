@@ -152,8 +152,17 @@ function handleSettingsClick() {
 }
 
 function handleChangePassword() {
-    if (window.app && window.app.showChangePasswordModal) {
-        window.app.showChangePasswordModal();
+    // Open the Settings screen and navigate to the Account tab where password change is handled.
+    if (window.app && window.app.loadScreen) {
+        window.app.loadScreen('settings');
+        // Wait a moment for the screen to load, then show the account tab
+        setTimeout(() => {
+            if (window.app.screens && window.app.screens.settings) {
+                window.app.screens.settings.showTab('account');
+            }
+        }, 300);
+    } else {
+        showNotification('info', 'Settings', 'Open Settings to change your password');
     }
 }
 

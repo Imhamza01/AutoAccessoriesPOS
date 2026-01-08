@@ -39,7 +39,8 @@ app = FastAPI(
     docs_url="/docs" if os.getenv("ENV") == "development" else None,
     redoc_url=None,
     openapi_url="/openapi.json" if os.getenv("ENV") == "development" else None,
-    middleware=middleware
+    middleware=middleware,
+    redirect_slashes=True  # Handle both /sales and /sales/
 )
 
 # Include routers

@@ -15,6 +15,7 @@ router = APIRouter(prefix="/customers", tags=["customers"])
 logger = logging.getLogger(__name__)
 
 
+@router.get("", dependencies=[Depends(require_permission("customers.view"))])
 @router.get("/", dependencies=[Depends(require_permission("customers.view"))])
 async def list_customers(
     skip: int = Query(0),
@@ -27,11 +28,11 @@ async def list_customers(
     try:
         db = get_database_manager()
         with db.get_cursor() as cur:
-            query = "SELECT * FROM customers WHERE deleted_at IS NULL"
+            query = "SELECT * FROM customers WHERE 1=1"
             params = []
             
             if search:
-                query += " AND (name LIKE ? OR email LIKE ?)"
+                query += " AND (full_name LIKE ? OR email LIKE ?)"
                 search_term = f"%{search}%"
                 params.extend([search_term, search_term])
             
@@ -43,20 +44,28 @@ async def list_customers(
             params.extend([limit, skip])
             
             cur.execute(query, params)
-            customers = cur.fetchall()
-            
-            # Get total count
-            count_query = "SELECT COUNT(*) FROM customers WHERE deleted_at IS NULL"
+            raw_customers = cur.fetchall()
+            # Convert to list of dictionaries to avoid Row object issues
+            customers = []
+            for row in raw_customers:
+                if hasattr(row, 'keys'):  # sqlite3.Row object
+                    customers.append(dict(row))
+                else:
+                    customers.append(row)
+                        
+            # Get total count (use same filters as main query)
+            count_query = "SELECT COUNT(*) FROM customers WHERE 1=1"
             count_params = []
             if search:
-                count_query += " AND (name LIKE ? OR email LIKE ?)"
+                count_query += " AND (full_name LIKE ? OR email LIKE ?)"
                 count_params.extend([f"%{search}%", f"%{search}%"])
             if phone:
                 count_query += " AND phone LIKE ?"
                 count_params.append(f"%{phone}%")
-            
+                        
             cur.execute(count_query, count_params)
-            total = cur.fetchone()[0]
+            total_result = cur.fetchone()
+            total = total_result[0] if total_result else 0
         
         return {
             "success": True,
@@ -81,35 +90,54 @@ async def get_customer(
         with db.get_cursor() as cur:
             # Get customer
             cur.execute(
-                "SELECT * FROM customers WHERE id = ? AND deleted_at IS NULL",
+                "SELECT * FROM customers WHERE id = ?",
                 (customer_id,)
             )
-            customer = cur.fetchone()
+            raw_customer = cur.fetchone()
             
-            if not customer:
+            if not raw_customer:
                 raise HTTPException(status_code=404, detail="Customer not found")
+            
+            # Convert to dictionary to avoid Row object issues
+            if hasattr(raw_customer, 'keys'):
+                customer = dict(raw_customer)
+            else:
+                customer = raw_customer
             
             # Get vehicles
             cur.execute(
-                "SELECT * FROM customer_vehicles WHERE customer_id = ? AND deleted_at IS NULL",
+                "SELECT * FROM customer_vehicles WHERE customer_id = ?",
                 (customer_id,)
             )
-            vehicles = cur.fetchall()
+            raw_vehicles = cur.fetchall()
+            vehicles = []
+            for row in raw_vehicles:
+                if hasattr(row, 'keys'):  # sqlite3.Row object
+                    vehicles.append(dict(row))
+                else:
+                    vehicles.append(row)
             
             # Get loyalty info
             cur.execute(
                 "SELECT * FROM customer_loyalty WHERE customer_id = ?",
                 (customer_id,)
             )
-            loyalty = cur.fetchone()
+            raw_loyalty = cur.fetchone()
+            loyalty = dict(raw_loyalty) if raw_loyalty and hasattr(raw_loyalty, 'keys') else raw_loyalty
             
             # Get recent transactions
             cur.execute("""
                 SELECT * FROM sales 
-                WHERE customer_id = ? AND deleted_at IS NULL
+                WHERE customer_id = ?
                 ORDER BY created_at DESC LIMIT 10
             """, (customer_id,))
-            transactions = cur.fetchall()
+            raw_transactions = cur.fetchall()
+            transactions = []
+            for row in raw_transactions:
+                if hasattr(row, 'keys'):  # sqlite3.Row object
+                    transactions.append(dict(row))
+                else:
+                    transactions.append(row)
         
         return {
             "success": True,
@@ -133,32 +161,34 @@ async def create_customer(
     """Create new customer."""
     try:
         validate_customer_data(customer_data)
-        
+
         db = get_database_manager()
         with db.get_cursor() as cur:
             cur.execute("""
                 INSERT INTO customers (
-                    name, phone, email, address, city, province, 
-                    credit_limit, credit_used, created_by, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    customer_code, full_name, phone, phone2, email, address, city, area, 
+                    credit_limit, current_balance, created_by, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                customer_data.get("name"),
+                customer_data.get("customer_code") or f"CUST-{int(datetime.datetime.now().timestamp())}",
+                customer_data.get("name") or customer_data.get("full_name"),
                 customer_data.get("phone"),
+                customer_data.get("phone2"),
                 customer_data.get("email"),
                 customer_data.get("address"),
                 customer_data.get("city"),
-                customer_data.get("province"),
+                customer_data.get("area"),
                 customer_data.get("credit_limit", 0),
                 0,
                 current_user["id"],
                 datetime.datetime.now().isoformat(),
                 datetime.datetime.now().isoformat()
             ))
-        
+
         return {
             "success": True,
             "message": "Customer created successfully",
-            "customer_id": db.get_last_insert_id()
+            "customer_id": db.get_last_insert_id() if hasattr(db, 'get_last_insert_id') else None
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -178,7 +208,7 @@ async def update_customer(
         db = get_database_manager()
         with db.get_cursor() as cur:
             # Verify customer exists
-            cur.execute("SELECT id FROM customers WHERE id = ? AND deleted_at IS NULL", (customer_id,))
+            cur.execute("SELECT id FROM customers WHERE id = ?", (customer_id,))
             if not cur.fetchone():
                 raise HTTPException(status_code=404, detail="Customer not found")
             
@@ -218,9 +248,10 @@ async def delete_customer(
     try:
         db = get_database_manager()
         with db.get_cursor() as cur:
+            # Actually delete the record since soft delete column doesn't exist
             cur.execute(
-                "UPDATE customers SET deleted_at = ? WHERE id = ?",
-                (datetime.datetime.now().isoformat(), customer_id)
+                "DELETE FROM customers WHERE id = ?",
+                (customer_id,)
             )
         
         return {
@@ -279,30 +310,50 @@ async def get_credit_summary(
             # Get customer credit info
             cur.execute("""
                 SELECT credit_limit, credit_used FROM customers 
-                WHERE id = ? AND deleted_at IS NULL
+                WHERE id = ?
             """, (customer_id,))
             result = cur.fetchone()
             
             if not result:
                 raise HTTPException(status_code=404, detail="Customer not found")
             
-            credit_limit, credit_used = result
+            # Handle Row object unpacking safely
+            if hasattr(result, 'keys'):
+                result_dict = dict(result)
+                credit_limit = result_dict.get('credit_limit', 0)
+                credit_used = result_dict.get('credit_used', 0)
+            else:
+                credit_limit = result[0] if len(result) > 0 else 0
+                credit_used = result[1] if len(result) > 1 else 0
             
             # Get outstanding sales (not fully paid)
             cur.execute("""
-                SELECT COUNT(*), COALESCE(SUM(total_amount), 0) as total_due
+                SELECT COUNT(*), COALESCE(SUM(grand_total), 0) as total_due
                 FROM sales
-                WHERE customer_id = ? AND payment_status = 'pending' AND deleted_at IS NULL
+                WHERE customer_id = ? AND payment_status = 'pending'
             """, (customer_id,))
-            pending = cur.fetchone()
+            pending_result = cur.fetchone()
+            
+            # Handle pending result safely
+            if pending_result and hasattr(pending_result, '__getitem__'):
+                if hasattr(pending_result, 'keys'):
+                    pending_dict = dict(pending_result)
+                    pending_invoices = pending_dict.get('COUNT(*)', 0)
+                    outstanding_amount = pending_dict.get('total_due', 0)
+                else:
+                    pending_invoices = pending_result[0] if len(pending_result) > 0 else 0
+                    outstanding_amount = pending_result[1] if len(pending_result) > 1 else 0
+            else:
+                pending_invoices = 0
+                outstanding_amount = 0
         
         return {
             "success": True,
             "credit_limit": credit_limit,
             "credit_used": credit_used,
             "credit_available": credit_limit - credit_used,
-            "pending_invoices": pending[0],
-            "outstanding_amount": pending[1]
+            "pending_invoices": pending_invoices,
+            "outstanding_amount": outstanding_amount
         }
     except HTTPException:
         raise

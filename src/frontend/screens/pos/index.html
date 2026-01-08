@@ -1,6 +1,5 @@
 <!-- src/frontend/screens/pos/index.html -->
-<div class="pos-screen" id="pos-screen">
-    <!-- POS Header -->
+<!-- POS Header -->
     <div class="pos-header">
         <div class="pos-title">
             <h2>POS Terminal</h2>
@@ -11,17 +10,23 @@
         </div>
         
         <div class="pos-controls">
-            <button class="btn btn-secondary btn-small" id="hold-sale">
-                Hold Sale (F6)
+            <button class="btn btn-secondary" id="hold-sale">
+                <i class="icon">⏸️</i> Hold Sale
             </button>
-            <button class="btn btn-warning btn-small" id="apply-discount">
-                Discount (F7)
+            <button class="btn btn-warning" id="apply-discount">
+                <i class="icon">%</i> Discount
             </button>
-            <button class="btn btn-danger btn-small" id="clear-cart">
-                Clear Cart (F5)
+            <button class="btn btn-secondary" id="view-held-sales">
+                <i class="icon">📋</i> Held Sales
+            </button>
+            <button class="btn btn-secondary" id="shop-settings">
+                <i class="icon">⚙️</i> Settings
+            </button>
+            <button class="btn btn-danger" id="clear-cart">
+                <i class="icon">🗑️</i> Clear Cart
             </button>
             <button class="btn btn-success" id="process-payment" disabled>
-                Process Payment (F4)
+                <i class="icon">💳</i> Process Payment
             </button>
         </div>
     </div>
@@ -30,15 +35,15 @@
     <div class="product-selection-methods">
         <button class="method-btn active" data-method="search">
             <span class="btn-icon">🔍</span>
-            Search & Browse
+            <span>Search</span>
         </button>
         <button class="method-btn" data-method="scanner">
             <span class="btn-icon">📷</span>
-            Barcode Scanner (F1)
+            <span>Scanner</span>
         </button>
         <button class="method-btn" data-method="quick">
             <span class="btn-icon">⚡</span>
-            Quick Entry (F3)
+            <span>Quick Entry</span>
         </button>
     </div>
 
@@ -50,7 +55,7 @@
                 <input type="text" 
                        id="pos-search" 
                        class="pos-search-input" 
-                       placeholder="Search products by name, code, or barcode... (F2)"
+                       placeholder="Search products by name, code, or barcode..."
                        autocomplete="off">
             </div>
             
@@ -94,11 +99,11 @@
                     </div>
                     
                     <div class="cart-actions">
-                        <button class="btn btn-secondary" id="print-receipt">
-                            Print Receipt
+                        <button class="btn" id="print-receipt">
+                            <i class="icon">🖨️</i> Print Receipt
                         </button>
-                        <button class="btn btn-primary" id="checkout-btn" disabled>
-                            Checkout
+                        <button class="btn" id="checkout-btn" disabled>
+                            <i class="icon">✅</i> Checkout
                         </button>
                     </div>
                 </div>
@@ -131,9 +136,20 @@
                 <span>Clear Cart</span>
             </div>
             <div class="shortcut-item">
+                <span class="shortcut-key">F6</span>
+                <span>Hold Sale</span>
+            </div>
+            <div class="shortcut-item">
+                <span class="shortcut-key">F7</span>
+                <span>Discount</span>
+            </div>
+            <div class="shortcut-item">
+                <span class="shortcut-key">F8</span>
+                <span>View Held Sales</span>
+            </div>
+            <div class="shortcut-item">
                 <span class="shortcut-key">ESC</span>
                 <span>Close Modals</span>
             </div>
         </div>
     </div>
-</div>

@@ -27,9 +27,8 @@ async def sales_summary(
             # Daily sales
             query = """
                 SELECT DATE(created_at) as date, COUNT(*) as transactions,
-                       SUM(total_amount) as revenue, SUM(gst_amount) as gst
+                       SUM(grand_total) as revenue, SUM(gst_amount) as gst
                 FROM sales
-                WHERE deleted_at IS NULL
             """
             params = []
             
@@ -46,7 +45,7 @@ async def sales_summary(
             daily_sales = cur.fetchall()
             
             # Total metrics
-            metrics_query = "SELECT COUNT(*), SUM(total_amount), SUM(gst_amount) FROM sales WHERE deleted_at IS NULL"
+            metrics_query = "SELECT COUNT(*), SUM(grand_total), SUM(gst_amount) FROM sales"
             metrics_params = []
             if start_date:
                 metrics_query += " AND created_at >= ?"
@@ -96,7 +95,6 @@ async def top_products(
                        SUM(si.total_price) as revenue
                 FROM sale_items si
                 JOIN products p ON si.product_id = p.id
-                WHERE si.deleted_at IS NULL
             """
             params = []
             
@@ -142,18 +140,17 @@ async def customer_sales(
         with db.get_cursor() as cur:
             query = """
                 SELECT c.id, c.name, COUNT(*) as transactions,
-                       SUM(s.total_amount) as total_spent
+                       SUM(s.grand_total) as total_spent
                 FROM sales s
                 LEFT JOIN customers c ON s.customer_id = c.id
-                WHERE s.deleted_at IS NULL
             """
             params = []
             
             if start_date:
-                query += " AND s.created_at >= ?"
+                query += " AND DATE(s.created_at) >= ?"
                 params.append(start_date)
             if end_date:
-                query += " AND s.created_at <= ?"
+                query += " AND DATE(s.created_at) <= ?"
                 params.append(end_date)
             
             query += " GROUP BY c.id ORDER BY total_spent DESC"
@@ -193,7 +190,7 @@ async def gst_report(
                 SELECT DATE(created_at) as date, COUNT(*) as invoices,
                        SUM(subtotal) as taxable_amount, SUM(gst_amount) as gst
                 FROM sales
-                WHERE deleted_at IS NULL AND gst_amount > 0
+                WHERE gst_amount > 0
             """
             params = []
             
@@ -210,7 +207,7 @@ async def gst_report(
             gst_sales = cur.fetchall()
             
             # Total GST
-            total_query = "SELECT SUM(gst_amount) FROM sales WHERE deleted_at IS NULL AND gst_amount > 0"
+            total_query = "SELECT SUM(gst_amount) FROM sales WHERE gst_amount > 0"
             total_params = []
             if start_date:
                 total_query += " AND created_at >= ?"
@@ -251,7 +248,7 @@ async def profit_loss_report(
         db = get_database_manager()
         with db.get_cursor() as cur:
             # Total revenue
-            rev_query = "SELECT SUM(total_amount) FROM sales WHERE deleted_at IS NULL"
+            rev_query = "SELECT SUM(grand_total) FROM sales"
             rev_params = []
             if start_date:
                 rev_query += " AND created_at >= ?"
@@ -264,7 +261,7 @@ async def profit_loss_report(
             revenue = cur.fetchone()[0] or 0
             
             # Total expenses
-            exp_query = "SELECT SUM(amount) FROM expenses WHERE deleted_at IS NULL"
+            exp_query = "SELECT SUM(amount) FROM expenses"
             exp_params = []
             if start_date:
                 exp_query += " AND created_at >= ?"
@@ -308,7 +305,6 @@ async def inventory_valuation(
                 SELECT SUM(current_stock * cost_price) as total_value,
                        SUM(current_stock) as total_units
                 FROM products
-                WHERE deleted_at IS NULL
             """)
             result = cur.fetchone()
         

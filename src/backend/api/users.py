@@ -27,7 +27,7 @@ async def list_users(
     try:
         db = get_database_manager()
         with db.get_cursor() as cur:
-            query = "SELECT id, username, email, full_name, role, is_active, created_at FROM users WHERE deleted_at IS NULL"
+            query = "SELECT id, username, email, full_name, role, is_active, created_at FROM users"
             params = []
             
             if role:
@@ -41,7 +41,7 @@ async def list_users(
             users = cur.fetchall()
             
             # Get count
-            count_query = "SELECT COUNT(*) FROM users WHERE deleted_at IS NULL"
+            count_query = "SELECT COUNT(*) FROM users"
             count_params = []
             if role:
                 count_query += " AND role = ?"
@@ -72,7 +72,7 @@ async def get_user(
         db = get_database_manager()
         with db.get_cursor() as cur:
             cur.execute(
-                "SELECT * FROM users WHERE id = ? AND deleted_at IS NULL",
+                "SELECT * FROM users WHERE id = ?",
                 (user_id,)
             )
             user = cur.fetchone()
@@ -169,7 +169,7 @@ async def update_user(
         db = get_database_manager()
         with db.get_cursor() as cur:
             # Verify exists
-            cur.execute("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL", (user_id,))
+            cur.execute("SELECT id FROM users WHERE id = ?", (user_id,))
             if not cur.fetchone():
                 raise HTTPException(status_code=404, detail="User not found")
             
@@ -209,9 +209,10 @@ async def delete_user(
     try:
         db = get_database_manager()
         with db.get_cursor() as cur:
+            # Actually delete the record since soft delete column doesn't exist
             cur.execute(
-                "UPDATE users SET deleted_at = ? WHERE id = ?",
-                (datetime.datetime.now().isoformat(), user_id)
+                "DELETE FROM users WHERE id = ?",
+                (user_id,)
             )
         
         return {

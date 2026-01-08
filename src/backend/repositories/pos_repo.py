@@ -436,6 +436,21 @@ class ProductRepository:
                 if cursor.fetchone():
                     raise ValueError(f"Product code {product_data['product_code']} already exists")
                 
+                # Validate foreign key constraints before inserting
+                category_id = product_data['category_id']
+                brand_id = product_data.get('brand_id')
+                
+                # Check if category exists
+                cursor.execute("SELECT id FROM categories WHERE id = ?", (category_id,))
+                if not cursor.fetchone():
+                    raise ValueError(f"Category with ID {category_id} does not exist")
+                
+                # Check if brand exists (if provided)
+                if brand_id is not None:
+                    cursor.execute("SELECT id FROM brands WHERE id = ?", (brand_id,))
+                    if not cursor.fetchone():
+                        raise ValueError(f"Brand with ID {brand_id} does not exist")
+                
                 # Insert product
                 cursor.execute('''
                     INSERT INTO products (
@@ -507,7 +522,25 @@ class ProductRepository:
                         user_id
                     ))
                 
-                return self.get_product_by_id(product_id)
+                # Get the created product directly from the same transaction
+                cursor.execute('''
+                    SELECT p.*, 
+                           c.name as category_name,
+                           c.category_code as category_code,
+                           b.name as brand_name,
+                           u.full_name as created_by_name
+                    FROM products p
+                    LEFT JOIN categories c ON p.category_id = c.id
+                    LEFT JOIN brands b ON p.brand_id = b.id
+                    LEFT JOIN users u ON p.created_by = u.id
+                    WHERE p.id = ?
+                ''', (product_id,))
+                
+                product = cursor.fetchone()
+                if not product:
+                    raise ValueError(f"Failed to retrieve newly created product with ID {product_id}")
+                
+                return dict(product)
                 
         except Exception as e:
             logger.error(f"Failed to create product: {e}")

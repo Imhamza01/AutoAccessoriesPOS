@@ -25,65 +25,99 @@ async def create_pos_transaction(
         
         with db.get_cursor() as cur:
             # Create sale
+            # Generate invoice number based on current timestamp to ensure uniqueness
+            invoice_number = f"POS-{datetime.datetime.now().strftime('%Y%m%d')}{int(datetime.datetime.now().timestamp() * 1000) % 100000}"
+            
+            # Get cashier name from current user
+            cashier_name = current_user.get("name") or current_user.get("username") or f"User {current_user['id']}"
+            
             cur.execute("""
                 INSERT INTO sales (
-                    customer_id, total_amount, subtotal, discount_amount,
-                    gst_amount, payment_type, payment_status, notes,
-                    created_by, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    invoice_number, customer_id, grand_total, subtotal, discount_amount,
+                    gst_amount, payment_method, payment_status, notes,
+                    cashier_id, cashier_name, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
+                invoice_number,
                 transaction_data.get("customer_id"),
                 transaction_data.get("total_amount", 0),
                 transaction_data.get("subtotal", 0),
                 transaction_data.get("discount_amount", 0),
                 transaction_data.get("gst_amount", 0),
                 transaction_data.get("payment_type", "cash"),
-                "completed",
+                "paid",  # Changed from 'completed' to 'paid' to match CHECK constraint
                 transaction_data.get("notes"),
-                current_user["id"],
+                current_user["id"],  # cashier_id
+                cashier_name,  # cashier_name
                 datetime.datetime.now().isoformat(),
                 datetime.datetime.now().isoformat()
             ))
             
-            sale_id = db.get_last_insert_id()
+            sale_id = cur.lastrowid
             
             # Add items and update stock
             for item in transaction_data.get("items", []):
                 product_id = item.get("product_id")
                 quantity = item.get("quantity")
                 
+                # Fetch product details for the invoice
+                cur.execute("SELECT product_code, name, cost_price, current_stock FROM products WHERE id = ?", (product_id,))
+                product_row = cur.fetchone()
+                
+                if not product_row:
+                    raise HTTPException(status_code=400, detail=f"Product ID {product_id} not found")
+                
+                product_code = product_row['product_code']
+                product_name = product_row['name']
+                cost_price = product_row['cost_price']
+                current_stock = product_row['current_stock']
+                
+                unit_price = item.get("unit_price")
+                line_total = item.get("total_price")
+                
+                # Calculate profit
+                line_profit = line_total - (cost_price * quantity)
+                
                 # Add sale item
                 cur.execute("""
                     INSERT INTO sale_items (
-                        sale_id, product_id, quantity, unit_price,
-                        total_price, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        sale_id, product_id, product_code, product_name,
+                        quantity, unit_price, cost_price,
+                        line_total, line_profit, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     sale_id,
                     product_id,
+                    product_code,
+                    product_name,
                     quantity,
-                    item.get("unit_price"),
-                    item.get("total_price"),
-                    datetime.datetime.now().isoformat(),
-                    datetime.datetime.now().isoformat()
+                    unit_price,
+                    cost_price,
+                    line_total,
+                    line_profit,
+                    datetime.datetime.now().isoformat(sep=' ')
                 ))
                 
                 # Update product stock
+                new_stock = current_stock - quantity
                 cur.execute(
-                    "UPDATE products SET current_stock = current_stock - ? WHERE id = ?",
-                    (quantity, product_id)
+                    "UPDATE products SET current_stock = ? WHERE id = ?",
+                    (new_stock, product_id)
                 )
                 
                 # Record stock movement
                 cur.execute("""
                     INSERT INTO stock_movements (
-                        product_id, movement_type, quantity, reason,
-                        created_by, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                        product_id, movement_type, quantity, 
+                        previous_quantity, new_quantity,
+                        reason, created_by, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     product_id,
                     "sale",
                     -quantity,
+                    current_stock,
+                    new_stock,
                     f"POS Sale #{sale_id}",
                     current_user["id"],
                     datetime.datetime.now().isoformat()
@@ -91,8 +125,8 @@ async def create_pos_transaction(
             
             # Record payment
             cur.execute("""
-                INSERT INTO sale_payments (
-                    sale_id, payment_type, amount, created_at
+                INSERT INTO payments (
+                    sale_id, payment_method, amount, payment_date
                 ) VALUES (?, ?, ?, ?)
             """, (
                 sale_id,
@@ -122,7 +156,7 @@ async def get_product_by_barcode(
         with db.get_cursor() as cur:
             cur.execute("""
                 SELECT p.* FROM products p
-                WHERE (p.barcode = ? OR p.sku = ?) AND p.deleted_at IS NULL
+                WHERE (p.barcode = ? OR p.sku = ?)
                 LIMIT 1
             """, (barcode, barcode))
             product = cur.fetchone()
@@ -154,7 +188,7 @@ async def get_applicable_discounts(
             # Get all active discounts
             cur.execute("""
                 SELECT * FROM price_groups
-                WHERE is_active = 1 AND deleted_at IS NULL
+                WHERE is_active = 1
                 ORDER BY discount_percentage DESC
             """)
             discounts = cur.fetchall()
@@ -269,4 +303,204 @@ async def close_session(
         }
     except Exception as e:
         logger.error(f"Failed to close session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/hold-sale", dependencies=[Depends(require_permission("pos.sell"))])
+async def hold_sale(
+    sale_data: Dict[str, Any] = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Hold a sale for later completion."""
+    try:
+        db = get_database_manager()
+        
+        with db.get_cursor() as cur:
+            # Generate invoice number based on current timestamp to ensure uniqueness
+            invoice_number = f"HOLD-{datetime.datetime.now().strftime('%Y%m%d')}{int(datetime.datetime.now().timestamp() * 1000) % 100000}"
+            
+            # Get cashier name from current user
+            cashier_name = current_user.get("name") or current_user.get("username") or f"User {current_user['id']}"
+            
+            # Create sale with 'hold' status
+            cur.execute("""
+                INSERT INTO sales (
+                    invoice_number, customer_id, grand_total, subtotal, discount_amount,
+                    gst_amount, payment_method, payment_status, notes,
+                    cashier_id, cashier_name, created_at, updated_at, sale_status, hold_reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                invoice_number,
+                sale_data.get("customer_id"),
+                sale_data.get("total_amount", 0),
+                sale_data.get("subtotal", 0),
+                sale_data.get("discount_amount", 0),
+                sale_data.get("gst_amount", 0),
+                "credit",  # payment_method - using credit for held sales
+                "pending",  # payment_status
+                sale_data.get("notes", ""),
+                current_user["id"],  # cashier_id
+                cashier_name,  # cashier_name
+                datetime.datetime.now().isoformat(),
+                datetime.datetime.now().isoformat(),
+                "hold",  # sale_status
+                sale_data.get("hold_reason", "Sale held by cashier")
+            ))
+            
+            sale_id = cur.lastrowid
+            
+            # Add items to the sale
+            for item in sale_data.get("items", []):
+                product_id = item.get("product_id")
+                quantity = item.get("quantity")
+                
+                # Fetch product details for the invoice
+                cur.execute("SELECT product_code, name, cost_price FROM products WHERE id = ?", (product_id,))
+                product_row = cur.fetchone()
+                
+                if not product_row:
+                    raise HTTPException(status_code=400, detail=f"Product ID {product_id} not found")
+                
+                product_code = product_row['product_code']
+                product_name = product_row['name']
+                cost_price = product_row['cost_price']
+                
+                unit_price = item.get("unit_price")
+                line_total = item.get("total_price")
+                
+                # Calculate profit
+                line_profit = line_total - (cost_price * quantity)
+                
+                # Add sale item
+                cur.execute("""
+                    INSERT INTO sale_items (
+                        sale_id, product_id, product_code, product_name,
+                        quantity, unit_price, cost_price,
+                        line_total, line_profit, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    sale_id,
+                    product_id,
+                    product_code,
+                    product_name,
+                    quantity,
+                    unit_price,
+                    cost_price,
+                    line_total,
+                    line_profit,
+                    datetime.datetime.now().isoformat(sep=' ')
+                ))
+        
+        return {
+            "success": True,
+            "message": "Sale held successfully",
+            "sale_id": sale_id,
+            "invoice_number": invoice_number
+        }
+    except Exception as e:
+        logger.error(f"Failed to hold sale: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/held-sales", dependencies=[Depends(require_permission("pos.sell"))])
+async def get_held_sales(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get all held sales for the current user."""
+    try:
+        db = get_database_manager()
+        with db.get_cursor() as cur:
+            cur.execute(
+                "SELECT * FROM sales WHERE sale_status = 'hold' ORDER BY created_at DESC"
+            )
+            raw_sales = cur.fetchall()
+            
+            # Convert to list of dictionaries to avoid unpacking issues
+            sales = []
+            for row in raw_sales:
+                if hasattr(row, 'keys'):  # sqlite3.Row object
+                    sales.append(dict(row))
+                else:
+                    sales.append(row)
+        
+        return {
+            "success": True,
+            "sales": sales
+        }
+    except Exception as e:
+        logger.error(f"Failed to get held sales: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/resume-sale/{sale_id}", dependencies=[Depends(require_permission("pos.sell"))])
+async def resume_sale(
+    sale_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Resume a held sale."""
+    try:
+        db = get_database_manager()
+        with db.get_cursor() as cur:
+            cur.execute(
+                "SELECT * FROM sales WHERE id = ? AND sale_status = 'hold'", (sale_id,)
+            )
+            sale = cur.fetchone()
+            
+            if not sale:
+                raise HTTPException(status_code=404, detail="Held sale not found")
+            
+            # Get sale items
+            cur.execute("SELECT * FROM sale_items WHERE sale_id = ?", (sale_id,))
+            raw_items = cur.fetchall()
+            items = []
+            for row in raw_items:
+                if hasattr(row, 'keys'):  # sqlite3.Row object
+                    items.append(dict(row))
+                else:
+                    items.append(row)
+        
+        return {
+            "success": True,
+            "sale": dict(sale) if hasattr(sale, 'keys') else sale,
+            "items": items
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to resume sale: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/held-sale/{sale_id}", dependencies=[Depends(require_permission("pos.sell"))])
+async def delete_held_sale(
+    sale_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Delete/cancel a held sale."""
+    try:
+        db = get_database_manager()
+        with db.get_cursor() as cur:
+            # First check if the sale exists and is held
+            cur.execute(
+                "SELECT * FROM sales WHERE id = ? AND sale_status = 'hold'", (sale_id,)
+            )
+            sale = cur.fetchone()
+            
+            if not sale:
+                raise HTTPException(status_code=404, detail="Held sale not found")
+            
+            # Update sale status to cancelled
+            cur.execute(
+                "UPDATE sales SET sale_status = 'cancelled', updated_at = ? WHERE id = ?",
+                (datetime.datetime.now().isoformat(), sale_id)
+            )
+        
+        return {
+            "success": True,
+            "message": "Held sale cancelled successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete held sale: {e}")
         raise HTTPException(status_code=500, detail=str(e))

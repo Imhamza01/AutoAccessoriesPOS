@@ -27,7 +27,7 @@ async def list_expenses(
     try:
         db = get_database_manager()
         with db.get_cursor() as cur:
-            query = "SELECT * FROM expenses WHERE deleted_at IS NULL"
+            query = "SELECT * FROM expenses"
             params = []
             
             if start_date:
@@ -49,7 +49,7 @@ async def list_expenses(
             expenses = cur.fetchall()
             
             # Get total
-            count_query = "SELECT COUNT(*) FROM expenses WHERE deleted_at IS NULL"
+            count_query = "SELECT COUNT(*) FROM expenses"
             count_params = []
             if start_date:
                 count_query += " AND created_at >= ?"
@@ -121,7 +121,7 @@ async def get_expense(
         db = get_database_manager()
         with db.get_cursor() as cur:
             cur.execute(
-                "SELECT * FROM expenses WHERE id = ? AND deleted_at IS NULL",
+                "SELECT * FROM expenses WHERE id = ?",
                 (expense_id,)
             )
             expense = cur.fetchone()
@@ -151,7 +151,7 @@ async def update_expense(
         db = get_database_manager()
         with db.get_cursor() as cur:
             # Verify exists
-            cur.execute("SELECT id FROM expenses WHERE id = ? AND deleted_at IS NULL", (expense_id,))
+            cur.execute("SELECT id FROM expenses WHERE id = ?", (expense_id,))
             if not cur.fetchone():
                 raise HTTPException(status_code=404, detail="Expense not found")
             
@@ -191,9 +191,10 @@ async def delete_expense(
     try:
         db = get_database_manager()
         with db.get_cursor() as cur:
+            # Actually delete the record since soft delete column doesn't exist
             cur.execute(
-                "UPDATE expenses SET deleted_at = ? WHERE id = ?",
-                (datetime.datetime.now().isoformat(), expense_id)
+                "DELETE FROM expenses WHERE id = ?",
+                (expense_id,)
             )
         
         return {
@@ -216,7 +217,7 @@ async def expense_summary(
         db = get_database_manager()
         with db.get_cursor() as cur:
             # Total by category
-            query = "SELECT category, COUNT(*), SUM(amount) FROM expenses WHERE deleted_at IS NULL"
+            query = "SELECT category, COUNT(*), SUM(amount) FROM expenses"
             params = []
             
             if start_date:
@@ -232,7 +233,7 @@ async def expense_summary(
             by_category = cur.fetchall()
             
             # Grand total
-            total_query = "SELECT SUM(amount) FROM expenses WHERE deleted_at IS NULL"
+            total_query = "SELECT SUM(amount) FROM expenses"
             total_params = []
             if start_date:
                 total_query += " AND created_at >= ?"

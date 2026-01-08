@@ -149,11 +149,11 @@ class DatabaseManager:
             # Ensure database directory exists
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             
-            # Create connection
+            # Create connection with detect_types disabled to prevent errors with mixed timestamp formats
             conn = sqlite3.connect(
                 str(self.db_path),
                 timeout=30.0,
-                detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
+                detect_types=0,  # Disable automatic type conversion to avoid "not enough values to unpack" errors
                 check_same_thread=False
             )
             
@@ -246,6 +246,7 @@ class DatabaseManager:
                         last_login TIMESTAMP,
                         login_attempts INTEGER DEFAULT 0,
                         locked_until TIMESTAMP,
+                        password_changed_at TIMESTAMP, -- Track when password was last changed
                         permissions TEXT, -- JSON permissions
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

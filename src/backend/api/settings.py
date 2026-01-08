@@ -4,8 +4,9 @@ SHOP SETTINGS & CONFIGURATION API ENDPOINTS
 
 import datetime
 from fastapi import APIRouter, HTTPException, Depends, Body
-from typing import Dict, Any
+from typing import Dict, Any, List
 import logging
+import sqlite3
 
 from core.auth import get_current_user, require_permission
 from core.database import get_database_manager
@@ -24,37 +25,41 @@ async def get_shop_settings(
         with db.get_cursor() as cur:
             cur.execute("""
                 SELECT shop_name, shop_phone, shop_email, shop_address,
-                       shop_city, shop_province, shop_tax_id, gst_number,
-                       currency, timezone, business_hours_open, business_hours_close,
-                       logo_path, updated_at
+                       shop_city, owner_name, ntn_number, gst_number,
+                       currency_symbol, 'Asia/Karachi', '09:00', '18:00',
+                       logo_path, created_at, receipt_footer
                 FROM shop_settings LIMIT 1
             """)
-            settings = cur.fetchone()
+            row = cur.fetchone()
         
-        if not settings:
+        if not row:
             return {
                 "success": True,
                 "settings": None,
                 "message": "No settings configured yet"
             }
         
+        # Convert sqlite3.Row to dict
+        settings = dict(row)
+        
         return {
             "success": True,
             "settings": {
-                "shop_name": settings[0],
-                "shop_phone": settings[1],
-                "shop_email": settings[2],
-                "shop_address": settings[3],
-                "shop_city": settings[4],
-                "shop_province": settings[5],
-                "shop_tax_id": settings[6],
-                "gst_number": settings[7],
-                "currency": settings[8],
-                "timezone": settings[9],
-                "business_hours_open": settings[10],
-                "business_hours_close": settings[11],
-                "logo_path": settings[12],
-                "updated_at": settings[13]
+                "shop_name": settings.get("shop_name"),
+                "shop_phone": settings.get("shop_phone"),
+                "shop_email": settings.get("shop_email"),
+                "shop_address": settings.get("shop_address"),
+                "shop_city": settings.get("shop_city"),
+                "owner_name": settings.get("owner_name"),
+                "shop_tax_id": settings.get("ntn_number"),
+                "gst_number": settings.get("gst_number"),
+                "currency": settings.get("currency_symbol"),
+                "timezone": "Asia/Karachi",
+                "business_hours_open": "09:00",
+                "business_hours_close": "18:00",
+                "logo_path": settings.get("logo_path"),
+                "receipt_footer": settings.get("receipt_footer"),
+                "updated_at": settings.get("created_at") # Using created_at as updated_at if not present
             }
         }
     except Exception as e:
@@ -81,9 +86,8 @@ async def update_shop_settings(
                 params = []
                 for field in [
                     "shop_name", "shop_phone", "shop_email", "shop_address",
-                    "shop_city", "shop_province", "shop_tax_id", "gst_number",
-                    "currency", "timezone", "business_hours_open", "business_hours_close",
-                    "logo_path"
+                    "shop_city", "owner_name", "ntn_number", "gst_number",
+                    "currency_symbol", "logo_path", "receipt_footer"
                 ]:
                     if field in settings_data:
                         updates.append(f"{field} = ?")
@@ -100,23 +104,22 @@ async def update_shop_settings(
                 cur.execute("""
                     INSERT INTO shop_settings (
                         shop_name, shop_phone, shop_email, shop_address,
-                        shop_city, shop_province, shop_tax_id, gst_number,
-                        currency, timezone, business_hours_open, business_hours_close,
+                        shop_city, owner_name, ntn_number, gst_number,
+                        currency_symbol, receipt_footer, logo_path,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     settings_data.get("shop_name"),
                     settings_data.get("shop_phone"),
                     settings_data.get("shop_email"),
                     settings_data.get("shop_address"),
                     settings_data.get("shop_city"),
-                    settings_data.get("shop_province"),
-                    settings_data.get("shop_tax_id"),
+                    settings_data.get("owner_name"),
+                    settings_data.get("ntn_number") or settings_data.get("shop_tax_id"),
                     settings_data.get("gst_number"),
-                    settings_data.get("currency", "PKR"),
-                    settings_data.get("timezone", "Asia/Karachi"),
-                    settings_data.get("business_hours_open", "09:00"),
-                    settings_data.get("business_hours_close", "22:00"),
+                    settings_data.get("currency", settings_data.get("currency_symbol", "₹")),
+                    settings_data.get("receipt_footer", ""),
+                    settings_data.get("logo_path"),
                     datetime.datetime.now().isoformat(),
                     datetime.datetime.now().isoformat()
                 ))
@@ -139,17 +142,19 @@ async def get_printer_settings(
         db = get_database_manager()
         with db.get_cursor() as cur:
             cur.execute("""
-                SELECT id, printer_name, printer_type, printer_port,
+                SELECT id, printer_name, printer_type, connection_string,
                        paper_width, is_default, is_active
                 FROM printer_configurations
-                WHERE deleted_at IS NULL
                 ORDER BY is_default DESC
             """)
-            printers = cur.fetchall()
+            rows = cur.fetchall()
+            
+        # Convert to dicts
+        printers = [dict(row) for row in rows]
         
         return {
             "success": True,
-            "printers": printers or []
+            "printers": printers
         }
     except Exception as e:
         logger.error(f"Failed to get printer settings: {e}")
@@ -167,24 +172,24 @@ async def add_printer(
         with db.get_cursor() as cur:
             cur.execute("""
                 INSERT INTO printer_configurations (
-                    printer_name, printer_type, printer_port,
-                    paper_width, is_default, is_active, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    printer_name, printer_type, connection_string,
+                    paper_width, is_default, is_active, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
                 printer_data.get("printer_name"),
                 printer_data.get("printer_type", "thermal"),
-                printer_data.get("printer_port", "LPT1"),
+                printer_data.get("connection_string", printer_data.get("printer_port", "LPT1")),
                 printer_data.get("paper_width", 80),
                 printer_data.get("is_default", False),
                 printer_data.get("is_active", True),
-                datetime.datetime.now().isoformat(),
                 datetime.datetime.now().isoformat()
             ))
+            printer_id = cur.lastrowid
         
         return {
             "success": True,
             "message": "Printer added successfully",
-            "printer_id": db.get_last_insert_id()
+            "printer_id": printer_id
         }
     except Exception as e:
         logger.error(f"Failed to add printer: {e}")
@@ -200,16 +205,34 @@ async def get_backup_list(
         db = get_database_manager()
         with db.get_cursor() as cur:
             cur.execute("""
-                SELECT id, backup_path, backup_size, created_at
+                SELECT id, file_path, file_size, created_at
                 FROM backup_history
                 ORDER BY created_at DESC
                 LIMIT 20
             """)
-            backups = cur.fetchall()
+            rows = cur.fetchall()
+        
+        # FIX: Convert sqlite3.Row objects to dicts to avoid "not enough values to unpack"
+        # or serialization errors in FastAPI/Starlette
+        backups = []
+        for row in rows:
+            if isinstance(row, sqlite3.Row) or hasattr(row, 'keys'):
+                backups.append(dict(row))
+            else:
+                # Fallback for tuples (id, file_path, file_size, created_at)
+                try:
+                    backups.append({
+                        "id": row[0],
+                        "file_path": row[1],
+                        "file_size": row[2],
+                        "created_at": row[3]
+                    })
+                except IndexError:
+                    pass # Skip invalid rows
         
         return {
             "success": True,
-            "backups": backups or []
+            "backups": backups
         }
     except Exception as e:
         logger.error(f"Failed to get backup list: {e}")
@@ -229,12 +252,13 @@ async def create_backup(
         with db.get_cursor() as cur:
             cur.execute("""
                 INSERT INTO backup_history (
-                    backup_path, backup_size, backup_type, created_at
-                ) VALUES (?, ?, ?, ?)
+                    file_path, file_size, backup_type, status, created_at
+                ) VALUES (?, ?, ?, ?, ?)
             """, (
                 f"backups/pos_main_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.db",
                 0,
                 "manual",
+                "completed",
                 datetime.datetime.now().isoformat()
             ))
         
@@ -256,20 +280,21 @@ async def system_info(
         db = get_database_manager()
         with db.get_cursor() as cur:
             # Count statistics
-            cur.execute("SELECT COUNT(*) FROM users WHERE deleted_at IS NULL")
+            cur.execute("SELECT COUNT(*) FROM users")
             user_count = cur.fetchone()[0]
             
-            cur.execute("SELECT COUNT(*) FROM products WHERE deleted_at IS NULL")
+            cur.execute("SELECT COUNT(*) FROM products")
             product_count = cur.fetchone()[0]
             
-            cur.execute("SELECT COUNT(*) FROM customers WHERE deleted_at IS NULL")
+            cur.execute("SELECT COUNT(*) FROM customers")
             customer_count = cur.fetchone()[0]
             
-            cur.execute("SELECT COUNT(*) FROM sales WHERE deleted_at IS NULL")
+            cur.execute("SELECT COUNT(*) FROM sales")
             sale_count = cur.fetchone()[0]
             
-            cur.execute("SELECT SUM(total_amount) FROM sales WHERE deleted_at IS NULL")
-            total_revenue = cur.fetchone()[0] or 0
+            cur.execute("SELECT SUM(grand_total) FROM sales")
+            result = cur.fetchone()
+            total_revenue = result[0] if result and result[0] else 0
         
         return {
             "success": True,
@@ -286,6 +311,162 @@ async def system_info(
         }
     except Exception as e:
         logger.error(f"Failed to get system info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/users", dependencies=[Depends(require_permission("users.view"))])
+async def get_users(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get list of users."""
+    try:
+        db = get_database_manager()
+        with db.get_cursor() as cur:
+            cur.execute("""
+                SELECT id, username, full_name, role, status,
+                       created_at, updated_at
+                FROM users
+                ORDER BY created_at DESC
+            """)
+            rows = cur.fetchall()
+        
+        # Convert to dicts and add dummy email field
+        users = []
+        for row in rows:
+            u = dict(row)
+            u['email'] = u.get('email', '') # Placeholder for frontend compatibility
+            u['phone'] = u.get('phone', '') # Placeholder for frontend compatibility
+            users.append(u)
+        
+        return {
+            "success": True,
+            "users": users
+        }
+    except Exception as e:
+        logger.error(f"Failed to get users: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/users", dependencies=[Depends(require_permission("users.manage"))])
+async def create_user(
+    user_data: Dict[str, Any] = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Create a new user."""
+    try:
+        db = get_database_manager()
+        
+        # Check if username already exists
+        with db.get_cursor() as cur:
+            cur.execute("SELECT id FROM users WHERE username = ?", (user_data.get("username"),))
+            if cur.fetchone():
+                raise HTTPException(status_code=400, detail="Username already exists")
+        
+        # Hash password
+        from core.auth import AuthenticationManager
+        hashed_password, _ = AuthenticationManager.hash_password(user_data.get("password"))
+        
+        with db.get_cursor() as cur:
+            cur.execute("""
+                INSERT INTO users (
+                    username, password_hash, full_name, role,
+                    status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                user_data.get("username"),
+                hashed_password,
+                user_data.get("full_name"),
+                user_data.get("role") if user_data.get("role") in ["malik", "munshi", "shop_boy", "stock_boy"] else "shop_boy",
+                "active" if user_data.get("is_active", True) else "inactive",
+                datetime.datetime.now().isoformat(),
+                datetime.datetime.now().isoformat()
+            ))
+            user_id = cur.lastrowid
+        
+        return {
+            "success": True,
+            "message": "User created successfully",
+            "user_id": user_id
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/users/{user_id}", dependencies=[Depends(require_permission("users.manage"))])
+async def update_user(
+    user_id: int,
+    user_data: Dict[str, Any] = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Update user information."""
+    try:
+        db = get_database_manager()
+        
+        with db.get_cursor() as cur:
+            updates = []
+            params = []
+            
+            for field in ["full_name", "status"]:
+                if field in user_data:
+                    updates.append(f"{field} = ?")
+                    params.append(user_data[field])
+            
+            # Validate and add role separately
+            if "role" in user_data:
+                role = user_data["role"] if user_data["role"] in ["malik", "munshi", "shop_boy", "stock_boy"] else "shop_boy"
+                updates.append("role = ?")
+                params.append(role)
+            
+            # Map is_active to status
+            if "is_active" in user_data:
+                status = "active" if user_data["is_active"] else "inactive"
+                updates.append("status = ?")
+                params.append(status)
+            
+            if "password" in user_data and user_data["password"]:
+                from core.auth import AuthenticationManager
+                hashed_password, _ = AuthenticationManager.hash_password(user_data["password"])
+                updates.append("password_hash = ?")
+                params.append(hashed_password)
+            
+            if updates:
+                updates.append("updated_at = ?")
+                params.append(datetime.datetime.now().isoformat())
+                
+                query = f"UPDATE users SET {', '.join(updates)} WHERE id = ?"
+                params.append(user_id)
+                cur.execute(query, params)
+        
+        return {
+            "success": True,
+            "message": "User updated successfully"
+        }
+    except Exception as e:
+        logger.error(f"Failed to update user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/users/{user_id}", dependencies=[Depends(require_permission("users.manage"))])
+async def delete_user(
+    user_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Delete a user (soft delete by deactivating)."""
+    try:
+        db = get_database_manager()
+        
+        with db.get_cursor() as cur:
+            cur.execute("UPDATE users SET is_active = 0 WHERE id = ?", (user_id,))
+        
+        return {
+            "success": True,
+            "message": "User deactivated successfully"
+        }
+    except Exception as e:
+        logger.error(f"Failed to delete user: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

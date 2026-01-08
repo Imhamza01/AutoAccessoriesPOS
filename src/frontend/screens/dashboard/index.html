@@ -7,13 +7,13 @@
             <p class="header-subtitle" id="dashboardDate">Today's Overview</p>
         </div>
         <div class="dashboard-actions">
-            <button class="btn btn-primary" onclick="loadScreen('pos')">
+            <button class="btn btn-primary" id="quickSaleBtn">
                 <span class="btn-icon">💰</span> Quick Sale
             </button>
-            <button class="btn btn-secondary" onclick="refreshDashboard()">
+            <button class="btn btn-secondary" id="refreshDashboardBtn">
                 <span class="btn-icon">🔄</span> Refresh
             </button>
-            <button class="btn btn-success" onclick="loadScreen('reports')">
+            <button class="btn btn-success" id="reportsBtn">
                 <span class="btn-icon">📊</span> Reports
             </button>
         </div>
@@ -98,49 +98,49 @@
     <div class="quick-actions-section">
         <h2>Quick Actions</h2>
         <div class="quick-actions-grid">
-            <button class="quick-action-btn" onclick="loadScreen('pos')">
+            <button class="quick-action-btn" onclick="window.app.quickAction('new-sale')">
                 <div class="quick-action-icon">💰</div>
                 <div class="quick-action-text">POS Terminal</div>
                 <div class="quick-action-desc">Start new sale</div>
             </button>
 
-            <button class="quick-action-btn" onclick="loadScreen('products')">
+            <button class="quick-action-btn" onclick="window.app.quickAction('add-product')">
                 <div class="quick-action-icon">🛍️</div>
                 <div class="quick-action-text">Add Product</div>
                 <div class="quick-action-desc">Add new product</div>
             </button>
 
-            <button class="quick-action-btn" onclick="loadScreen('customers')">
+            <button class="quick-action-btn" onclick="window.app.quickAction('add-customer')">
                 <div class="quick-action-icon">👤</div>
                 <div class="quick-action-text">Add Customer</div>
                 <div class="quick-action-desc">Register new customer</div>
             </button>
 
-            <button class="quick-action-btn" onclick="loadScreen('inventory')">
+            <button class="quick-action-btn" onclick="window.app.quickAction('stock-check')">
                 <div class="quick-action-icon">📦</div>
                 <div class="quick-action-text">Stock Check</div>
                 <div class="quick-action-desc">Check inventory</div>
             </button>
 
-            <button class="quick-action-btn" onclick="showDailySummary()">
+            <button class="quick-action-btn" onclick="window.app.quickAction('daily-report')">
                 <div class="quick-action-icon">📊</div>
                 <div class="quick-action-text">Daily Report</div>
                 <div class="quick-action-desc">View today's report</div>
             </button>
 
-            <button class="quick-action-btn" onclick="showExpenseModal()">
+            <button class="quick-action-btn" onclick="window.app.quickAction('add-expense')">
                 <div class="quick-action-icon">💸</div>
                 <div class="quick-action-text">Add Expense</div>
                 <div class="quick-action-desc">Record shop expense</div>
             </button>
 
-            <button class="quick-action-btn" onclick="loadScreen('sales')">
+            <button class="quick-action-btn" onclick="window.app.quickAction('view-sales')">
                 <div class="quick-action-icon">🧾</div>
                 <div class="quick-action-text">View Sales</div>
                 <div class="quick-action-desc">Today's sales list</div>
             </button>
 
-            <button class="quick-action-btn" onclick="makeBackup()">
+            <button class="quick-action-btn" onclick="window.app.quickAction('backup')">
                 <div class="quick-action-icon">💾</div>
                 <div class="quick-action-text">Backup Data</div>
                 <div class="quick-action-desc">Create backup</div>
@@ -164,7 +164,7 @@
         <div class="chart-card">
             <div class="chart-header">
                 <h3>Top Selling Products</h3>
-                <button class="btn btn-small btn-secondary" onclick="loadScreen('reports')">View All</button>
+                <button class="btn btn-small btn-secondary" id="viewAllReportsBtn">View All</button>
             </div>
             <canvas id="topProductsChart"></canvas>
         </div>
@@ -191,7 +191,7 @@
         <div class="table-section">
             <div class="table-header">
                 <h3>Recent Sales</h3>
-                <button class="btn btn-small btn-secondary" onclick="window.POS.loadScreen('sales')">
+                <button class="btn btn-small btn-secondary" id="viewAllSalesBtn">
                     View All
                 </button>
             </div>
@@ -220,7 +220,7 @@
         <div class="table-section">
             <div class="table-header">
                 <h3>Low Stock Items (Need Restock)</h3>
-                <button class="btn btn-small btn-danger" onclick="window.POS.loadScreen('inventory')">
+                <button class="btn btn-small btn-danger" id="restockInventoryBtn">
                     Restock
                 </button>
             </div>

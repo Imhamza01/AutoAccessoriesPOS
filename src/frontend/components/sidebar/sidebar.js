@@ -67,8 +67,8 @@ function checkUserManagementPermission() {
     if (window.app && window.app.currentUser) {
         const usersBtn = document.getElementById('users-menu-btn');
         if (usersBtn) {
-            // Show users menu only for admin
-            if (window.app.currentUser.role === 'admin' || window.app.currentUser.is_admin) {
+            // Show users menu only for users with user management permissions
+            if (window.app.currentUser.can_manage_users) {
                 usersBtn.style.display = 'flex';
             } else {
                 usersBtn.style.display = 'none';

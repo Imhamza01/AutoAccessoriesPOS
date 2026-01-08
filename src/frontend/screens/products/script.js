@@ -15,16 +15,42 @@ class ProductsScreen {
         this.pageSize = 50;
         this.totalPages = 1;
         this.filters = {};
-        
+
         this.init();
     }
 
     init() {
         console.log('Initializing Products Screen');
+        this.checkPermissions();
         this.loadCategories();
         this.loadBrands();
         this.loadProducts();
         this.setupEventListeners();
+    }
+    
+    closeModal() {
+        const modalContainer = document.getElementById('product-modal');
+        if (modalContainer) {
+            modalContainer.style.display = 'none';
+        }
+    }
+    
+    checkPermissions() {
+        // Hide buttons that user doesn't have permission for
+        const addProductBtn = document.getElementById('add-product-btn');
+        const bulkImportBtn = document.getElementById('bulk-import-btn');
+        
+        if (addProductBtn) {
+            if (!this.app.currentUser.can_manage_products) {
+                addProductBtn.style.display = 'none';
+            }
+        }
+        
+        if (bulkImportBtn) {
+            if (!this.app.currentUser.can_manage_products) {
+                bulkImportBtn.style.display = 'none';
+            }
+        }
     }
 
     refresh() {
@@ -64,7 +90,7 @@ class ProductsScreen {
         const stockFilter = document.getElementById('stock-filter');
         if (stockFilter) {
             stockFilter.addEventListener('change', () => {
-                switch(stockFilter.value) {
+                switch (stockFilter.value) {
                     case 'low_stock':
                         this.filters.low_stock = true;
                         delete this.filters.out_of_stock;
@@ -85,8 +111,8 @@ class ProductsScreen {
         const statusFilter = document.getElementById('status-filter');
         if (statusFilter) {
             statusFilter.addEventListener('change', () => {
-                this.filters.is_active = statusFilter.value === 'active' ? true : 
-                                       statusFilter.value === 'inactive' ? false : null;
+                this.filters.is_active = statusFilter.value === 'active' ? true :
+                    statusFilter.value === 'inactive' ? false : null;
                 this.currentPage = 1;
                 this.loadProducts();
             });
@@ -117,20 +143,30 @@ class ProductsScreen {
             });
         });
 
-        // Add product button
+        // Add product button - only show if user has manage permission
         const addProductBtn = document.getElementById('add-product-btn');
         if (addProductBtn) {
-            addProductBtn.addEventListener('click', () => {
-                this.showAddProductModal();
-            });
+            if (this.app.currentUser.can_manage_products) {
+                addProductBtn.style.display = 'inline-flex';
+                addProductBtn.addEventListener('click', () => {
+                    this.showAddProductModal();
+                });
+            } else {
+                addProductBtn.style.display = 'none';
+            }
         }
 
-        // Bulk import button
+        // Bulk import button - only show if user has manage permission
         const bulkImportBtn = document.getElementById('bulk-import-btn');
         if (bulkImportBtn) {
-            bulkImportBtn.addEventListener('click', () => {
-                this.showBulkImportModal();
-            });
+            if (this.app.currentUser.can_manage_products) {
+                bulkImportBtn.style.display = 'inline-flex';
+                bulkImportBtn.addEventListener('click', () => {
+                    this.showBulkImportModal();
+                });
+            } else {
+                bulkImportBtn.style.display = 'none';
+            }
         }
 
         // Refresh button
@@ -221,12 +257,12 @@ class ProductsScreen {
                 searchInput.focus();
                 searchInput.select();
             }
-            
+
             if (e.ctrlKey && e.key === 'n') {
                 e.preventDefault();
                 this.showAddProductModal();
             }
-            
+
             if (e.key === 'Escape') {
                 this.selectedProducts.clear();
                 this.updateBulkActions();
@@ -248,12 +284,12 @@ class ProductsScreen {
     renderCategoryFilter() {
         const categoryFilter = document.getElementById('category-filter');
         if (!categoryFilter) return;
-        
+
         // Clear existing options except first
         while (categoryFilter.options.length > 1) {
             categoryFilter.remove(1);
         }
-        
+
         // Add categories recursively
         const addCategories = (categories, level = 0) => {
             categories.forEach(category => {
@@ -261,13 +297,13 @@ class ProductsScreen {
                 option.value = category.id;
                 option.textContent = ' '.repeat(level * 2) + category.name;
                 categoryFilter.appendChild(option);
-                
+
                 if (category.children) {
                     addCategories(category.children, level + 1);
                 }
             });
         };
-        
+
         addCategories(this.categories);
     }
 
@@ -285,12 +321,12 @@ class ProductsScreen {
     renderBrandFilter() {
         const brandFilter = document.getElementById('brand-filter');
         if (!brandFilter) return;
-        
+
         // Clear existing options except first
         while (brandFilter.options.length > 1) {
             brandFilter.remove(1);
         }
-        
+
         // Add brands
         this.brands.forEach(brand => {
             const option = document.createElement('option');
@@ -302,48 +338,48 @@ class ProductsScreen {
 
     async loadProducts() {
         this.app.showLoading('Loading products...');
-        
+
         try {
             // Build query parameters
             const params = new URLSearchParams({
                 page: this.currentPage,
                 page_size: this.pageSize
             });
-            
+
             if (this.filters.category_id) {
                 params.append('category_id', this.filters.category_id);
             }
-            
+
             if (this.filters.brand_id) {
                 params.append('brand_id', this.filters.brand_id);
             }
-            
+
             if (this.filters.search) {
                 params.append('search', this.filters.search);
             }
-            
+
             if (this.filters.is_active !== undefined && this.filters.is_active !== null) {
                 params.append('is_active', this.filters.is_active);
             }
-            
+
             if (this.filters.low_stock) {
                 params.append('low_stock', 'true');
             }
-            
+
             if (this.filters.out_of_stock) {
                 params.append('out_of_stock', 'true');
             }
-            
+
             const response = await this.api.get(`/products?${params.toString()}`);
-            
+
             this.products = response.products;
             this.totalPages = response.total_pages;
             this.currentPage = response.current_page;
-            
+
             this.renderProducts();
             this.updatePagination();
             this.updateProductCount();
-            
+
         } catch (error) {
             console.error('Failed to load products:', error);
             this.app.showNotification('Failed to load products', 'error');
@@ -355,7 +391,7 @@ class ProductsScreen {
     renderProducts() {
         const tbody = document.getElementById('products-tbody');
         if (!tbody) return;
-        
+
         tbody.innerHTML = this.products.map(product => `
             <tr data-product-id="${product.id}" class="${product.current_stock <= 0 ? 'out-of-stock' : product.current_stock <= product.min_stock ? 'low-stock' : ''}">
                 <td>
@@ -415,7 +451,7 @@ class ProductsScreen {
                 </td>
             </tr>
         `).join('');
-        
+
         // Add event listeners to action buttons
         tbody.querySelectorAll('.btn-view').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -423,28 +459,28 @@ class ProductsScreen {
                 this.viewProduct(productId);
             });
         });
-        
+
         tbody.querySelectorAll('.btn-edit').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const productId = btn.dataset.productId;
                 this.editProduct(productId);
             });
         });
-        
+
         tbody.querySelectorAll('.btn-stock').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const productId = btn.dataset.productId;
                 this.adjustStock(productId);
             });
         });
-        
+
         tbody.querySelectorAll('.btn-delete').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const productId = btn.dataset.productId;
                 this.deleteProduct(productId);
             });
         });
-        
+
         // Add event listeners to select checkboxes
         tbody.querySelectorAll('.product-select').forEach(checkbox => {
             checkbox.addEventListener('change', (e) => {
@@ -464,19 +500,19 @@ class ProductsScreen {
         const nextPageBtn = document.getElementById('next-page');
         const currentPageSpan = document.getElementById('current-page');
         const totalPagesSpan = document.getElementById('total-pages');
-        
+
         if (prevPageBtn) {
             prevPageBtn.disabled = this.currentPage <= 1;
         }
-        
+
         if (nextPageBtn) {
             nextPageBtn.disabled = this.currentPage >= this.totalPages;
         }
-        
+
         if (currentPageSpan) {
             currentPageSpan.textContent = this.currentPage;
         }
-        
+
         if (totalPagesSpan) {
             totalPagesSpan.textContent = this.totalPages;
         }
@@ -493,7 +529,7 @@ class ProductsScreen {
         const bulkActions = document.getElementById('bulk-actions');
         const selectedCount = document.getElementById('selected-count');
         const selectAllCheckbox = document.getElementById('select-all');
-        
+
         if (this.selectedProducts.size > 0) {
             if (bulkActions) bulkActions.style.display = 'flex';
             if (selectedCount) selectedCount.textContent = this.selectedProducts.size;
@@ -506,10 +542,10 @@ class ProductsScreen {
 
     toggleSelectAll(selectAll) {
         const checkboxes = document.querySelectorAll('.product-select');
-        
+
         checkboxes.forEach(checkbox => {
             const productId = parseInt(checkbox.dataset.productId);
-            
+
             if (selectAll) {
                 checkbox.checked = true;
                 this.selectedProducts.add(productId);
@@ -518,7 +554,7 @@ class ProductsScreen {
                 this.selectedProducts.delete(productId);
             }
         });
-        
+
         this.updateBulkActions();
     }
 
@@ -529,37 +565,37 @@ class ProductsScreen {
         document.getElementById('brand-filter').value = '';
         document.getElementById('stock-filter').value = '';
         document.getElementById('status-filter').value = '';
-        
+
         // Clear filter object
         this.filters = {};
-        
+
         // Reset pagination
         this.currentPage = 1;
-        
+
         // Reload products
         this.loadProducts();
     }
 
     handleQuickAction(action) {
-        switch(action) {
+        switch (action) {
             case 'low-stock':
                 this.filters.low_stock = true;
                 delete this.filters.out_of_stock;
                 this.currentPage = 1;
                 this.loadProducts();
                 break;
-                
+
             case 'out-of-stock':
                 this.filters.out_of_stock = true;
                 delete this.filters.low_stock;
                 this.currentPage = 1;
                 this.loadProducts();
                 break;
-                
+
             case 'top-selling':
                 this.showTopSellingProducts();
                 break;
-                
+
             case 'bulk-price-update':
                 this.showBulkPriceUpdateModal();
                 break;
@@ -568,7 +604,7 @@ class ProductsScreen {
 
     async viewProduct(productId) {
         this.app.showLoading('Loading product details...');
-        
+
         try {
             const response = await this.api.get(`/products/${productId}`);
             this.showProductDetailsModal(response.product);
@@ -585,7 +621,7 @@ class ProductsScreen {
             <div class="modal" style="width: 800px;">
                 <div class="modal-header">
                     <h3 class="modal-title">Product Details</h3>
-                    <button class="modal-close" onclick="POS.screens.products.closeModal()">&times;</button>
+                    <button class="modal-close" onclick="window.app.screens.products.closeModal()">&times;</button>
                 </div>
                 <div class="modal-body">
                     <div class="product-details-container">
@@ -761,18 +797,25 @@ class ProductsScreen {
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-secondary" onclick="POS.screens.products.closeModal()">
+                    <button class="btn btn-secondary" onclick="window.app.screens.products.closeModal()">
                         Close
                     </button>
-                    <button class="btn btn-primary" onclick="POS.screens.products.editProduct(${product.id})">
+                    <button class="btn btn-primary" onclick="window.app.screens.products.editProduct(${product.id})">
                         Edit Product
                     </button>
                 </div>
             </div>
         `;
-        
-        this.showModal(modalHtml);
-        
+
+        // Show modal by inserting it into the designated modal container
+        const modalContainer = document.getElementById('product-modal');
+        if (modalContainer) {
+            modalContainer.innerHTML = modalHtml;
+            modalContainer.style.display = 'flex';
+        } else {
+            console.error('Product modal container not found');
+        }
+
         // Setup tab switching
         setTimeout(() => {
             const tabBtns = document.querySelectorAll('.tab-btn');
@@ -783,7 +826,7 @@ class ProductsScreen {
                     document.querySelectorAll('.tab-content').forEach(content => {
                         content.classList.remove('active');
                     });
-                    
+
                     // Add active class to clicked tab
                     btn.classList.add('active');
                     const tabId = btn.dataset.tab;
@@ -798,7 +841,7 @@ class ProductsScreen {
             <div class="modal" style="width: 700px;">
                 <div class="modal-header">
                     <h3 class="modal-title">Add New Product</h3>
-                    <button class="modal-close" onclick="POS.screens.products.closeModal()">&times;</button>
+                    <button class="modal-close" onclick="window.app.screens.products.closeModal()">&times;</button>
                 </div>
                 <div class="modal-body">
                     <form id="add-product-form" class="product-form">
@@ -958,37 +1001,47 @@ class ProductsScreen {
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-secondary" onclick="POS.screens.products.closeModal()">
+                    <button class="btn btn-secondary" onclick="window.app.screens.products.closeModal()">
                         Cancel
                     </button>
-                    <button class="btn btn-primary" onclick="POS.screens.products.createProduct()">
+                    <button class="btn btn-primary" onclick="window.app.screens.products.createProduct()">
                         Create Product
                     </button>
                 </div>
             </div>
         `;
-        
-        this.showModal(modalHtml);
-        
-        // Auto-focus on product code
-        setTimeout(() => {
-            document.getElementById('product-code').focus();
-        }, 100);
-        
+
+        // Show modal by inserting it into the designated modal container
+        const modalContainer = document.getElementById('product-modal');
+        if (modalContainer) {
+            modalContainer.innerHTML = modalHtml;
+            modalContainer.style.display = 'flex';
+            
+            // Auto-focus on product code
+            setTimeout(() => {
+                const productCodeInput = document.getElementById('product-code');
+                if (productCodeInput) {
+                    productCodeInput.focus();
+                }
+            }, 100);
+        } else {
+            console.error('Product modal container not found');
+        }
+
         // Calculate profit margin on price change
         const costPriceInput = document.getElementById('cost-price');
         const retailPriceInput = document.getElementById('retail-price');
-        
+
         const calculateMargin = () => {
             const cost = parseFloat(costPriceInput.value) || 0;
             const retail = parseFloat(retailPriceInput.value) || 0;
-            
+
             if (cost > 0 && retail > 0) {
                 const margin = ((retail - cost) / cost * 100).toFixed(1);
                 // You could display this somewhere
             }
         };
-        
+
         if (costPriceInput && retailPriceInput) {
             costPriceInput.addEventListener('input', calculateMargin);
             retailPriceInput.addEventListener('input', calculateMargin);
@@ -997,17 +1050,17 @@ class ProductsScreen {
 
     generateCategoryOptions(categories = null, level = 0) {
         if (!categories) categories = this.categories;
-        
+
         let options = '';
         categories.forEach(category => {
             const indent = ' '.repeat(level * 2);
             options += `<option value="${category.id}">${indent}${category.name}</option>`;
-            
+
             if (category.children) {
                 options += this.generateCategoryOptions(category.children, level + 1);
             }
         });
-        
+
         return options;
     }
 
@@ -1036,33 +1089,33 @@ class ProductsScreen {
             is_service: !document.getElementById('is-service').checked,
             is_active: document.getElementById('is-active').checked
         };
-        
+
         // Validation
         const errorElement = document.getElementById('form-error');
-        if (!formData.product_code || !formData.name || !formData.category_id || 
+        if (!formData.product_code || !formData.name || !formData.category_id ||
             isNaN(formData.cost_price) || isNaN(formData.retail_price)) {
             errorElement.textContent = 'Please fill all required fields';
             errorElement.style.display = 'block';
             return;
         }
-        
+
         if (formData.retail_price < formData.cost_price) {
             errorElement.textContent = 'Retail price cannot be less than cost price';
             errorElement.style.display = 'block';
             return;
         }
-        
+
         try {
             this.app.showLoading('Creating product...');
-            
+
             const response = await this.api.post('/products', formData);
-            
+
             this.closeModal();
             this.app.showNotification('Product created successfully', 'success');
-            
+
             // Refresh products list
             this.loadProducts();
-            
+
         } catch (error) {
             console.error('Failed to create product:', error);
             errorElement.textContent = error.message || 'Failed to create product';
@@ -1074,7 +1127,7 @@ class ProductsScreen {
 
     async editProduct(productId) {
         this.app.showLoading('Loading product...');
-        
+
         try {
             const response = await this.api.get(`/products/${productId}`);
             this.showEditProductModal(response.product);
@@ -1087,10 +1140,212 @@ class ProductsScreen {
     }
 
     showEditProductModal(product) {
-        // Similar to add modal but with existing data
-        // Implement edit functionality
-        console.log('Edit product:', product);
-        this.app.showNotification('Edit product functionality would open here', 'info');
+        const modalHtml = `
+            <div class="modal" style="width: 700px;">
+                <div class="modal-header">
+                    <h3 class="modal-title">Edit Product</h3>
+                    <button class="modal-close" onclick="window.app.screens.products.closeModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="edit-product-form" class="product-form">
+                        <div class="form-section">
+                            <h4>Basic Information</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label class="input-label required">Product Code</label>
+                                    <input type="text" id="edit-product-code" class="input-field" 
+                                           value="${product.product_code || ''}" required>
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label">Barcode</label>
+                                    <input type="text" id="edit-barcode" class="input-field" 
+                                           value="${product.barcode || ''}" placeholder="8901234567890">
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label required">Product Name</label>
+                                    <input type="text" id="edit-product-name" class="input-field" 
+                                           value="${product.name || ''}" required>
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label required">Category</label>
+                                    <select id="edit-category" class="input-field" required>
+                                        <option value="">Select Category</option>
+                                        ${this.generateCategoryOptions()}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label">Brand</label>
+                                    <select id="edit-brand" class="input-field">
+                                        <option value="">Select Brand</option>
+                                        ${this.brands.map(brand => `
+                                            <option value="${brand.id}" ${product.brand_id == brand.id ? 'selected' : ''}>${brand.name}</option>
+                                        `).join('')}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label">Unit</label>
+                                    <select id="edit-unit" class="input-field">
+                                        <option value="pcs" ${product.unit === 'pcs' ? 'selected' : ''}>Pieces (pcs)</option>
+                                        <option value="kg" ${product.unit === 'kg' ? 'selected' : ''}>Kilogram (kg)</option>
+                                        <option value="litre" ${product.unit === 'litre' ? 'selected' : ''}>Litre</option>
+                                        <option value="meter" ${product.unit === 'meter' ? 'selected' : ''}>Meter</option>
+                                        <option value="set" ${product.unit === 'set' ? 'selected' : ''}>Set</option>
+                                        <option value="pair" ${product.unit === 'pair' ? 'selected' : ''}>Pair</option>
+                                    </select>
+                                </div>
+                                <div class="form-group full-width">
+                                    <label class="input-label">Description</label>
+                                    <textarea id="edit-description" class="input-field" 
+                                              rows="3" placeholder="Product description">${product.description || ''}</textarea>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <h4>Pricing Information</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label class="input-label required">Cost Price</label>
+                                    <input type="number" id="edit-cost-price" class="input-field" 
+                                           step="0.01" min="0" value="${product.cost_price || 0}" required>
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label required">Retail Price</label>
+                                    <input type="number" id="edit-retail-price" class="input-field" 
+                                           step="0.01" min="0" value="${product.retail_price || 0}" required>
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label">Wholesale Price</label>
+                                    <input type="number" id="edit-wholesale-price" class="input-field" 
+                                           step="0.01" min="0" value="${product.wholesale_price || ''}">
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label">Dealer Price</label>
+                                    <input type="number" id="edit-dealer-price" class="input-field" 
+                                           step="0.01" min="0" value="${product.dealer_price || ''}">
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label">Minimum Sale Price</label>
+                                    <input type="number" id="edit-min-sale-price" class="input-field" 
+                                           step="0.01" min="0" value="${product.min_sale_price || ''}">
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label">GST Rate (%)</label>
+                                    <input type="number" id="edit-gst-rate" class="input-field" 
+                                           value="${product.gst_rate || 17}" step="0.01" min="0" max="100">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <h4>Stock Information</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label class="input-label">Current Stock</label>
+                                    <input type="number" id="edit-current-stock" class="input-field" 
+                                           value="${product.current_stock || 0}" step="0.001" min="0">
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label">Minimum Stock</label>
+                                    <input type="number" id="edit-min-stock" class="input-field" 
+                                           value="${product.min_stock || 5}" step="0.001" min="0">
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label">Maximum Stock</label>
+                                    <input type="number" id="edit-max-stock" class="input-field" 
+                                           value="${product.max_stock || ''}" step="0.001" min="0">
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label">Reorder Level</label>
+                                    <input type="number" id="edit-reorder-level" class="input-field" 
+                                           value="${product.reorder_level || ''}" step="0.001" min="0">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <h4>Additional Information</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label class="input-label">Vehicle Type</label>
+                                    <select id="edit-vehicle-type" class="input-field">
+                                        <option value="" ${!product.for_vehicle_type ? 'selected' : ''}>All Vehicles</option>
+                                        <option value="car" ${product.for_vehicle_type === 'car' ? 'selected' : ''}>Car</option>
+                                        <option value="bike" ${product.for_vehicle_type === 'bike' ? 'selected' : ''}>Bike</option>
+                                        <option value="rickshaw" ${product.for_vehicle_type === 'rickshaw' ? 'selected' : ''}>Rickshaw</option>
+                                        <option value="truck" ${product.for_vehicle_type === 'truck' ? 'selected' : ''}>Truck</option>
+                                        <option value="other" ${product.for_vehicle_type === 'other' ? 'selected' : ''}>Other</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label">Warranty Days</label>
+                                    <input type="number" id="edit-warranty-days" class="input-field" 
+                                           value="${product.warranty_days || 180}" min="0">
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label">
+                                        <input type="checkbox" id="edit-has-serial" ${product.has_serial ? 'checked' : ''}> Track Serial Numbers
+                                    </label>
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label">
+                                        <input type="checkbox" id="edit-is-service" ${!product.is_service ? 'checked' : ''}> Is Product
+                                    </label>
+                                </div>
+                                <div class="form-group">
+                                    <label class="input-label">
+                                        <input type="checkbox" id="edit-is-active" ${product.is_active ? 'checked' : ''}> Active
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="edit-form-error" class="text-danger" style="display: none;"></div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="window.app.screens.products.closeModal()">
+                        Cancel
+                    </button>
+                    <button class="btn btn-primary" onclick="window.app.screens.products.updateProduct(${product.id})">
+                        Update Product
+                    </button>
+                </div>
+            </div>
+        `;
+
+        // Show modal by inserting it into the designated modal container
+        const modalContainer = document.getElementById('product-modal');
+        if (modalContainer) {
+            modalContainer.innerHTML = modalHtml;
+            modalContainer.style.display = 'flex';
+        } else {
+            console.error('Product modal container not found');
+        }
+
+        // Set selected category
+        if (product.category_id) {
+            document.getElementById('edit-category').value = product.category_id;
+        }
+
+        // Calculate profit margin on price change
+        const costPriceInput = document.getElementById('edit-cost-price');
+        const retailPriceInput = document.getElementById('edit-retail-price');
+
+        const calculateMargin = () => {
+            const cost = parseFloat(costPriceInput.value) || 0;
+            const retail = parseFloat(retailPriceInput.value) || 0;
+
+            if (cost > 0 && retail > 0) {
+                const margin = ((retail - cost) / cost * 100).toFixed(1);
+                // You could display this somewhere
+n            }
+        };
+
+        if (costPriceInput && retailPriceInput) {
+            costPriceInput.addEventListener('input', calculateMargin);
+            retailPriceInput.addEventListener('input', calculateMargin);
+        }
     }
 
     async adjustStock(productId) {
@@ -1098,7 +1353,7 @@ class ProductsScreen {
             <div class="modal" style="width: 500px;">
                 <div class="modal-header">
                     <h3 class="modal-title">Adjust Stock</h3>
-                    <button class="modal-close" onclick="POS.screens.products.closeModal()">&times;</button>
+                    <button class="modal-close" onclick="window.app.screens.products.closeModal()">&times;</button>
                 </div>
                 <div class="modal-body">
                     <div class="current-stock-info">
@@ -1147,18 +1402,25 @@ class ProductsScreen {
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-secondary" onclick="POS.screens.products.closeModal()">
+                    <button class="btn btn-secondary" onclick="window.app.screens.products.closeModal()">
                         Cancel
                     </button>
-                    <button class="btn btn-primary" onclick="POS.screens.products.submitStockAdjustment(${productId})">
+                    <button class="btn btn-primary" onclick="window.app.screens.products.submitStockAdjustment(${productId})">
                         Adjust Stock
                     </button>
                 </div>
             </div>
         `;
-        
-        this.showModal(modalHtml);
-        
+
+        // Show modal by inserting it into the designated modal container
+        const modalContainer = document.getElementById('product-modal');
+        if (modalContainer) {
+            modalContainer.innerHTML = modalHtml;
+            modalContainer.style.display = 'flex';
+        } else {
+            console.error('Product modal container not found');
+        }
+
         // Load current stock
         this.loadProductStock(productId);
     }
@@ -1167,12 +1429,12 @@ class ProductsScreen {
         try {
             const response = await this.api.get(`/products/${productId}`);
             const currentStock = response.product.current_stock;
-            
+
             const stockElement = document.getElementById('current-stock-value');
             if (stockElement) {
                 stockElement.textContent = currentStock;
-                stockElement.className = currentStock <= 0 ? 'text-danger' : 
-                                       currentStock <= response.product.min_stock ? 'text-warning' : '';
+                stockElement.className = currentStock <= 0 ? 'text-danger' :
+                    currentStock <= response.product.min_stock ? 'text-warning' : '';
             }
         } catch (error) {
             console.error('Failed to load product stock:', error);
@@ -1186,38 +1448,99 @@ class ProductsScreen {
         const reason = document.getElementById('adjustment-reason').value.trim();
         const notes = document.getElementById('adjustment-notes').value.trim();
         const errorElement = document.getElementById('stock-error');
-        
+
         if (isNaN(quantity) || quantity === 0) {
             errorElement.textContent = 'Please enter a valid non-zero quantity';
             errorElement.style.display = 'block';
             return;
         }
-        
+
         try {
             this.app.showLoading('Adjusting stock...');
-            
+
             const adjustmentData = {
                 quantity: quantity,
                 movement_type: movementType,
                 reason: reason || 'Stock adjustment',
                 notes: notes
             };
-            
+
             if (referenceNumber) {
                 adjustmentData.reference_number = referenceNumber;
             }
-            
+
             await this.api.post(`/products/${productId}/adjust-stock`, adjustmentData);
-            
+
             this.closeModal();
             this.app.showNotification('Stock adjusted successfully', 'success');
-            
+
             // Refresh products list
             this.loadProducts();
-            
+
         } catch (error) {
             console.error('Failed to adjust stock:', error);
             errorElement.textContent = error.message || 'Failed to adjust stock';
+            errorElement.style.display = 'block';
+        } finally {
+            this.app.hideLoading();
+        }
+    }
+
+    async updateProduct(productId) {
+        const formData = {
+            product_code: document.getElementById('edit-product-code').value.trim(),
+            barcode: document.getElementById('edit-barcode').value.trim() || null,
+            name: document.getElementById('edit-product-name').value.trim(),
+            category_id: parseInt(document.getElementById('edit-category').value),
+            brand_id: document.getElementById('edit-brand').value ? parseInt(document.getElementById('edit-brand').value) : null,
+            unit: document.getElementById('edit-unit').value,
+            description: document.getElementById('edit-description').value.trim() || null,
+            cost_price: parseFloat(document.getElementById('edit-cost-price').value),
+            retail_price: parseFloat(document.getElementById('edit-retail-price').value),
+            wholesale_price: document.getElementById('edit-wholesale-price').value ? parseFloat(document.getElementById('edit-wholesale-price').value) : null,
+            dealer_price: document.getElementById('edit-dealer-price').value ? parseFloat(document.getElementById('edit-dealer-price').value) : null,
+            min_sale_price: document.getElementById('edit-min-sale-price').value ? parseFloat(document.getElementById('edit-min-sale-price').value) : null,
+            current_stock: parseFloat(document.getElementById('edit-current-stock').value) || 0,
+            min_stock: parseFloat(document.getElementById('edit-min-stock').value) || 5,
+            max_stock: document.getElementById('edit-max-stock').value ? parseFloat(document.getElementById('edit-max-stock').value) : null,
+            reorder_level: document.getElementById('edit-reorder-level').value ? parseFloat(document.getElementById('edit-reorder-level').value) : null,
+            gst_rate: parseFloat(document.getElementById('edit-gst-rate').value) || 17.0,
+            for_vehicle_type: document.getElementById('edit-vehicle-type').value || null,
+            warranty_days: parseInt(document.getElementById('edit-warranty-days').value) || 180,
+            has_serial: document.getElementById('edit-has-serial').checked,
+            is_service: !document.getElementById('edit-is-service').checked,
+            is_active: document.getElementById('edit-is-active').checked
+        };
+
+        // Validation
+        const errorElement = document.getElementById('edit-form-error');
+        if (!formData.product_code || !formData.name || !formData.category_id ||
+            isNaN(formData.cost_price) || isNaN(formData.retail_price)) {
+            errorElement.textContent = 'Please fill all required fields';
+            errorElement.style.display = 'block';
+            return;
+        }
+
+        if (formData.retail_price < formData.cost_price) {
+            errorElement.textContent = 'Retail price cannot be less than cost price';
+            errorElement.style.display = 'block';
+            return;
+        }
+
+        try {
+            this.app.showLoading('Updating product...');
+
+            await this.api.put(`/products/${productId}`, formData);
+
+            this.closeModal();
+            this.app.showNotification('Product updated successfully', 'success');
+
+            // Refresh products list
+            this.loadProducts();
+
+        } catch (error) {
+            console.error('Failed to update product:', error);
+            errorElement.textContent = error.message || 'Failed to update product';
             errorElement.style.display = 'block';
         } finally {
             this.app.hideLoading();
@@ -1228,17 +1551,17 @@ class ProductsScreen {
         if (!confirm('Are you sure you want to delete this product? This will deactivate it.')) {
             return;
         }
-        
+
         try {
             this.app.showLoading('Deleting product...');
-            
+
             await this.api.delete(`/products/${productId}`);
-            
+
             this.app.showNotification('Product deleted successfully', 'success');
-            
+
             // Refresh products list
             this.loadProducts();
-            
+
         } catch (error) {
             console.error('Failed to delete product:', error);
             this.app.showNotification('Failed to delete product', 'error');
@@ -1249,15 +1572,15 @@ class ProductsScreen {
 
     async bulkUpdateStatus(activate) {
         if (this.selectedProducts.size === 0) return;
-        
+
         const action = activate ? 'activate' : 'deactivate';
         if (!confirm(`Are you sure you want to ${action} ${this.selectedProducts.size} products?`)) {
             return;
         }
-        
+
         try {
             this.app.showLoading(`${activate ? 'Activating' : 'Deactivating'} products...`);
-            
+
             // Update each product
             const updates = Array.from(this.selectedProducts).map(productId => {
                 return this.api.put(`/products/${productId}`, {
@@ -1267,16 +1590,16 @@ class ProductsScreen {
                     return null;
                 });
             });
-            
+
             await Promise.all(updates);
-            
+
             this.app.showNotification(`${this.selectedProducts.size} products ${action}d successfully`, 'success');
-            
+
             // Clear selection and refresh
             this.selectedProducts.clear();
             this.updateBulkActions();
             this.loadProducts();
-            
+
         } catch (error) {
             console.error('Failed to bulk update status:', error);
             this.app.showNotification('Failed to update products', 'error');
@@ -1287,12 +1610,12 @@ class ProductsScreen {
 
     showBulkStockAdjustmentModal() {
         if (this.selectedProducts.size === 0) return;
-        
+
         const modalHtml = `
             <div class="modal" style="width: 500px;">
                 <div class="modal-header">
                     <h3 class="modal-title">Bulk Stock Adjustment</h3>
-                    <button class="modal-close" onclick="POS.screens.products.closeModal()">&times;</button>
+                    <button class="modal-close" onclick="window.app.screens.products.closeModal()">&times;</button>
                 </div>
                 <div class="modal-body">
                     <p>Adjusting stock for <strong>${this.selectedProducts.size}</strong> products</p>
@@ -1323,17 +1646,24 @@ class ProductsScreen {
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-secondary" onclick="POS.screens.products.closeModal()">
+                    <button class="btn btn-secondary" onclick="window.app.screens.products.closeModal()">
                         Cancel
                     </button>
-                    <button class="btn btn-primary" onclick="POS.screens.products.submitBulkStockAdjustment()">
+                    <button class="btn btn-primary" onclick="window.app.screens.products.submitBulkStockAdjustment()">
                         Adjust All
                     </button>
                 </div>
             </div>
         `;
-        
-        this.showModal(modalHtml);
+
+        // Show modal by inserting it into the designated modal container
+        const modalContainer = document.getElementById('product-modal');
+        if (modalContainer) {
+            modalContainer.innerHTML = modalHtml;
+            modalContainer.style.display = 'flex';
+        } else {
+            console.error('Product modal container not found');
+        }
     }
 
     async submitBulkStockAdjustment() {
@@ -1341,22 +1671,22 @@ class ProductsScreen {
         const quantity = parseFloat(document.getElementById('bulk-quantity').value);
         const reason = document.getElementById('bulk-reason').value.trim();
         const errorElement = document.getElementById('bulk-error');
-        
+
         if (isNaN(quantity) || quantity === 0) {
             errorElement.textContent = 'Please enter a valid non-zero quantity';
             errorElement.style.display = 'block';
             return;
         }
-        
+
         if (!reason) {
             errorElement.textContent = 'Please enter a reason';
             errorElement.style.display = 'block';
             return;
         }
-        
+
         try {
             this.app.showLoading('Adjusting stock for all selected products...');
-            
+
             // Adjust stock for each product
             const adjustments = Array.from(this.selectedProducts).map(productId => {
                 return this.api.post(`/products/${productId}/adjust-stock`, {
@@ -1369,26 +1699,26 @@ class ProductsScreen {
                     return { success: false, productId, error };
                 });
             });
-            
+
             const results = await Promise.all(adjustments);
-            
+
             const successful = results.filter(r => r && !r.error).length;
             const failed = results.length - successful;
-            
+
             this.closeModal();
-            
+
             if (failed === 0) {
                 this.app.showNotification(`Stock adjusted for ${successful} products`, 'success');
             } else {
-                this.app.showNotification(`Stock adjusted for ${successful} products, ${failed} failed`, 
-                                         failed === results.length ? 'error' : 'warning');
+                this.app.showNotification(`Stock adjusted for ${successful} products, ${failed} failed`,
+                    failed === results.length ? 'error' : 'warning');
             }
-            
+
             // Clear selection and refresh
             this.selectedProducts.clear();
             this.updateBulkActions();
             this.loadProducts();
-            
+
         } catch (error) {
             console.error('Failed to bulk adjust stock:', error);
             errorElement.textContent = error.message || 'Failed to adjust stock';
@@ -1400,14 +1730,14 @@ class ProductsScreen {
 
     async bulkDeleteProducts() {
         if (this.selectedProducts.size === 0) return;
-        
+
         if (!confirm(`Are you sure you want to delete ${this.selectedProducts.size} products? This will deactivate them.`)) {
             return;
         }
-        
+
         try {
             this.app.showLoading('Deleting products...');
-            
+
             // Delete each product
             const deletions = Array.from(this.selectedProducts).map(productId => {
                 return this.api.delete(`/products/${productId}`).catch(error => {
@@ -1415,24 +1745,24 @@ class ProductsScreen {
                     return { success: false, productId, error };
                 });
             });
-            
+
             const results = await Promise.all(deletions);
-            
+
             const successful = results.filter(r => r && !r.error).length;
             const failed = results.length - successful;
-            
+
             if (failed === 0) {
                 this.app.showNotification(`${successful} products deleted successfully`, 'success');
             } else {
-                this.app.showNotification(`${successful} products deleted, ${failed} failed`, 
-                                         failed === results.length ? 'error' : 'warning');
+                this.app.showNotification(`${successful} products deleted, ${failed} failed`,
+                    failed === results.length ? 'error' : 'warning');
             }
-            
+
             // Clear selection and refresh
             this.selectedProducts.clear();
             this.updateBulkActions();
             this.loadProducts();
-            
+
         } catch (error) {
             console.error('Failed to bulk delete products:', error);
             this.app.showNotification('Failed to delete products', 'error');
@@ -1446,13 +1776,13 @@ class ProductsScreen {
             <div class="modal" style="width: 600px;">
                 <div class="modal-header">
                     <h3 class="modal-title">Bulk Import Products</h3>
-                    <button class="modal-close" onclick="POS.screens.products.closeModal()">&times;</button>
+                    <button class="modal-close" onclick="window.app.screens.products.closeModal()">&times;</button>
                 </div>
                 <div class="modal-body">
                     <div class="import-instructions">
                         <h4>Instructions:</h4>
                         <ol>
-                            <li>Download the <a href="#" onclick="POS.screens.products.downloadTemplate()">template file</a></li>
+                            <li>Download the <a href="#" onclick="window.app.screens.products.downloadTemplate()">template file</a></li>
                             <li>Fill in the product data</li>
                             <li>Upload the completed file</li>
                         </ol>
@@ -1487,7 +1817,7 @@ class ProductsScreen {
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-secondary" onclick="POS.screens.products.closeModal()">
+                    <button class="btn btn-secondary" onclick="window.app.screens.products.closeModal()">
                         Cancel
                     </button>
                     <button class="btn btn-primary" id="start-import" disabled>
@@ -1496,13 +1826,20 @@ class ProductsScreen {
                 </div>
             </div>
         `;
-        
-        this.showModal(modalHtml);
-        
+
+        // Show modal by inserting it into the designated modal container
+        const modalContainer = document.getElementById('product-modal');
+        if (modalContainer) {
+            modalContainer.innerHTML = modalHtml;
+            modalContainer.style.display = 'flex';
+        } else {
+            console.error('Product modal container not found');
+        }
+
         // Setup file upload
         const fileInput = document.getElementById('import-file');
         const startImportBtn = document.getElementById('start-import');
-        
+
         if (fileInput && startImportBtn) {
             fileInput.addEventListener('change', (e) => {
                 if (e.target.files.length > 0) {
@@ -1512,7 +1849,7 @@ class ProductsScreen {
                     startImportBtn.disabled = true;
                 }
             });
-            
+
             startImportBtn.addEventListener('click', () => {
                 this.processImportFile(fileInput.files[0]);
             });
@@ -1522,22 +1859,22 @@ class ProductsScreen {
     downloadTemplate() {
         // Create template data
         const templateData = [
-            ['product_code', 'barcode', 'name', 'description', 'category_id', 'brand_id', 
-             'unit', 'cost_price', 'retail_price', 'wholesale_price', 'dealer_price', 
-             'min_sale_price', 'current_stock', 'min_stock', 'gst_rate', 'for_vehicle_type', 
-             'warranty_days', 'has_serial', 'is_service', 'is_active'],
-            ['PROD001', '8901234567890', 'Sample Product', 'Product description', '1', '1', 
-             'pcs', '100.00', '150.00', '135.00', '120.00', '110.00', '10', '5', '17.0', 
-             'car', '180', 'false', 'false', 'true'],
-            ['PROD002', '', 'Another Product', '', '2', '', 'pcs', '50.00', '75.00', '', 
-             '', '', '20', '10', '17.0', '', '90', 'false', 'false', 'true']
+            ['product_code', 'barcode', 'name', 'description', 'category_id', 'brand_id',
+                'unit', 'cost_price', 'retail_price', 'wholesale_price', 'dealer_price',
+                'min_sale_price', 'current_stock', 'min_stock', 'gst_rate', 'for_vehicle_type',
+                'warranty_days', 'has_serial', 'is_service', 'is_active'],
+            ['PROD001', '8901234567890', 'Sample Product', 'Product description', '1', '1',
+                'pcs', '100.00', '150.00', '135.00', '120.00', '110.00', '10', '5', '17.0',
+                'car', '180', 'false', 'false', 'true'],
+            ['PROD002', '', 'Another Product', '', '2', '', 'pcs', '50.00', '75.00', '',
+                '', '', '20', '10', '17.0', '', '90', 'false', 'false', 'true']
         ];
-        
+
         // Convert to CSV
         const csvContent = templateData.map(row => row.join(',')).join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv' });
         const url = window.URL.createObjectURL(blob);
-        
+
         // Download
         const a = document.createElement('a');
         a.href = url;
@@ -1552,7 +1889,7 @@ class ProductsScreen {
         // Preview first few rows of the file
         // This would parse CSV/Excel and show preview
         console.log('Preview file:', file);
-        
+
         const previewDiv = document.getElementById('import-preview');
         if (previewDiv) {
             previewDiv.style.display = 'block';
@@ -1565,32 +1902,32 @@ class ProductsScreen {
 
     async processImportFile(file) {
         this.app.showLoading('Processing import file...');
-        
+
         try {
             // Parse the file (simplified - in real app use a CSV/Excel parser)
             const productsData = await this.parseImportFile(file);
-            
+
             if (!productsData || productsData.length === 0) {
                 throw new Error('No valid product data found in file');
             }
-            
+
             // Send to backend
             const response = await this.api.post('/products/bulk-import', productsData);
-            
+
             this.closeModal();
-            
+
             if (response.successful > 0) {
                 this.app.showNotification(`Imported ${response.successful} products successfully`, 'success');
             }
-            
+
             if (response.failed > 0) {
                 this.app.showNotification(`${response.failed} products failed to import`, 'warning');
                 // Could show errors in a modal
             }
-            
+
             // Refresh products list
             this.loadProducts();
-            
+
         } catch (error) {
             console.error('Failed to import products:', error);
             this.app.showNotification('Failed to import products: ' + error.message, 'error');
@@ -1609,39 +1946,39 @@ class ProductsScreen {
                         const content = e.target.result;
                         const lines = content.split('\n');
                         const headers = lines[0].split(',');
-                        
+
                         const products = [];
                         for (let i = 1; i < Math.min(lines.length, 1000); i++) {
                             if (!lines[i].trim()) continue;
-                            
+
                             const values = lines[i].split(',');
                             const product = {};
-                            
+
                             headers.forEach((header, index) => {
                                 if (values[index]) {
                                     product[header.trim()] = values[index].trim();
                                 }
                             });
-                            
+
                             // Convert numeric fields
-                            ['cost_price', 'retail_price', 'wholesale_price', 'dealer_price', 
-                             'min_sale_price', 'current_stock', 'min_stock', 'gst_rate', 
-                             'warranty_days', 'category_id', 'brand_id'].forEach(field => {
-                                if (product[field]) {
-                                    product[field] = parseFloat(product[field]);
-                                }
-                            });
-                            
+                            ['cost_price', 'retail_price', 'wholesale_price', 'dealer_price',
+                                'min_sale_price', 'current_stock', 'min_stock', 'gst_rate',
+                                'warranty_days', 'category_id', 'brand_id'].forEach(field => {
+                                    if (product[field]) {
+                                        product[field] = parseFloat(product[field]);
+                                    }
+                                });
+
                             // Convert boolean fields
                             ['has_serial', 'is_service', 'is_active'].forEach(field => {
                                 if (product[field]) {
                                     product[field] = product[field].toLowerCase() === 'true';
                                 }
                             });
-                            
+
                             products.push(product);
                         }
-                        
+
                         resolve(products);
                     } catch (error) {
                         reject(new Error('Failed to parse CSV file: ' + error.message));
@@ -1660,12 +1997,12 @@ class ProductsScreen {
             this.app.showNotification('Please select products first', 'warning');
             return;
         }
-        
+
         const modalHtml = `
             <div class="modal" style="width: 500px;">
                 <div class="modal-header">
                     <h3 class="modal-title">Bulk Price Update</h3>
-                    <button class="modal-close" onclick="POS.screens.products.closeModal()">&times;</button>
+                    <button class="modal-close" onclick="window.app.screens.products.closeModal()">&times;</button>
                 </div>
                 <div class="modal-body">
                     <p>Updating prices for <strong>${this.selectedProducts.size}</strong> products</p>
@@ -1706,25 +2043,32 @@ class ProductsScreen {
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-secondary" onclick="POS.screens.products.closeModal()">
+                    <button class="btn btn-secondary" onclick="window.app.screens.products.closeModal()">
                         Cancel
                     </button>
-                    <button class="btn btn-primary" onclick="POS.screens.products.submitBulkPriceUpdate()">
+                    <button class="btn btn-primary" onclick="window.app.screens.products.submitBulkPriceUpdate()">
                         Update Prices
                     </button>
                 </div>
             </div>
         `;
-        
-        this.showModal(modalHtml);
-        
+
+        // Show modal by inserting it into the designated modal container
+        const modalContainer = document.getElementById('product-modal');
+        if (modalContainer) {
+            modalContainer.innerHTML = modalHtml;
+            modalContainer.style.display = 'flex';
+        } else {
+            console.error('Product modal container not found');
+        }
+
         // Update value label based on method
         const updateMethodSelect = document.getElementById('update-method');
         const valueLabel = document.getElementById('value-label');
-        
+
         if (updateMethodSelect && valueLabel) {
             updateMethodSelect.addEventListener('change', () => {
-                switch(updateMethodSelect.value) {
+                switch (updateMethodSelect.value) {
                     case 'percentage':
                         valueLabel.textContent = 'Percentage (%)';
                         break;
@@ -1745,13 +2089,13 @@ class ProductsScreen {
         const updateValue = parseFloat(document.getElementById('update-value').value);
         const roundPrices = document.getElementById('round-prices').checked;
         const errorElement = document.getElementById('price-error');
-        
+
         if (isNaN(updateValue)) {
             errorElement.textContent = 'Please enter a valid value';
             errorElement.style.display = 'block';
             return;
         }
-        
+
         // Prepare update data
         const updateData = {
             product_ids: Array.from(this.selectedProducts),
@@ -1759,25 +2103,25 @@ class ProductsScreen {
             new_value: updateValue,
             is_percentage: updateMethod === 'percentage'
         };
-        
+
         if (updateMethod === 'set') {
             updateData.is_percentage = false;
             // For set method, we'll handle differently
         }
-        
+
         try {
             this.app.showLoading('Updating prices...');
-            
+
             const response = await this.api.post('/products/bulk-update-prices', updateData);
-            
+
             this.closeModal();
             this.app.showNotification(`Updated prices for ${response.updated_count} products`, 'success');
-            
+
             // Clear selection and refresh
             this.selectedProducts.clear();
             this.updateBulkActions();
             this.loadProducts();
-            
+
         } catch (error) {
             console.error('Failed to update prices:', error);
             errorElement.textContent = error.message || 'Failed to update prices';
@@ -1797,7 +2141,7 @@ class ProductsScreen {
         const csvData = [
             ['Code', 'Name', 'Category', 'Brand', 'Stock', 'Cost Price', 'Retail Price', 'Status']
         ];
-        
+
         this.products.forEach(product => {
             csvData.push([
                 product.product_code,
@@ -1810,11 +2154,11 @@ class ProductsScreen {
                 product.is_active ? 'Active' : 'Inactive'
             ]);
         });
-        
+
         const csvContent = csvData.map(row => row.join(',')).join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv' });
         const url = window.URL.createObjectURL(blob);
-        
+
         const a = document.createElement('a');
         a.href = url;
         a.download = `products_export_${new Date().toISOString().split('T')[0]}.csv`;
@@ -1822,7 +2166,7 @@ class ProductsScreen {
         a.click();
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
-        
+
         this.app.showNotification('Products exported successfully', 'success');
     }
 
@@ -1874,7 +2218,7 @@ class ProductsScreen {
             </body>
             </html>
         `;
-        
+
         const printWindow = window.open('', '_blank');
         printWindow.document.write(printContent);
         printWindow.document.close();
@@ -1910,9 +2254,17 @@ class ProductsScreen {
             timeout = setTimeout(later, wait);
         };
     }
+    // This method is implemented elsewhere in the file
+    // showAddProductModal() { ... }
 }
 
 // Register screen with main app
 if (window.POS) {
+    // Register class for app.js to instantiate
+    window.POS = window.POS || {}; window.POS.screens = window.POS.screens || {};
     window.POS.screens.products = ProductsScreen;
+    
+    // Also register on app object to ensure availability
+    window.app = window.app || {}; window.app.screens = window.app.screens || {};
+    window.app.screens.products = ProductsScreen;
 }
