@@ -14,7 +14,7 @@ router = APIRouter(prefix="/expenses", tags=["expenses"])
 logger = logging.getLogger(__name__)
 
 
-@router.get("/", dependencies=[Depends(require_permission("expenses.view"))])
+@router.get("", dependencies=[Depends(require_permission("expenses.view"))])
 async def list_expenses(
     skip: int = Query(0),
     limit: int = Query(50),
@@ -27,35 +27,35 @@ async def list_expenses(
     try:
         db = get_database_manager()
         with db.get_cursor() as cur:
-            query = "SELECT * FROM expenses"
+            query = "SELECT id, expense_number, expense_date as date, category, description, amount, payment_method, paid_to, reference_number as reference, created_at FROM expenses WHERE 1=1"
             params = []
             
             if start_date:
-                query += " AND created_at >= ?"
+                query += " AND expense_date >= ?"
                 params.append(start_date)
             
             if end_date:
-                query += " AND created_at <= ?"
+                query += " AND expense_date <= ?"
                 params.append(end_date)
             
             if category:
                 query += " AND category = ?"
                 params.append(category)
             
-            query += f" ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            query += f" ORDER BY expense_date DESC LIMIT ? OFFSET ?"
             params.extend([limit, skip])
             
             cur.execute(query, params)
             expenses = cur.fetchall()
             
             # Get total
-            count_query = "SELECT COUNT(*) FROM expenses"
+            count_query = "SELECT COUNT(*) FROM expenses WHERE 1=1"
             count_params = []
             if start_date:
-                count_query += " AND created_at >= ?"
+                count_query += " AND expense_date >= ?"
                 count_params.append(start_date)
             if end_date:
-                count_query += " AND created_at <= ?"
+                count_query += " AND expense_date <= ?"
                 count_params.append(end_date)
             if category:
                 count_query += " AND category = ?"
@@ -76,7 +76,7 @@ async def list_expenses(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/", dependencies=[Depends(require_permission("expenses.manage"))])
+@router.post("", dependencies=[Depends(require_permission("expenses.manage"))])
 async def create_expense(
     expense_data: Dict[str, Any] = Body(...),
     current_user: Dict[str, Any] = Depends(get_current_user)
@@ -87,24 +87,28 @@ async def create_expense(
         with db.get_cursor() as cur:
             cur.execute("""
                 INSERT INTO expenses (
-                    date, category, description, amount, 
-                    payment_method, created_by, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    expense_number, expense_date, category, description, amount, 
+                    payment_method, paid_to, reference_number, created_by, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                expense_data.get("date", datetime.datetime.now().isoformat()),
+                expense_data.get("expense_number", f"EXP-{int(datetime.datetime.now().timestamp())}"),
+                expense_data.get("date", datetime.datetime.now().strftime('%Y-%m-%d')),
                 expense_data.get("category"),
                 expense_data.get("description"),
                 expense_data.get("amount"),
                 expense_data.get("payment_method", "cash"),
+                expense_data.get("paid_to"),
+                expense_data.get("reference"),  # reference_number
                 current_user["id"],
-                datetime.datetime.now().isoformat(),
-                datetime.datetime.now().isoformat()
+                datetime.datetime.now().strftime('%Y-%m-%d')
             ))
+            
+            expense_id = cur.lastrowid
         
         return {
             "success": True,
             "message": "Expense created successfully",
-            "expense_id": db.get_last_insert_id()
+            "expense_id": expense_id
         }
     except Exception as e:
         logger.error(f"Failed to create expense: {e}")
@@ -158,7 +162,7 @@ async def update_expense(
             # Update
             updates = []
             params = []
-            for field in ["date", "category", "description", "amount", "payment_method"]:
+            for field in ["expense_date", "category", "description", "amount", "payment_method", "paid_to", "reference_number"]:
                 if field in expense_data:
                     updates.append(f"{field} = ?")
                     params.append(expense_data[field])
@@ -166,9 +170,9 @@ async def update_expense(
             if updates:
                 updates.append("updated_at = ?")
                 params.append(datetime.datetime.now().isoformat())
-                params.append(expense_id)
                 
                 query = f"UPDATE expenses SET {', '.join(updates)} WHERE id = ?"
+                params.append(expense_id)  # Add expense_id at the end for WHERE clause
                 cur.execute(query, params)
         
         return {
@@ -217,7 +221,7 @@ async def expense_summary(
         db = get_database_manager()
         with db.get_cursor() as cur:
             # Total by category
-            query = "SELECT category, COUNT(*), SUM(amount) FROM expenses"
+            query = "SELECT category, COUNT(*), SUM(amount) FROM expenses WHERE 1=1"
             params = []
             
             if start_date:
@@ -233,7 +237,7 @@ async def expense_summary(
             by_category = cur.fetchall()
             
             # Grand total
-            total_query = "SELECT SUM(amount) FROM expenses"
+            total_query = "SELECT SUM(amount) FROM expenses WHERE 1=1"
             total_params = []
             if start_date:
                 total_query += " AND created_at >= ?"

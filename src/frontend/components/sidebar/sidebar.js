@@ -1,12 +1,22 @@
 // Sidebar Component JavaScript
 
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('[Sidebar] DOM Content Loaded');
     setupSidebarEvents();
     updateSidebarStatus();
     setInterval(updateSidebarStatus, 5000);
     
     // Show/hide Users menu based on permissions
     checkUserManagementPermission();
+    
+    // Debug: Check if credit-management button exists
+    const creditBtn = document.querySelector('[data-screen="credit-management"]');
+    if (creditBtn) {
+        console.log('[Sidebar] Credit Management button found in DOM');
+    } else {
+        console.error('[Sidebar] Credit Management button NOT found in DOM');
+        console.log('[Sidebar] Available buttons:', Array.from(document.querySelectorAll('.sidebar-btn[data-screen]')).map(btn => btn.getAttribute('data-screen')));
+    }
 });
 
 function setupSidebarEvents() {

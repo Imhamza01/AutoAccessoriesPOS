@@ -419,6 +419,14 @@
     transition: width 1s ease-in-out;
 }
 
+.performance-bar-fill.positive {
+    background: linear-gradient(90deg, #10B981, #34D399);
+}
+
+.performance-bar-fill.negative {
+    background: linear-gradient(90deg, #EF4444, #F87171);
+}
+
 /* Dashboard Footer */
 .dashboard-footer {
     display: flex;

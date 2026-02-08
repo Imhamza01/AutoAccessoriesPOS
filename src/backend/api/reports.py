@@ -4,6 +4,27 @@ REPORTS & ANALYTICS API ENDPOINTS
 
 import datetime
 from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi.responses import StreamingResponse
+import io
+import os
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+except Exception:
+    # ReportLab may not be installed in the environment; PDF endpoints will raise later
+    A4 = None
+    SimpleDocTemplate = None
+    Table = None
+    TableStyle = None
+    Paragraph = None
+    Spacer = None
+    colors = None
+    getSampleStyleSheet = None
+    ParagraphStyle = None
+    mm = None
 from typing import Dict, Any, Optional
 import logging
 
@@ -12,6 +33,91 @@ from core.database import get_database_manager
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 logger = logging.getLogger(__name__)
+
+
+def _format_currency(value):
+    try:
+        return f"PKR {float(value):,.2f}"
+    except Exception:
+        return f"PKR {value}"
+
+
+def _draw_header_footer(canvas, doc, shop_name, title, date_range):
+    try:
+        width, height = A4
+    except Exception:
+        width, height = 595.2756, 841.8898
+
+    # Header
+    canvas.saveState()
+    # Attempt to draw logo left
+    try:
+        if hasattr(doc, 'logo_path') and doc.logo_path:
+            logo_path = doc.logo_path
+            if os.path.exists(logo_path):
+                logo_w = 30 * mm
+                logo_h = 30 * mm
+                canvas.drawImage(logo_path, 30, height - 30 - logo_h, width=logo_w, height=logo_h, preserveAspectRatio=True, mask='auto')
+    except Exception:
+        pass
+
+    canvas.setFont('Helvetica-Bold', 14)
+    canvas.drawCentredString(width / 2.0, height - 36, shop_name)
+    canvas.setFont('Helvetica', 10)
+    canvas.drawCentredString(width / 2.0, height - 52, title)
+    if date_range:
+        canvas.setFont('Helvetica', 8)
+        canvas.drawCentredString(width / 2.0, height - 66, date_range)
+
+    # Footer - page number
+    canvas.setFont('Helvetica', 8)
+    page_num_text = f"Page {doc.page}"
+    canvas.drawRightString(width - 30, 20, page_num_text)
+    canvas.restoreState()
+
+
+def _get_shop_info():
+    """Return (shop_name, logo_path) from DB if available."""
+    try:
+        db = get_database_manager()
+        with db.get_cursor() as cur:
+            cur.execute("SELECT shop_name, logo_path FROM shop_settings LIMIT 1")
+            row = cur.fetchone()
+            if row:
+                shop = dict(row)
+                shop_name = shop.get('shop_name') or 'Auto Accessories POS'
+                logo_path = shop.get('logo_path')
+                # If logo_path is relative, try to resolve under app data uploads
+                if logo_path and not os.path.isabs(logo_path):
+                    # attempt to find under DB manager app_data_path
+                    try:
+                        base = get_database_manager().app_data_path
+                        candidate = os.path.join(str(base), 'uploads', logo_path)
+                        if os.path.exists(candidate):
+                            logo_path = candidate
+                    except Exception:
+                        pass
+                return shop_name, logo_path
+    except Exception:
+        pass
+    return 'Auto Accessories POS', None
+
+
+def _short_datetime(val):
+    """Normalize created_at values into shorter human-friendly string."""
+    try:
+        if not val:
+            return ''
+        s = str(val)
+        # Try ISO parse
+        try:
+            dt = datetime.datetime.fromisoformat(s)
+            return dt.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            # fallback to trimmed string
+            return s[:19]
+    except Exception:
+        return str(val)
 
 
 @router.get("/sales-summary", dependencies=[Depends(require_permission("reports.view"))])
@@ -28,7 +134,7 @@ async def sales_summary(
             query = """
                 SELECT DATE(created_at) as date, COUNT(*) as transactions,
                        SUM(grand_total) as revenue, SUM(gst_amount) as gst
-                FROM sales
+                FROM sales WHERE sale_status != 'cancelled'
             """
             params = []
             
@@ -45,7 +151,7 @@ async def sales_summary(
             daily_sales = cur.fetchall()
             
             # Total metrics
-            metrics_query = "SELECT COUNT(*), SUM(grand_total), SUM(gst_amount) FROM sales"
+            metrics_query = "SELECT COUNT(*), SUM(grand_total), SUM(gst_amount) FROM sales WHERE sale_status != 'cancelled'"
             metrics_params = []
             if start_date:
                 metrics_query += " AND created_at >= ?"
@@ -89,7 +195,12 @@ async def top_products(
     """Get top selling products by quantity and revenue."""
     try:
         db = get_database_manager()
+        if not db:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+            
         with db.get_cursor() as cur:
+            if not cur:
+                raise HTTPException(status_code=500, detail="Database cursor failed")
             query = """
                 SELECT p.id, p.name, SUM(si.quantity) as qty_sold,
                        SUM(si.total_price) as revenue
@@ -190,7 +301,7 @@ async def gst_report(
                 SELECT DATE(created_at) as date, COUNT(*) as invoices,
                        SUM(subtotal) as taxable_amount, SUM(gst_amount) as gst
                 FROM sales
-                WHERE gst_amount > 0
+                WHERE gst_amount > 0 AND sale_status != 'cancelled'
             """
             params = []
             
@@ -207,7 +318,7 @@ async def gst_report(
             gst_sales = cur.fetchall()
             
             # Total GST
-            total_query = "SELECT SUM(gst_amount) FROM sales WHERE gst_amount > 0"
+            total_query = "SELECT SUM(gst_amount) FROM sales WHERE gst_amount > 0 AND sale_status != 'cancelled'"
             total_params = []
             if start_date:
                 total_query += " AND created_at >= ?"
@@ -248,7 +359,7 @@ async def profit_loss_report(
         db = get_database_manager()
         with db.get_cursor() as cur:
             # Total revenue
-            rev_query = "SELECT SUM(grand_total) FROM sales"
+            rev_query = "SELECT SUM(grand_total) FROM sales WHERE sale_status != 'cancelled'"
             rev_params = []
             if start_date:
                 rev_query += " AND created_at >= ?"
@@ -290,6 +401,408 @@ async def profit_loss_report(
         }
     except Exception as e:
         logger.error(f"Failed to get P&L report: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate profit and loss report")
+
+
+@router.get("/sales-pdf", dependencies=[Depends(require_permission("reports.view"))])
+async def sales_pdf(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Generate sales report PDF (per-sale rows)."""
+    if SimpleDocTemplate is None:
+        raise HTTPException(status_code=500, detail="ReportLab is not installed on the server")
+
+    try:
+        db = get_database_manager()
+        with db.get_cursor() as cur:
+            # omit invoice_number; join customers to show name
+            query = """
+                SELECT s.created_at,
+                       COALESCE(c.full_name, s.customer_id) as customer,
+                       s.grand_total, s.gst_amount, s.payment_method, s.payment_status, s.cashier_name
+                FROM sales s
+                LEFT JOIN customers c ON s.customer_id = c.id
+                WHERE s.sale_status != 'cancelled'
+            """
+            params = []
+            if start_date:
+                query += " AND DATE(created_at) >= ?"
+                params.append(start_date)
+            if end_date:
+                query += " AND DATE(created_at) <= ?"
+                params.append(end_date)
+            query += " ORDER BY created_at DESC"
+            cur.execute(query, params)
+            rows = cur.fetchall()
+
+        buffer = io.BytesIO()
+        # Leave extra top margin for header
+        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=80, bottomMargin=40)
+        elements = []
+        styles = getSampleStyleSheet()
+        title = 'Sales Report'
+        shop_name, logo_path = _get_shop_info()
+        range_text = f"From: {start_date or 'Beginning'} To: {end_date or 'Now'}"
+
+        # Summary header inside body (header/footer will also show shop/title)
+        elements.append(Paragraph(title, styles['Heading2']))
+        elements.append(Paragraph(range_text, styles['Normal']))
+        elements.append(Spacer(1, 12))
+
+        # Build table data and compute totals (invoice number removed)
+        data = [["Date", "Customer", "Total", "GST", "Payment", "Status", "Cashier"]]
+        total_revenue = 0.0
+        total_gst = 0.0
+        # small paragraph style for table cells
+        small_style = ParagraphStyle('table_small', parent=styles['Normal'], fontSize=9, leading=11)
+        for r in rows:
+            created_raw = r[0] or ''
+            created = _short_datetime(created_raw)
+            customer = r[1] or ''
+            total = float(r[2] or 0)
+            gst = float(r[3] or 0)
+            payment = r[4] or ''
+            status = r[5] or ''
+            cashier = r[6] or ''
+            total_revenue += total
+            total_gst += gst
+            data.append([
+                Paragraph(created, small_style),
+                Paragraph(str(customer), small_style),
+                Paragraph(_format_currency(total), small_style),
+                Paragraph(_format_currency(gst), small_style),
+                Paragraph(str(payment), small_style),
+                Paragraph(str(status), small_style),
+                Paragraph(str(cashier), small_style)
+            ])
+
+        # Table styling
+        tbl = Table(data, repeatRows=1)
+        tbl.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#16a085')),
+            ('TEXTCOLOR',(0,0),(-1,0),colors.white),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,0), (-1, -1), 9),
+            ('LEFTPADDING', (0,0), (-1,-1), 6),
+            ('RIGHTPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+            ('ALIGN', (2,1), (3,-1), 'RIGHT'),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ]))
+
+        # set column widths to make table look balanced
+        try:
+            avail_width = A4[0] - doc.leftMargin - doc.rightMargin
+            # seven columns now (Date, Customer, Total, GST, Payment, Status, Cashier)
+            col_widths = [avail_width * w for w in (0.14, 0.22, 0.12, 0.08, 0.12, 0.12, 0.20)]
+            tbl = Table(data, colWidths=col_widths, repeatRows=1)
+        except Exception:
+            tbl = Table(data, repeatRows=1)
+
+        elements.append(tbl)
+        elements.append(Spacer(1, 12))
+
+        # Totals block
+        elements.append(Paragraph(f"Total Transactions: {len(rows)}", styles['Normal']))
+        elements.append(Paragraph(f"Total Revenue: {_format_currency(total_revenue)}", styles['Normal']))
+        elements.append(Paragraph(f"Total GST: {_format_currency(total_gst)}", styles['Normal']))
+
+        # Build PDF with header/footer
+        # attach logo path to doc so header renderer can draw it
+        try:
+            doc.logo_path = logo_path
+        except Exception:
+            doc.logo_path = None
+
+        doc.build(elements, onFirstPage=lambda c,d: _draw_header_footer(c, d, shop_name, title, range_text), onLaterPages=lambda c,d: _draw_header_footer(c, d, shop_name, title, range_text))
+        buffer.seek(0)
+        filename = f"sales_report_{start_date or 'all'}_{end_date or 'now'}.pdf"
+        return StreamingResponse(buffer, media_type='application/pdf', headers={"Content-Disposition": f"attachment; filename={filename}"})
+    except Exception as e:
+        logger.error(f"Failed to generate sales PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/inventory-pdf", dependencies=[Depends(require_permission("reports.view"))])
+async def inventory_pdf(current_user: Dict[str, Any] = Depends(get_current_user)):
+    if SimpleDocTemplate is None:
+        raise HTTPException(status_code=500, detail="ReportLab is not installed on the server")
+    try:
+        db = get_database_manager()
+        with db.get_cursor() as cur:
+            cur.execute("SELECT id, name, sku, current_stock, cost_price FROM products ORDER BY current_stock * cost_price DESC")
+            products = cur.fetchall()
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=80, bottomMargin=40)
+        elements = []
+        styles = getSampleStyleSheet()
+        title = 'Inventory Valuation'
+        shop_name, logo_path = _get_shop_info()
+        elements.append(Paragraph(title, styles['Heading2']))
+        elements.append(Spacer(1,12))
+
+        data = [["Product", "SKU", "Stock", "Cost", "Value"]]
+        total_value = 0.0
+        for p in products:
+            pid = p[0]
+            name = p[1] or ''
+            sku = p[2] or ''
+            stock = float(p[3] or 0)
+            cost = float(p[4] or 0)
+            value = stock * cost
+            total_value += value
+            data.append([str(name), str(sku), str(int(stock)), _format_currency(cost), _format_currency(value)])
+
+        try:
+            avail_width = A4[0] - doc.leftMargin - doc.rightMargin
+            col_widths = [avail_width * w for w in (0.40, 0.15, 0.15, 0.15, 0.15)]
+            tbl = Table(data, colWidths=col_widths, repeatRows=1)
+        except Exception:
+            tbl = Table(data, repeatRows=1)
+        tbl.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#16a085')),
+            ('TEXTCOLOR',(0,0),(-1,0),colors.white),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+            ('ALIGN', (2,1), (4,-1), 'RIGHT')
+        ]))
+        elements.append(tbl)
+        elements.append(Spacer(1,12))
+        elements.append(Paragraph(f"Total Inventory Value: {_format_currency(total_value)}", styles['Normal']))
+
+        try:
+            doc.logo_path = logo_path
+        except Exception:
+            doc.logo_path = None
+
+        doc.build(elements, onFirstPage=lambda c,d: _draw_header_footer(c, d, shop_name, title, None), onLaterPages=lambda c,d: _draw_header_footer(c, d, shop_name, title, None))
+        buffer.seek(0)
+        return StreamingResponse(buffer, media_type='application/pdf', headers={"Content-Disposition": "attachment; filename=inventory_valuation.pdf"})
+    except Exception as e:
+        logger.error(f"Failed to generate inventory PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/gst-pdf", dependencies=[Depends(require_permission("reports.view"))])
+async def gst_pdf(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    if SimpleDocTemplate is None:
+        raise HTTPException(status_code=500, detail="ReportLab is not installed on the server")
+    try:
+        db = get_database_manager()
+        with db.get_cursor() as cur:
+            # omit invoice_number from GST PDF per request
+            query = "SELECT created_at, subtotal, gst_amount FROM sales WHERE gst_amount > 0 AND sale_status != 'cancelled'"
+            params = []
+            if start_date:
+                query += " AND DATE(created_at) >= ?"
+                params.append(start_date)
+            if end_date:
+                query += " AND DATE(created_at) <= ?"
+                params.append(end_date)
+            query += " ORDER BY created_at DESC"
+            cur.execute(query, params)
+            rows = cur.fetchall()
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=80, bottomMargin=40)
+        elements = []
+        styles = getSampleStyleSheet()
+        title = 'GST Report'
+        shop_name, logo_path = _get_shop_info()
+        range_text = f"From: {start_date or 'Beginning'} To: {end_date or 'Now'}"
+        elements.append(Paragraph(title, styles['Heading2']))
+        elements.append(Paragraph(range_text, styles['Normal']))
+        elements.append(Spacer(1,12))
+
+        data = [["Date", "Taxable", "GST"]]
+        total_taxable = 0.0
+        total_gst = 0.0
+        small_style = ParagraphStyle('table_small', parent=styles['Normal'], fontSize=9, leading=11)
+        for r in rows:
+            created = _short_datetime(r[0] or '')
+            taxable = float(r[1] or 0)
+            gst = float(r[2] or 0)
+            total_taxable += taxable
+            total_gst += gst
+            data.append([Paragraph(created, small_style), Paragraph(_format_currency(taxable), small_style), Paragraph(_format_currency(gst), small_style)])
+
+        try:
+            avail_width = A4[0] - doc.leftMargin - doc.rightMargin
+            col_widths = [avail_width * w for w in (0.45, 0.27, 0.28)]
+            tbl = Table(data, colWidths=col_widths, repeatRows=1)
+        except Exception:
+            tbl = Table(data, repeatRows=1)
+        tbl.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#16a085')),
+            ('TEXTCOLOR',(0,0),(-1,0),colors.white),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+            ('FONTSIZE', (0,0), (-1, -1), 9),
+            ('LEFTPADDING', (0,0), (-1,-1), 6),
+            ('RIGHTPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+            ('ALIGN', (1,1), (2,-1), 'RIGHT')
+        ]))
+        elements.append(tbl)
+        elements.append(Spacer(1,12))
+        elements.append(Paragraph(f"Total Taxable Amount: {_format_currency(total_taxable)}", styles['Normal']))
+        elements.append(Paragraph(f"Total GST: {_format_currency(total_gst)}", styles['Normal']))
+
+        try:
+            doc.logo_path = logo_path
+        except Exception:
+            doc.logo_path = None
+
+        doc.build(elements, onFirstPage=lambda c,d: _draw_header_footer(c, d, shop_name, title, range_text), onLaterPages=lambda c,d: _draw_header_footer(c, d, shop_name, title, range_text))
+        buffer.seek(0)
+        return StreamingResponse(buffer, media_type='application/pdf', headers={"Content-Disposition": "attachment; filename=gst_report.pdf"})
+    except Exception as e:
+        logger.error(f"Failed to generate GST PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/profit-loss-pdf", dependencies=[Depends(require_permission("reports.view"))])
+async def profit_loss_pdf(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    if SimpleDocTemplate is None:
+        raise HTTPException(status_code=500, detail="ReportLab is not installed on the server")
+    try:
+        db = get_database_manager()
+        with db.get_cursor() as cur:
+            rev_query = "SELECT SUM(grand_total) FROM sales WHERE sale_status != 'cancelled'"
+            rev_params = []
+            if start_date:
+                rev_query += " AND DATE(created_at) >= ?"
+                rev_params.append(start_date)
+            if end_date:
+                rev_query += " AND DATE(created_at) <= ?"
+                rev_params.append(end_date)
+            cur.execute(rev_query, rev_params)
+            revenue = cur.fetchone()[0] or 0
+
+            exp_query = "SELECT SUM(amount) FROM expenses WHERE 1=1"
+            exp_params = []
+            if start_date:
+                exp_query += " AND DATE(created_at) >= ?"
+                exp_params.append(start_date)
+            if end_date:
+                exp_query += " AND DATE(created_at) <= ?"
+                exp_params.append(end_date)
+            cur.execute(exp_query, exp_params)
+            expenses = cur.fetchone()[0] or 0
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=80, bottomMargin=40)
+        elements = []
+        styles = getSampleStyleSheet()
+        title = 'Profit & Loss Report'
+        shop_name, logo_path = _get_shop_info()
+        range_text = f"Period: {start_date or 'Beginning'} - {end_date or 'Now'}"
+        elements.append(Paragraph(title, styles['Heading2']))
+        elements.append(Spacer(1,12))
+        elements.append(Paragraph(range_text, styles['Normal']))
+        elements.append(Spacer(1,12))
+        elements.append(Paragraph(f"Total Revenue: {_format_currency(revenue)}", styles['Normal']))
+        elements.append(Paragraph(f"Total Expenses: {_format_currency(expenses)}", styles['Normal']))
+        profit = revenue - expenses
+        elements.append(Paragraph(f"Profit: {_format_currency(profit)}", styles['Normal']))
+        profit_margin = (profit / revenue * 100) if revenue > 0 else 0
+        elements.append(Paragraph(f"Profit Margin: {round(profit_margin,2)}%", styles['Normal']))
+
+        try:
+            doc.logo_path = logo_path
+        except Exception:
+            doc.logo_path = None
+
+        doc.build(elements, onFirstPage=lambda c,d: _draw_header_footer(c, d, shop_name, title, range_text), onLaterPages=lambda c,d: _draw_header_footer(c, d, shop_name, title, range_text))
+        buffer.seek(0)
+        return StreamingResponse(buffer, media_type='application/pdf', headers={"Content-Disposition": "attachment; filename=profit_loss_report.pdf"})
+    except Exception as e:
+        logger.error(f"Failed to generate P&L PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/dashboard-analytics", dependencies=[Depends(require_permission("reports.view"))])
+async def dashboard_analytics(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get dashboard analytics with today vs yesterday comparison."""
+    try:
+        db = get_database_manager()
+        with db.get_cursor() as cur:
+            # Get today and yesterday dates
+            from datetime import datetime, timedelta
+            today = datetime.now().date()
+            yesterday = today - timedelta(days=1)
+            
+            # Today's sales
+            cur.execute("""
+                SELECT COUNT(*) as transactions, SUM(grand_total) as total_sales,
+                       COUNT(DISTINCT customer_id) as unique_customers
+                FROM sales 
+                WHERE DATE(created_at) = ? AND sale_status != 'cancelled'
+            """, (today,))
+            today_data = cur.fetchone()
+            
+            # Yesterday's sales
+            cur.execute("""
+                SELECT COUNT(*) as transactions, SUM(grand_total) as total_sales,
+                       COUNT(DISTINCT customer_id) as unique_customers
+                FROM sales 
+                WHERE DATE(created_at) = ? AND sale_status != 'cancelled'
+            """, (yesterday,))
+            yesterday_data = cur.fetchone()
+            
+            # Calculate metrics
+            today_sales = today_data[1] or 0
+            yesterday_sales = yesterday_data[1] or 0
+            today_transactions = today_data[0] or 0
+            yesterday_transactions = yesterday_data[0] or 0
+            today_customers = today_data[2] or 0
+            yesterday_customers = yesterday_data[2] or 0
+            
+            # Calculate percentage changes
+            sales_change = ((today_sales - yesterday_sales) / yesterday_sales * 100) if yesterday_sales > 0 else 0
+            customer_change = ((today_customers - yesterday_customers) / yesterday_customers * 100) if yesterday_customers > 0 else 0
+            
+            # Average bill values
+            avg_bill_today = (today_sales / today_transactions) if today_transactions > 0 else 0
+            avg_bill_yesterday = (yesterday_sales / yesterday_transactions) if yesterday_transactions > 0 else 0
+            avg_bill_change = ((avg_bill_today - avg_bill_yesterday) / avg_bill_yesterday * 100) if avg_bill_yesterday > 0 else 0
+            
+        return {
+            "success": True,
+            "today": {
+                "sales": today_sales,
+                "transactions": today_transactions,
+                "customers": today_customers,
+                "avg_bill": avg_bill_today
+            },
+            "yesterday": {
+                "sales": yesterday_sales,
+                "transactions": yesterday_transactions,
+                "customers": yesterday_customers,
+                "avg_bill": avg_bill_yesterday
+            },
+            "changes": {
+                "sales_percent": round(sales_change, 1),
+                "customers_percent": round(customer_change, 1),
+                "avg_bill_percent": round(avg_bill_change, 1)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Failed to get dashboard analytics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -315,4 +828,227 @@ async def inventory_valuation(
         }
     except Exception as e:
         logger.error(f"Failed to get inventory valuation: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get inventory valuation")
+
+
+@router.get("/sales-by-category", dependencies=[Depends(require_permission("reports.view"))])
+async def sales_by_category(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get sales breakdown by product category."""
+    try:
+        db = get_database_manager()
+        with db.get_cursor() as cur:
+            query = """
+                SELECT c.name as category, SUM(si.quantity) as quantity_sold,
+                       SUM(si.total_price) as revenue
+                FROM sale_items si
+                JOIN products p ON si.product_id = p.id
+                JOIN categories c ON p.category_id = c.id
+                WHERE 1=1
+            """
+            params = []
+            
+            if start_date:
+                query += " AND si.created_at >= ?"
+                params.append(start_date)
+            if end_date:
+                query += " AND si.created_at <= ?"
+                params.append(end_date)
+            
+            query += " GROUP BY c.id ORDER BY revenue DESC"
+            
+            cur.execute(query, params)
+            category_sales = cur.fetchall()
+        
+        return {
+            "success": True,
+            "category_sales": [
+                {
+                    "category": c[0],
+                    "quantity_sold": c[1],
+                    "revenue": c[2]
+                }
+                for c in category_sales
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Failed to get sales by category: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/payment-methods", dependencies=[Depends(require_permission("reports.view"))])
+async def payment_methods(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get sales breakdown by payment method."""
+    try:
+        db = get_database_manager()
+        with db.get_cursor() as cur:
+            query = """
+                SELECT payment_method, COUNT(*) as transactions,
+                       SUM(grand_total) as total_amount
+                FROM sales
+                WHERE sale_status != 'cancelled'
+            """
+            params = []
+            
+            if start_date:
+                query += " AND created_at >= ?"
+                params.append(start_date)
+            if end_date:
+                query += " AND created_at <= ?"
+                params.append(end_date)
+            
+            query += " GROUP BY payment_method ORDER BY total_amount DESC"
+            
+            cur.execute(query, params)
+            payment_methods = cur.fetchall()
+        
+        return {
+            "success": True,
+            "payment_methods": [
+                {
+                    "method": pm[0],
+                    "transactions": pm[1],
+                    "total_amount": pm[2]
+                }
+                for pm in payment_methods
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Failed to get payment methods: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/credit-summary", dependencies=[Depends(require_permission("reports.view"))])
+async def credit_summary(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get credit summary for all customers with outstanding balances."""
+    try:
+        db = get_database_manager()
+        if not db:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+            
+        with db.get_cursor() as cur:
+            if not cur:
+                raise HTTPException(status_code=500, detail="Database cursor failed")
+                
+            # Get customers with outstanding credit
+            query = """
+                SELECT c.id, c.full_name, c.phone, c.credit_limit, c.current_balance,
+                       (SELECT COUNT(*) FROM sales WHERE customer_id = c.id AND payment_status = 'pending') as pending_invoices
+                FROM customers c
+                WHERE c.current_balance > 0
+                ORDER BY c.current_balance DESC
+            """
+            
+            try:
+                cur.execute(query)
+                raw_customers = cur.fetchall()
+            except Exception as query_error:
+                logger.error(f"Query execution failed: {query_error}")
+                logger.error(f"Query: {query}")
+                raise HTTPException(status_code=500, detail=f"Database query failed: {str(query_error)}")
+            
+            customers = []
+            for row in raw_customers:
+                if hasattr(row, 'keys'):
+                    customers.append(dict(row))
+                else:
+                    customers.append(row)
+            
+            # Get total outstanding credit
+            try:
+                cur.execute("SELECT SUM(current_balance) FROM customers WHERE current_balance > 0")
+                total_outstanding_result = cur.fetchone()
+                total_outstanding = total_outstanding_result[0] if total_outstanding_result and total_outstanding_result[0] is not None else 0
+            except Exception as sum_error:
+                logger.error(f"Sum query failed: {sum_error}")
+                total_outstanding = 0
+            
+            # Get total credit limit granted
+            try:
+                cur.execute("SELECT SUM(credit_limit) FROM customers")
+                total_credit_limit_result = cur.fetchone()
+                total_credit_limit = total_credit_limit_result[0] if total_credit_limit_result and total_credit_limit_result[0] is not None else 0
+            except Exception as limit_error:
+                logger.error(f"Credit limit query failed: {limit_error}")
+                total_credit_limit = 0
+            
+        return {
+            "success": True,
+            "total_outstanding_credit": float(total_outstanding),
+            "total_credit_limit": float(total_credit_limit),
+            "customers_with_credit": [
+                {
+                    "customer_id": c[0],
+                    "name": c[1],
+                    "phone": c[2],
+                    "credit_limit": float(c[3]),
+                    "outstanding_balance": float(c[4]),
+                    "pending_invoices": c[5]
+                }
+                for c in customers
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get credit summary: {e}")
+        logger.exception("Full traceback:")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/pending-credit", dependencies=[Depends(require_permission("reports.view"))])
+async def pending_credit(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get pending credit sales for dashboard."""
+    try:
+        db = get_database_manager()
+        with db.get_cursor() as cur:
+            # Get pending credit sales
+            cur.execute("""
+                SELECT s.id, s.invoice_number, c.full_name as customer_name, 
+                       s.grand_total, s.created_at
+                FROM sales s
+                JOIN customers c ON s.customer_id = c.id
+                WHERE s.payment_status = 'pending'
+                ORDER BY s.created_at DESC
+                LIMIT 10
+            """)
+            pending_sales = cur.fetchall()
+            
+            # Get total pending amount
+            cur.execute("""
+                SELECT SUM(grand_total) 
+                FROM sales 
+                WHERE payment_status = 'pending'
+            """)
+            total_pending = cur.fetchone()[0] or 0
+            
+        return {
+            "success": True,
+            "total_pending_amount": total_pending,
+            "pending_sales": [
+                {
+                    "sale_id": s[0],
+                    "invoice_number": s[1],
+                    "customer_name": s[2],
+                    "amount": s[3],
+                    "date": s[4]
+                }
+                for s in pending_sales
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Failed to get pending credit: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+

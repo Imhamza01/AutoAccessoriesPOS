@@ -12,10 +12,19 @@ class ExpensesScreen {
     async refresh() {
         try {
             const response = await this.app.api.get('/expenses');
-            this.expenses = response.expenses || [];
+            
+            if (response && response.success) {
+                this.expenses = response.expenses || response.data || [];
+            } else {
+                console.error('Failed to load expenses:', response);
+                this.expenses = [];
+            }
+            
             this.renderExpenses();
         } catch (error) {
             console.error('Failed to load expenses:', error);
+            this.expenses = [];
+            this.renderExpenses();
             this.app.showNotification('Failed to load expenses', 'error');
         }
     }
@@ -45,6 +54,11 @@ class ExpensesScreen {
 
     showAddExpenseModal() {
         document.getElementById('add-expense-modal').style.display = 'block';
+        // Set default date to today
+        const dateInput = document.querySelector('#add-expense-form input[name="date"]');
+        if (dateInput) {
+            dateInput.value = new Date().toISOString().split('T')[0];
+        }
     }
 
     closeModal() {
@@ -60,7 +74,9 @@ class ExpensesScreen {
             amount: parseFloat(formData.get('amount')),
             description: formData.get('description'),
             reference: formData.get('reference'),
-            date: new Date().toISOString().split('T')[0] // Default to today
+            date: formData.get('date') || new Date().toISOString().split('T')[0],
+            payment_method: formData.get('payment_method') || 'cash',
+            paid_to: formData.get('paid_to') || ''
         };
 
         try {
@@ -70,7 +86,7 @@ class ExpensesScreen {
             this.refresh();
         } catch (error) {
             console.error('Failed to save expense:', error);
-            this.app.showNotification('Failed to save expense', 'error');
+            this.app.showNotification('Failed to save expense: ' + (error.message || 'Unknown error'), 'error');
         }
     }
 

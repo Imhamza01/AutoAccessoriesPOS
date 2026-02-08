@@ -1,3 +1,43 @@
+// Global function to show add customer modal
+window.showAddCustomerModal = function() {
+    // Wait for app to be ready
+    if (typeof window.app === 'undefined' || !window.app) {
+        console.log('App not ready yet, waiting...');
+        setTimeout(window.showAddCustomerModal, 100);
+        return;
+    }
+    
+    if (window.app.screens && window.app.screens.customers) {
+        window.app.screens.customers.showAddModal();
+    } else {
+        console.log('Customers screen not loaded yet, waiting...');
+        setTimeout(window.showAddCustomerModal, 100);
+    }
+};
+
+// Global function to close customer modal
+window.closeCustomerModal = function() {
+    // Wait for app to be ready
+    if (typeof window.app === 'undefined' || !window.app) {
+        // Fallback: directly hide the modal
+        const modal = document.getElementById('customer-modal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+        return;
+    }
+    
+    if (window.app.screens && window.app.screens.customers) {
+        window.app.screens.customers.closeCustomerModal();
+    } else {
+        // Fallback: directly hide the modal
+        const modal = document.getElementById('customer-modal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+    }
+};
+
 class CustomersScreen {
     constructor(app) {
         this.app = app;
@@ -20,14 +60,26 @@ class CustomersScreen {
 
     async load() {
         try {
-            const res = await this.app.api.get('/customers');
-            this.customers = res.customers || res || [];
-            this.filtered = this.customers; // Initialize filtered with all customers
+            console.log('[Customers] Loading customer data...');
+            const response = await this.app.api.get('/customers');
+            console.log('[Customers] API Response:', response);
+            
+            if (response && response.success) {
+                this.customers = response.customers || response.data || [];
+                console.log(`[Customers] Loaded ${this.customers.length} customers`);
+            } else {
+                console.error('[Customers] Failed to load customers:', response);
+                this.customers = [];
+            }
+            
+            this.filtered = this.customers;
             this.render();
         } catch (e) {
-            console.error('Failed to load customers:', e);
+            console.error('[Customers] Failed to load customers:', e);
+            this.customers = [];
+            this.filtered = [];
             const tbody = document.getElementById('customers-table');
-            if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="error">Failed to load customers</td></tr>';
+            if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="error">Failed to load customers: ' + e.message + '</td></tr>';
         }
     }
 
@@ -68,6 +120,7 @@ class CustomersScreen {
                 <td>
                     <button class="btn-small" onclick="app.screens.customers.edit(${id})">Edit</button>
                     <button class="btn-small" onclick="app.screens.customers.delete(${id})">Delete</button>
+                    ${currentBalance > 0 ? `<button class="btn-small" onclick="app.screens.customers.processCreditPayment(${id}, '${name}', ${currentBalance})">Pay Credit</button>` : ''}
                 </td>
             </tr>
         `;
@@ -87,12 +140,18 @@ class CustomersScreen {
         document.getElementById('customer-modal').style.display = 'block';
     }
 
-    closeModal() {
+    closeCustomerModal() {
         document.getElementById('customer-modal').style.display = 'none';
+    }
+
+    // Backwards-compatible alias used by some inline handlers
+    closeModal() {
+        this.closeCustomerModal();
     }
 
     async saveCustomer(e) {
         e.preventDefault();
+        console.log('[Customers] Saving customer...');
         const id = document.getElementById('customer-id').value;
         const data = {
             name: document.getElementById('customer-name').value,
@@ -105,17 +164,20 @@ class CustomersScreen {
 
         try {
             if (id) {
+                console.log('[Customers] Updating customer:', id);
                 await this.app.api.put(`/customers/${id}`, data);
                 this.app.showNotification('Customer updated successfully', 'success');
             } else {
+                console.log('[Customers] Adding new customer:', data);
                 await this.app.api.post('/customers', data);
                 this.app.showNotification('Customer added successfully', 'success');
             }
-            this.closeModal();
+            document.getElementById('customer-modal').style.display = 'none';
+            console.log('[Customers] Reloading customer list...');
             this.load();
         } catch (err) {
-            console.error(err);
-            this.app.showNotification('Failed to save customer', 'error');
+            console.error('[Customers] Failed to save customer:', err);
+            this.app.showNotification('Failed to save customer: ' + err.message, 'error');
         }
     }
 
@@ -144,6 +206,25 @@ class CustomersScreen {
             } catch (err) {
                 this.app.showNotification('Failed to delete customer', 'error');
             }
+        }
+    }
+    
+    processCreditPayment(customerId, customerName, currentBalance) {
+        // Open the credit payment modal in the POS screen
+        if (window.app.screens.pos) {
+            // Set the customer in the POS screen
+            window.app.screens.pos.selectedCustomerId = customerId;
+            // Show the credit payment modal
+            window.app.screens.pos.showCreditPaymentModal();
+        } else {
+            // If POS screen is not loaded, load it first
+            this.app.loadScreen('pos');
+            setTimeout(() => {
+                if (window.app.screens.pos) {
+                    window.app.screens.pos.selectedCustomerId = customerId;
+                    window.app.screens.pos.showCreditPaymentModal();
+                }
+            }, 1000);
         }
     }
 }

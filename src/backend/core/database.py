@@ -649,6 +649,19 @@ class DatabaseManager:
                     )
                     ''')
                     
+                    # 14b. SALE_PAYMENTS (allocations of customer payments to sales)
+                    cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS sale_payments (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        sale_id INTEGER NOT NULL,
+                        customer_payment_id INTEGER NOT NULL,
+                        amount DECIMAL(15,2) NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
+                        FOREIGN KEY (customer_payment_id) REFERENCES customer_payments(id) ON DELETE CASCADE
+                    )
+                    ''')
+                    
                     # 15. GST INVOICES (FBR Compliance)
                     cursor.execute('''
                     CREATE TABLE IF NOT EXISTS gst_invoices (
@@ -1138,6 +1151,25 @@ class DatabaseManager:
                     )
                     ''')
                     
+                    # 41. CUSTOMER PAYMENTS (Credit payments)
+                    cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS customer_payments (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        customer_id INTEGER NOT NULL,
+                        amount DECIMAL(15,2) NOT NULL,
+                        payment_method VARCHAR(50) CHECK(payment_method IN ('cash', 'card', 'cheque', 'bank_transfer', 'credit', 'mobile_payment')),
+                        payment_type VARCHAR(50) DEFAULT 'credit_payment' CHECK(payment_type IN ('credit_payment', 'advance_payment', 'installment_payment')),
+                        payment_date DATE NOT NULL,
+                        received_by INTEGER NOT NULL,
+                        notes TEXT,
+                        receipt_number VARCHAR(50),
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (customer_id) REFERENCES customers(id),
+                        FOREIGN KEY (received_by) REFERENCES users(id)
+                    )
+                    ''')
+                    
                     # ==================== CREATE INDEXES FOR PERFORMANCE ====================
                     
                     logger.info("Creating indexes for performance...")
@@ -1164,6 +1196,12 @@ class DatabaseManager:
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_customers_cnic ON customers(cnic)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_customers_type ON customers(customer_type)")
+                    
+                    # Customer payments indexes
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_customer_payments_customer ON customer_payments(customer_id)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_customer_payments_date ON customer_payments(payment_date)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_customer_payments_method ON customer_payments(payment_method)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_customer_payments_received_by ON customer_payments(received_by)")
                     
                     # Stock movements indexes
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_stock_movements_product ON stock_movements(product_id)")
@@ -1473,8 +1511,28 @@ def get_database_manager(app_data_path: Optional[Path] = None) -> DatabaseManage
     Returns:
         DatabaseManager instance
     """
+    import os
     global _db_instance
     if _db_instance is None:
+        # If app_data_path not provided, prefer a workspace-local DB when
+        # running in development or when a repo `data/database/pos_main.db`
+        # already exists. This makes local development use the repo data
+        # folder instead of the user's %APPDATA% by default.
+        if app_data_path is None:
+            try:
+                repo_root = Path(__file__).resolve().parents[3]
+                dev_db = repo_root / 'data' / 'database' / 'pos_main.db'
+                if os.environ.get('ENV') == 'development' and dev_db.exists():
+                    app_data_path = repo_root / 'data'
+                elif dev_db.exists():
+                    # If the repo provides a database file, prefer it to avoid
+                    # confusing multiple DB locations.
+                    app_data_path = repo_root / 'data'
+                else:
+                    app_data_path = None
+            except Exception:
+                app_data_path = None
+
         _db_instance = DatabaseManager(app_data_path)
         _db_instance.initialize_database()
     return _db_instance
@@ -1512,7 +1570,10 @@ if __name__ == "__main__":
     # Clean up
     db_manager.close_all_connections()
     if test_path.exists():
-        import shutil
-        shutil.rmtree(test_path)
+        try:
+            import shutil
+            shutil.rmtree(test_path)
+        except Exception as e:
+            print(f"Warning: Failed to clean up test directory: {e}")
     
     print("Database manager test completed successfully!")

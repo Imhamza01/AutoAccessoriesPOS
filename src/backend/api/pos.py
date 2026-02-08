@@ -31,6 +31,10 @@ async def create_pos_transaction(
             # Get cashier name from current user
             cashier_name = current_user.get("name") or current_user.get("username") or f"User {current_user['id']}"
             
+            # Determine payment status based on payment method
+            payment_method = transaction_data.get("payment_type", "cash")
+            payment_status = "pending" if payment_method.lower() in ["credit", "credit_sale"] else "paid"
+            
             cur.execute("""
                 INSERT INTO sales (
                     invoice_number, customer_id, grand_total, subtotal, discount_amount,
@@ -44,8 +48,8 @@ async def create_pos_transaction(
                 transaction_data.get("subtotal", 0),
                 transaction_data.get("discount_amount", 0),
                 transaction_data.get("gst_amount", 0),
-                transaction_data.get("payment_type", "cash"),
-                "paid",  # Changed from 'completed' to 'paid' to match CHECK constraint
+                payment_method,
+                payment_status,
                 transaction_data.get("notes"),
                 current_user["id"],  # cashier_id
                 cashier_name,  # cashier_name
@@ -109,16 +113,22 @@ async def create_pos_transaction(
                 cur.execute("""
                     INSERT INTO stock_movements (
                         product_id, movement_type, quantity, 
-                        previous_quantity, new_quantity,
-                        reason, created_by, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        previous_quantity, new_quantity, unit_cost,
+                        total_cost, reference_id, reference_type,
+                        reason, notes, created_by, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     product_id,
                     "sale",
                     -quantity,
                     current_stock,
                     new_stock,
+                    cost_price,
+                    cost_price * quantity,
+                    sale_id,
+                    "sale",
                     f"POS Sale #{sale_id}",
+                    f"Stock reduction for POS sale #{sale_id}",
                     current_user["id"],
                     datetime.datetime.now().isoformat()
                 ))
@@ -134,6 +144,25 @@ async def create_pos_transaction(
                 transaction_data.get("total_amount", 0),
                 datetime.datetime.now().isoformat()
             ))
+            
+            # Update customer's credit balance if this is a credit sale
+            customer_id = transaction_data.get("customer_id")
+            if customer_id:
+                payment_method = transaction_data.get("payment_type", "cash")
+                total_amount = transaction_data.get("total_amount", 0)
+                
+                # If payment method is credit, increase the customer's current_balance (outstanding credit)
+                if payment_method.lower() in ["credit", "credit_sale"]:
+                    cur.execute("""
+                        UPDATE customers 
+                        SET current_balance = current_balance + ?, updated_at = ?
+                        WHERE id = ?
+                    """, (total_amount, datetime.datetime.now().isoformat(), customer_id))
+                # If payment method is not credit, the balance was paid in full
+                elif payment_method.lower() in ["cash", "card", "bank_transfer"] and total_amount > 0:
+                    # For non-credit payments, we don't change the current_balance here
+                    # The current_balance only increases on credit purchases and decreases on credit payments
+                    pass
         
         return {
             "success": True,
@@ -390,6 +419,20 @@ async def hold_sale(
                     line_profit,
                     datetime.datetime.now().isoformat(sep=' ')
                 ))
+            
+            # Update customer's credit balance if this is a credit sale
+            customer_id = sale_data.get("customer_id")
+            if customer_id:
+                payment_method = sale_data.get("payment_type", "credit")  # Default to credit for held sales
+                total_amount = sale_data.get("total_amount", 0)
+                
+                # If payment method is credit, increase the customer's current_balance (outstanding credit)
+                if payment_method.lower() in ["credit", "credit_sale"]:
+                    cur.execute("""
+                        UPDATE customers 
+                        SET current_balance = current_balance + ?, updated_at = ?
+                        WHERE id = ?
+                    """, (total_amount, datetime.datetime.now().isoformat(), customer_id))
         
         return {
             "success": True,

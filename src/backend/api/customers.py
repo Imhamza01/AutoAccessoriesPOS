@@ -153,7 +153,7 @@ async def get_customer(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/", dependencies=[Depends(require_permission("customers.manage"))])
+@router.post("", dependencies=[Depends(require_permission("customers.manage"))])
 async def create_customer(
     customer_data: Dict[str, Any] = Body(...),
     current_user: Dict[str, Any] = Depends(get_current_user)
@@ -306,10 +306,16 @@ async def get_credit_summary(
     """Get customer credit summary and outstanding balance."""
     try:
         db = get_database_manager()
+        if not db:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+            
         with db.get_cursor() as cur:
+            if not cur:
+                raise HTTPException(status_code=500, detail="Database cursor failed")
+                
             # Get customer credit info
             cur.execute("""
-                SELECT credit_limit, credit_used FROM customers 
+                SELECT credit_limit, current_balance FROM customers 
                 WHERE id = ?
             """, (customer_id,))
             result = cur.fetchone()
@@ -321,16 +327,16 @@ async def get_credit_summary(
             if hasattr(result, 'keys'):
                 result_dict = dict(result)
                 credit_limit = result_dict.get('credit_limit', 0)
-                credit_used = result_dict.get('credit_used', 0)
+                current_balance = result_dict.get('current_balance', 0)
             else:
                 credit_limit = result[0] if len(result) > 0 else 0
-                credit_used = result[1] if len(result) > 1 else 0
+                current_balance = result[1] if len(result) > 1 else 0
             
             # Get outstanding sales (not fully paid)
             cur.execute("""
                 SELECT COUNT(*), COALESCE(SUM(grand_total), 0) as total_due
                 FROM sales
-                WHERE customer_id = ? AND payment_status = 'pending'
+                WHERE customer_id = ? AND payment_status = 'pending' AND sale_status != 'cancelled'
             """, (customer_id,))
             pending_result = cur.fetchone()
             
@@ -350,8 +356,8 @@ async def get_credit_summary(
         return {
             "success": True,
             "credit_limit": credit_limit,
-            "credit_used": credit_used,
-            "credit_available": credit_limit - credit_used,
+            "credit_used": current_balance,
+            "credit_available": credit_limit - current_balance,
             "pending_invoices": pending_invoices,
             "outstanding_amount": outstanding_amount
         }
@@ -359,4 +365,60 @@ async def get_credit_summary(
         raise
     except Exception as e:
         logger.error(f"Failed to get credit summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{customer_id}/pay-credit", dependencies=[Depends(require_permission("customers.manage"))])
+async def pay_customer_credit(
+    customer_id: int,
+    payment_data: Dict[str, Any] = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Process customer credit payment."""
+    try:
+        db = get_database_manager()
+        with db.get_cursor() as cur:
+            payment_amount = float(payment_data.get("amount", 0))
+            
+            if payment_amount <= 0:
+                raise HTTPException(status_code=400, detail="Payment amount must be greater than 0")
+            
+            # Get customer's current credit used
+            cur.execute("SELECT current_balance FROM customers WHERE id = ?", (customer_id,))
+            result = cur.fetchone()
+            
+            if not result:
+                raise HTTPException(status_code=404, detail="Customer not found")
+            
+            current_credit_used = result[0] if result[0] else 0
+            
+            if payment_amount > current_credit_used:
+                raise HTTPException(status_code=400, detail="Payment amount exceeds outstanding credit")
+            
+            # Update customer credit_used
+            new_credit_used = current_credit_used - payment_amount
+            cur.execute("""
+                UPDATE customers 
+                SET current_balance = ?
+                WHERE id = ?
+            """, (new_credit_used, customer_id))
+            
+            # Update sales payment status for the paid amount
+            cur.execute("""
+                UPDATE sales 
+                SET payment_status = 'paid'
+                WHERE customer_id = ? AND payment_status = 'pending' 
+                AND grand_total <= ?
+                ORDER BY created_at ASC
+            """, (customer_id, payment_amount))
+        
+        return {
+            "success": True,
+            "message": "Credit payment processed successfully",
+            "remaining_credit": new_credit_used
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to process credit payment: {e}")
         raise HTTPException(status_code=500, detail=str(e))

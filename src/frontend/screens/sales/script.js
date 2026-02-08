@@ -172,20 +172,78 @@ class SalesScreen {
         }
 
         const normalized = this.sales.map(s => this.normalizeSale(s));
-        tbody.innerHTML = normalized.map(s => `
-            <tr>
-                <td>${this.escapeHtml(s.invoiceNum) || 'N/A'}</td>
-                <td>${this.formatDate(s.date)}</td>
-                <td>${this.escapeHtml(s.customer) || 'Walk-in'}</td>
-                <td class="text-center">${s.items || 0}</td>
-                <td class="text-right">PKR ${(Number(s.total) || 0).toLocaleString()}</td>
-                <td>${this.escapeHtml(s.payment) || 'cash'}</td>
-                <td><span class="badge badge-${s.status === 'completed' ? 'success' : 'warning'}">${this.escapeHtml(s.status) || 'N/A'}</span></td>
-                <td class="text-center">
-                    <button class="btn btn-small" onclick="window.app.screens.sales.viewDetails(${s.id || 0})">View</button>
-                </td>
-            </tr>
-        `).join('');
+        
+        // Clear existing content
+        tbody.innerHTML = '';
+        
+        // Create rows safely
+        normalized.forEach(s => {
+            const row = document.createElement('tr');
+            
+            // Invoice number cell
+            const invoiceCell = document.createElement('td');
+            invoiceCell.textContent = s.invoiceNum || 'N/A';
+            row.appendChild(invoiceCell);
+            
+            // Date cell
+            const dateCell = document.createElement('td');
+            dateCell.textContent = this.formatDate(s.date);
+            row.appendChild(dateCell);
+            
+            // Customer cell
+            const customerCell = document.createElement('td');
+            customerCell.textContent = s.customer || 'Walk-in';
+            row.appendChild(customerCell);
+            
+            // Items cell
+            const itemsCell = document.createElement('td');
+            itemsCell.className = 'text-center';
+            itemsCell.textContent = s.items || 0;
+            row.appendChild(itemsCell);
+            
+            // Total cell
+            const totalCell = document.createElement('td');
+            totalCell.className = 'text-right';
+            totalCell.textContent = `PKR ${(Number(s.total) || 0).toLocaleString()}`;
+            row.appendChild(totalCell);
+            
+            // Payment cell
+            const paymentCell = document.createElement('td');
+            paymentCell.textContent = s.payment || 'cash';
+            row.appendChild(paymentCell);
+            
+            // Status cell
+            const statusCell = document.createElement('td');
+            const statusBadge = document.createElement('span');
+            statusBadge.className = `badge badge-${s.status === 'completed' ? 'success' : 'warning'}`;
+            statusBadge.textContent = s.status || 'N/A';
+            statusCell.appendChild(statusBadge);
+            row.appendChild(statusCell);
+            
+            // Actions cell
+            const actionsCell = document.createElement('td');
+            actionsCell.className = 'text-center';
+            
+            // View button
+            const viewBtn = document.createElement('button');
+            viewBtn.className = 'btn btn-small';
+            viewBtn.textContent = 'View';
+            viewBtn.onclick = () => this.viewDetails(s.id || 0);
+            actionsCell.appendChild(viewBtn);
+            
+            // Add Pay button for pending credit sales
+            if (s.status === 'pending') {
+                const payBtn = document.createElement('button');
+                payBtn.className = 'btn btn-small btn-success ml-1';
+                payBtn.textContent = 'Pay';
+                payBtn.onclick = () => this.processCreditPayment(s.id || 0);
+                actionsCell.appendChild(payBtn);
+            }
+            
+            row.appendChild(actionsCell);
+            
+            tbody.appendChild(row);
+        });
     }
 
     formatDate(dateStr) {
@@ -502,9 +560,183 @@ class SalesScreen {
     
     escapeHtml(text) {
         if (!text) return '';
-        const div = document.createElement('div'); 
-        div.textContent = text; 
+        const div = document.createElement('div');
+        div.textContent = text;
         return div.innerHTML;
+    }
+    
+    // Credit Management Methods
+    async showCreditSales() {
+        // Set filters to show only pending credit sales
+        this.filters.status = 'pending';
+        
+        // Update the status dropdown to reflect this
+        const statusSelect = document.getElementById('sales-status');
+        if (statusSelect) {
+            statusSelect.value = 'pending';
+        }
+        
+        // Load sales with pending status
+        await this.load();
+        
+        // Update UI to highlight credit sales
+        this.highlightCreditSales();
+    }
+    
+    highlightCreditSales() {
+        // Add visual indicators for credit sales
+        const rows = document.querySelectorAll('#sales-table tr:not(:first-child)');
+        rows.forEach(row => {
+            const statusCell = row.querySelector('td:nth-child(7)');
+            if (statusCell && statusCell.textContent.includes('pending')) {
+                row.classList.add('credit-sale-row');
+            }
+        });
+    }
+    
+    async processCreditPayment(saleId) {
+        try {
+            // Find the sale in our data
+            const sale = this.sales.find(s => s.id === saleId);
+            if (!sale) {
+                this.app.showNotification('Sale not found', 'error');
+                return;
+            }
+            
+            // Create payment modal
+            this.showCreditPaymentModal(sale);
+        } catch (error) {
+            console.error('Error processing credit payment:', error);
+            this.app.showNotification('Error processing credit payment', 'error');
+        }
+    }
+    
+    showCreditPaymentModal(sale) {
+        // Create modal overlay
+        const modalOverlay = document.createElement('div');
+        modalOverlay.className = 'modal-overlay';
+        modalOverlay.id = 'credit-payment-modal';
+        
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        
+        // Header
+        const header = document.createElement('div');
+        header.className = 'modal-header';
+        const title = document.createElement('h3');
+        title.textContent = `Credit Payment - Invoice ${sale.invoice_number || sale.invoiceNum || sale.id}`;
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'modal-close-btn';
+        closeBtn.textContent = '×';
+        closeBtn.onclick = () => this.closeCreditPaymentModal();
+        header.appendChild(title);
+        header.appendChild(closeBtn);
+        
+        // Body
+        const body = document.createElement('div');
+        body.className = 'modal-body';
+        body.innerHTML = `
+            <div class="form-group">
+                <label>Customer: ${(sale.customer_name || sale.customer || 'Walk-in Customer')}</label>
+            </div>
+            <div class="form-group">
+                <label>Current Balance: ${this.app.formatCurrency(sale.balance_due || sale.grand_total || 0)}</label>
+            </div>
+            <div class="form-group">
+                <label for="credit-payment-amount">Payment Amount:</label>
+                <input type="number" id="credit-payment-amount" class="input-field" placeholder="Enter payment amount" step="0.01" min="0" value="${sale.balance_due || sale.grand_total || 0}">
+            </div>
+            <div class="form-group">
+                <label for="credit-payment-method">Payment Method:</label>
+                <select id="credit-payment-method" class="input-field">
+                    <option value="cash">Cash</option>
+                    <option value="card">Card</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="credit-payment-notes">Notes:</label>
+                <textarea id="credit-payment-notes" class="input-field" placeholder="Enter payment notes" rows="3"></textarea>
+            </div>
+        `;
+        
+        // Footer
+        const footer = document.createElement('div');
+        footer.className = 'modal-footer';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'btn btn-secondary';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.onclick = () => this.closeCreditPaymentModal();
+        const payBtn = document.createElement('button');
+        payBtn.className = 'btn btn-success';
+        payBtn.textContent = 'Process Payment';
+        payBtn.onclick = () => this.submitCreditPayment(sale);
+        footer.appendChild(cancelBtn);
+        footer.appendChild(payBtn);
+        
+        modal.appendChild(header);
+        modal.appendChild(body);
+        modal.appendChild(footer);
+        modalOverlay.appendChild(modal);
+        
+        document.body.appendChild(modalOverlay);
+        modalOverlay.style.display = 'flex';
+    }
+    
+    async submitCreditPayment(sale) {
+        try {
+            const amountInput = document.getElementById('credit-payment-amount');
+            const methodSelect = document.getElementById('credit-payment-method');
+            const notesTextarea = document.getElementById('credit-payment-notes');
+            
+            const amount = parseFloat(amountInput.value);
+            const paymentMethod = methodSelect.value;
+            const notes = notesTextarea.value;
+            
+            if (!amount || amount <= 0) {
+                this.app.showNotification('Please enter a valid payment amount', 'error');
+                return;
+            }
+            
+            this.app.showLoading('Processing credit payment...');
+            
+            // Process payment for specific sale
+            const paymentData = {
+                sale_ids: [sale.id],
+                amount: amount,
+                payment_method: paymentMethod,
+                notes: notes || `Payment for invoice ${sale.invoice_number || sale.id}`
+            };
+            
+            const response = await this.api.post(`/customer-payments/${sale.customer_id || sale.customer_id}/payments`, paymentData);
+            
+            if (response.success) {
+                this.app.showNotification('Credit payment processed successfully', 'success');
+                this.closeCreditPaymentModal();
+                
+                // Refresh sales data to reflect updated status
+                await this.load();
+                
+                // Update dashboard if possible
+                if (window.app.screens.dashboard) {
+                    window.app.screens.dashboard.refresh();
+                }
+            } else {
+                throw new Error(response.message || 'Failed to process credit payment');
+            }
+        } catch (error) {
+            console.error('Error submitting credit payment:', error);
+            this.app.showNotification(error.message || 'Error processing credit payment', 'error');
+        } finally {
+            this.app.hideLoading();
+        }
+    }
+    
+    closeCreditPaymentModal() {
+        const modal = document.getElementById('credit-payment-modal');
+        if (modal) {
+            modal.remove();
+        }
     }
 }
 

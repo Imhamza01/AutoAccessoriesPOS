@@ -1,0 +1,219 @@
+<!-- src/frontend/screens/credit-management/index.html -->
+<div class="credit-management-screen">
+    <!-- Header -->
+    <div class="screen-header">
+        <div class="header-title">
+            <h1>Credit Management</h1>
+            <p class="header-subtitle">Manage customer credit and payments</p>
+        </div>
+        <div class="screen-actions">
+            <button class="btn btn-primary" id="refresh-btn">
+                <span class="btn-icon">🔄</span> Refresh
+            </button>
+            <button class="btn btn-warning" id="reconcile-btn">
+                <span class="btn-icon">🔧</span> Reconcile Balances
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <section class="stats-section">
+        <div class="stat-cards">
+            <div class="stat-card">
+                <div class="stat-icon">💳</div>
+                <div class="stat-info">
+                    <h3>Total Outstanding</h3>
+                    <p id="total-outstanding">Loading...</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📅</div>
+                <div class="stat-info">
+                    <h3>Today's Credit</h3>
+                    <p id="todays-credit">Loading...</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🛒</div>
+                <div class="stat-info">
+                    <h3>Pending Sales</h3>
+                    <p id="pending-sales">Loading...</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">👥</div>
+                <div class="stat-info">
+                    <h3>Customers</h3>
+                    <p id="customers-credit">Loading...</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Filters -->
+    <section class="filters-section">
+        <div class="filters">
+            <div class="filter-group">
+                <label for="customer-filter">Customer:</label>
+                <select id="customer-filter">
+                    <option value="">All Customers</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="status-filter">Status:</label>
+                <select id="status-filter">
+                    <option value="">All Status</option>
+                    <option value="pending">Pending</option>
+                    <option value="partial">Partial</option>
+                    <option value="paid">Paid</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="date-from">From:</label>
+                <input type="date" id="date-from">
+            </div>
+            <div class="filter-group">
+                <label for="date-to">To:</label>
+                <input type="date" id="date-to">
+            </div>
+            <button id="apply-filters" class="btn btn-primary">Apply</button>
+            <button id="reset-filters" class="btn btn-secondary">Reset</button>
+        </div>
+    </section>
+
+    <!-- Tabs -->
+    <section class="tabs-section">
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="credit-sales">Credit Sales</button>
+            <button class="tab-btn" data-tab="credit-customers">Credit Customers</button>
+            <button class="tab-btn" data-tab="credit-payments">Payments</button>
+            <button class="tab-btn" data-tab="credit-history">History</button>
+        </div>
+
+        <!-- Tab Content -->
+        <div class="tab-content">
+            <!-- Credit Sales Tab -->
+            <div id="credit-sales-tab" class="tab-pane active">
+                <div class="table-actions">
+                    <button id="process-payment-btn" data-action="process" class="btn btn-success">Process Payment</button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Invoice #</th>
+                                <th>Date</th>
+                                <th>Customer</th>
+                                <th>Total</th>
+                                <th>Balance Due</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="credit-sales-table">
+                            <tr>
+                                <td colspan="7" class="loading">Loading credit sales...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Credit Customers Tab -->
+            <div id="credit-customers-tab" class="tab-pane">
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Phone</th>
+                                <th>Email</th>
+                                <th>Current Balance</th>
+                                <th>Credit Limit</th>
+                                <th>Pending Sales</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="credit-customers-table">
+                            <tr>
+                                <td colspan="7" class="loading">Loading customers...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Credit Payments Tab -->
+            <div id="credit-payments-tab" class="tab-pane">
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Customer</th>
+                                <th>Amount</th>
+                                <th>Method</th>
+                                <th>Type</th>
+                                <th>Received By</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody id="credit-payments-table">
+                            <tr>
+                                <td colspan="7" class="loading">Loading payments...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Credit History Tab -->
+            <div id="credit-history-tab" class="tab-pane">
+                <div class="customer-selector">
+                    <select id="history-customer-select">
+                        <option value="">Select Customer</option>
+                    </select>
+                </div>
+                <div class="history-content">
+                    <div class="history-sales">
+                        <h4>Sales History</h4>
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Invoice #</th>
+                                    <th>Date</th>
+                                    <th>Total</th>
+                                    <th>Balance Due</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-sales-table">
+                                <tr>
+                                    <td colspan="5" class="loading">Select a customer</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="history-payments">
+                        <h4>Payment History</h4>
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Amount</th>
+                                    <th>Method</th>
+                                    <th>Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-payments-table">
+                                <tr>
+                                    <td colspan="4" class="loading">Select a customer</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>

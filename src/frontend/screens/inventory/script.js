@@ -123,6 +123,8 @@ class InventoryScreen {
         try {
             this.app.showLoading('Loading inventory...');
             
+            // First try the inventory/stock endpoint, then fall back to products
+            let response;
             let url = '/inventory/stock';
             if (this.filters.search) {
                 url += `?search=${encodeURIComponent(this.filters.search)}`;
@@ -131,7 +133,26 @@ class InventoryScreen {
                 url += (url.includes('?') ? '&' : '?') + `category_id=${this.filters.category_id}`;
             }
 
-            const response = await this.api.get(url);
+            try {
+                response = await this.api.get(url);
+            } catch (inventoryError) {
+                // If inventory/stock fails, try the products endpoint as fallback
+                console.warn('Inventory endpoint failed, trying products endpoint:', inventoryError);
+                let productsUrl = '/products';
+                if (this.filters.search || this.filters.category_id) {
+                    productsUrl += '?';
+                    if (this.filters.search) {
+                        productsUrl += `search=${encodeURIComponent(this.filters.search)}`;
+                        if (this.filters.category_id) {
+                            productsUrl += `&category_id=${this.filters.category_id}`;
+                        }
+                    } else if (this.filters.category_id) {
+                        productsUrl += `category_id=${this.filters.category_id}`;
+                    }
+                }
+                response = await this.api.get(productsUrl);
+            }
+
             this.products = Array.isArray(response) ? response : (response.products || response.data || []);
             
             console.log(`Loaded ${this.products.length} products`);

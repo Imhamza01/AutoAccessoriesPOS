@@ -1,4 +1,4 @@
-import hashlib
+import bcrypt
 import sqlite3
 
 # Connect to database
@@ -15,17 +15,16 @@ if result:
     # Test if 'admin123' matches
     password = 'admin123'
     
-    # Parse the stored hash
+    # Parse the stored hash (bcrypt format)
     try:
-        algorithm, salt, hash_value = stored_hash.split('$')
-        print(f'Algorithm: {algorithm}, Salt: {salt}')
+        # bcrypt hashes are self-contained with algorithm, cost, salt, and hash
+        print(f'Bcrypt hash format detected')
         
-        # Test verification
-        test_hash = hashlib.sha256(f'{password}{salt}'.encode()).hexdigest()
-        is_match = test_hash == hash_value
+        # Test verification using bcrypt
+        password_bytes = password.encode('utf-8')
+        stored_hash_bytes = stored_hash.encode('utf-8')
+        is_match = bcrypt.checkpw(password_bytes, stored_hash_bytes)
         print(f'Test password "admin123" matches: {is_match}')
-        print(f'Expected hash: {test_hash}')
-        print(f'Stored hash:   {hash_value}')
         
     except ValueError:
         print('Invalid hash format')

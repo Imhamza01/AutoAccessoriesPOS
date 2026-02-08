@@ -599,9 +599,9 @@ class ProductRepository:
                         INSERT INTO stock_movements (
                             product_id, movement_type, quantity,
                             previous_quantity, new_quantity, unit_cost,
-                            total_cost, reference_type, reason,
-                            notes, created_by, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                            total_cost, reference_id, reference_type,
+                            reason, notes, created_by, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ''', (
                         product_id,
                         movement_type,
@@ -610,6 +610,7 @@ class ProductRepository:
                         product_data['current_stock'],
                         product_data.get('cost_price', current_product['cost_price']),
                         product_data.get('cost_price', current_product['cost_price']) * abs(stock_change),
+                        None,  # reference_id
                         'stock_adjustment',
                         'Manual stock adjustment',
                         product_data.get('stock_adjustment_reason', 'Stock adjustment'),
@@ -655,7 +656,7 @@ class ProductRepository:
                         previous_quantity, new_quantity, unit_cost,
                         total_cost, reference_id, reference_type,
                         reason, notes, created_by, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ''', (
                     product_id,
                     movement_type,
@@ -968,7 +969,8 @@ class ProductRepository:
                             notes=notes
                         )
                         updated_count += 1
-                    except:
+                    except Exception as e:
+                        logger.error(f"Failed to update stock for product {product_id}: {e}")
                         continue
                 
                 return updated_count
