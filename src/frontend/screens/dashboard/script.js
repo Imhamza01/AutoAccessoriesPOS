@@ -97,6 +97,7 @@ class DashboardScreen {
         try {
             await Promise.all([
                 this.loadDashboardStats(),
+                this.loadDashboardAnalytics(),
                 this.loadRecentSales(),
                 this.loadLowStockItems(),
                 this.initializeCharts()
@@ -114,6 +115,8 @@ class DashboardScreen {
 
     async loadDashboardStats() {
         try {
+            console.log('[Dashboard] Starting loadDashboardStats...');
+            
             // Get local date string in YYYY-MM-DD format
             const now = new Date();
             const year = now.getFullYear();
@@ -121,45 +124,39 @@ class DashboardScreen {
             const day = String(now.getDate()).padStart(2, '0');
             const today = `${year}-${month}-${day}`;
             
-            const sales = await this.app.api.get(`/sales/?start_date=${today}&end_date=${today}`);
+            const salesResponse = await this.app.api.get(`/sales/?start_date=${today}&end_date=${today}`);
+            
+            // Debug logging
+            console.log('[Dashboard] Sales API Response:', salesResponse);
 
             let todaySales = 0;
             let todayCustomers = new Set();
 
-            let salesData = [];
-            if (sales && sales.success === false) {
-                // Handle API error response
-                console.error('Sales API returned error:', sales);
-                return; // Return early to avoid setting zero values
-            } else if (Array.isArray(sales)) {
-                salesData = sales;
-            } else if (sales && sales.data) {
-                salesData = sales.data;
-            } else if (sales && sales.sales) {
-                salesData = sales.sales;
-            } else if (sales && Array.isArray(sales.sales)) {
-                salesData = sales.sales;
-            }
-
-            salesData.forEach(sale => {
-                // Ensure we're accessing the correct field names from the database
-                let saleAmount = 0;
-                if (typeof sale === 'object' && sale !== null) {
-                    // Object format
-                    saleAmount = (sale.grand_total !== undefined && sale.grand_total !== null ? sale.grand_total : 
-                                sale.total_amount !== undefined && sale.total_amount !== null ? sale.total_amount : 
-                                0);
+            // Handle API response properly
+            if (salesResponse && salesResponse.success) {
+                const salesData = salesResponse.sales || salesResponse.data || [];
+                
+                salesData.forEach(sale => {
+                    // Handle both object and array formats
+                    let saleAmount = 0;
+                    let customerId = null;
                     
-                    const customerId = (sale.customer_id !== undefined && sale.customer_id !== null) ? sale.customer_id : 
-                                       (sale.customer !== undefined && sale.customer !== null) ? sale.customer : 
-                                       null;
-                    if (customerId && customerId !== 'Walk-in' && customerId !== 0 && customerId !== 'Walk-in Customer') {
+                    if (typeof sale === 'object' && sale !== null) {
+                        saleAmount = sale.grand_total || sale.total_amount || 0;
+                        customerId = sale.customer_id;
+                    } else if (Array.isArray(sale)) {
+                        saleAmount = sale[22] || sale[2] || 0; // grand_total or fallback
+                        customerId = sale[1] || null; // customer_id
+                    }
+                    
+                    todaySales += parseFloat(saleAmount) || 0;
+                    if (customerId && customerId !== 'Walk-in' && customerId !== 0) {
                         todayCustomers.add(customerId);
                     }
-                }
-                
-                todaySales += parseFloat(saleAmount) || 0;
-            });
+                });
+            } else {
+                console.warn('Sales API returned no data or error:', salesResponse);
+            }
 
             this.data.todaySales = todaySales;
             this.data.todayCustomers = todayCustomers.size;
@@ -168,44 +165,34 @@ class DashboardScreen {
             this.updateStatCard('todayCustomers', todayCustomers.size.toString());
 
             // Products stats
-            const productsRes = await this.app.api.get('/products?limit=1000');
+            const productsResponse = await this.app.api.get('/products?limit=1000');
             
-            let productsList = [];
-            if (productsRes && productsRes.success === false) {
-                // Handle API error response
-                console.error('Products API returned error:', productsRes);
-                productsList = [];
-            } else if (Array.isArray(productsRes)) {
-                productsList = productsRes;
-            } else if (productsRes && productsRes.data) {
-                productsList = productsRes.data;
-            } else if (productsRes && productsRes.products) {
-                productsList = productsRes.products;
-            } else if (productsRes && Array.isArray(productsRes.products)) {
-                productsList = productsRes.products;
-            }
-
-            let totalProducts = productsList.length;
+            let totalProducts = 0;
             let lowStockCount = 0;
+            
+            if (productsResponse && productsResponse.success) {
+                const productsList = productsResponse.products || productsResponse.data || [];
+                totalProducts = productsList.length;
 
-            productsList.forEach(product => {
-                // Handle object format
-                let currentStock, minStock;
-                if (typeof product === 'object' && product !== null) {
-                    // Object format
-                    currentStock = (product.current_stock !== undefined && product.current_stock !== null ? product.current_stock : 
-                                product.stock !== undefined && product.stock !== null ? product.stock : 
-                                0);
-                    minStock = (product.min_stock !== undefined && product.min_stock !== null ? product.min_stock : 
-                            10);
-                } else {
-                    // Fallback
-                    currentStock = 0;
-                    minStock = 10;
-                }
-                
-                if (parseInt(currentStock) < parseInt(minStock)) lowStockCount++;
-            });
+                productsList.forEach(product => {
+                    let currentStock = 0;
+                    let minStock = 10;
+                    
+                    if (typeof product === 'object' && product !== null) {
+                        currentStock = product.current_stock || product.stock || 0;
+                        minStock = product.min_stock || 10;
+                    } else if (Array.isArray(product)) {
+                        currentStock = product[13] || product[7] || 0; // current_stock
+                        minStock = product[14] || 10; // min_stock
+                    }
+                    
+                    if (parseInt(currentStock) < parseInt(minStock)) {
+                        lowStockCount++;
+                    }
+                });
+            } else {
+                console.warn('Products API returned no data or error:', productsResponse);
+            }
 
             this.data.totalProducts = totalProducts;
             this.data.lowStockCount = lowStockCount;
@@ -216,47 +203,22 @@ class DashboardScreen {
             this.data.todayProfit = todaySales * 0.30;
             this.updateStatCard('todayProfit', this.app.formatCurrency(this.data.todayProfit));
 
-            // Pending Credit (Fetch customers and sum credit_used)
-            const customersRes = await this.app.api.get('/customers?limit=1000');
-            
-            let customersList = [];
-            if (customersRes && customersRes.success === false) {
-                // Handle API error response
-                console.error('Customers API returned error:', customersRes);
-                customersList = [];
-            } else if (Array.isArray(customersRes)) {
-                customersList = customersRes;
-            } else if (customersRes && customersRes.data) {
-                customersList = customersRes.data;
-            } else if (customersRes && customersRes.customers) {
-                customersList = customersRes.customers;
-            } else if (customersRes && Array.isArray(customersRes.customers)) {
-                customersList = customersRes.customers;
-            }
-            
-
-
-            let pendingCredit = 0;
-            customersList.forEach(customer => {
-                // Handle both object and array formats
-                let creditUsed;
-                if (typeof customer === 'object' && customer !== null) {
-                    // Object format
-                    creditUsed = (customer.credit_used !== undefined && customer.credit_used !== null ? customer.credit_used : 
-                             customer.total_credit !== undefined && customer.total_credit !== null ? customer.total_credit : 
-                             0);
-                } else if (Array.isArray(customer)) {
-                    // Array format - index based on actual schema
-                    creditUsed = customer[8] || 0; // credit_used is likely at index 8
-                } else {
-                    // Fallback
-                    creditUsed = 0;
+            // Pending Credit
+            try {
+                const creditResponse = await this.app.api.get('/reports/pending-credit');
+                
+                let pendingCredit = 0;
+                if (creditResponse && creditResponse.success) {
+                    pendingCredit = creditResponse.total_pending_amount || 0;
                 }
-                pendingCredit += parseFloat(creditUsed) || 0;
-            });
-
-            this.data.pendingCredit = pendingCredit;
-            this.updateStatCard('pendingCredit', this.app.formatCurrency(pendingCredit));
+                
+                this.data.pendingCredit = pendingCredit;
+                this.updateStatCard('pendingCredit', this.app.formatCurrency(pendingCredit));
+            } catch (error) {
+                console.error('Error fetching pending credit:', error);
+                this.data.pendingCredit = 0;
+                this.updateStatCard('pendingCredit', this.app.formatCurrency(0));
+            }
 
         } catch (error) {
             console.error('Error loading dashboard stats:', error);
@@ -267,6 +229,87 @@ class DashboardScreen {
             this.updateStatCard('lowStockCount', '0');
             this.updateStatCard('todayProfit', this.app.formatCurrency(0));
             this.updateStatCard('pendingCredit', this.app.formatCurrency(0));
+        }
+    }
+
+    async loadDashboardAnalytics() {
+        try {
+            const analytics = await this.app.api.get('/reports/dashboard-analytics');
+            
+            if (analytics && analytics.success) {
+                const { today, yesterday, changes } = analytics;
+                
+                // Update performance metrics
+                this.updatePerformanceMetric('sales', today.sales, yesterday.sales, changes.sales_percent);
+                this.updatePerformanceMetric('customers', today.customers, yesterday.customers, changes.customers_percent);
+                this.updatePerformanceMetric('avgBill', today.avg_bill, yesterday.avg_bill, changes.avg_bill_percent);
+            }
+        } catch (error) {
+            console.error('Error loading dashboard analytics:', error);
+            // Set default values on error
+            this.updatePerformanceMetric('sales', 0, 0, 0);
+            this.updatePerformanceMetric('customers', 0, 0, 0);
+            this.updatePerformanceMetric('avgBill', 0, 0, 0);
+        }
+    }
+
+    updatePerformanceMetric(type, todayValue, yesterdayValue, changePercent) {
+        const isPositive = changePercent >= 0;
+        const changeClass = isPositive ? 'positive' : 'negative';
+        const changeIcon = isPositive ? '↗' : '↘';
+        
+        if (type === 'sales') {
+            // Sales Today vs Yesterday
+            const todayEl = document.getElementById('todaySalesAmount');
+            const yesterdayEl = document.getElementById('yesterdaySales');
+            const changeEl = document.getElementById('salesChange');
+            const barEl = document.getElementById('salesBar');
+            
+            if (todayEl) todayEl.textContent = this.app.formatCurrency(todayValue);
+            if (yesterdayEl) yesterdayEl.textContent = this.app.formatCurrency(yesterdayValue);
+            if (changeEl) {
+                changeEl.textContent = `${changeIcon} ${Math.abs(changePercent)}%`;
+                changeEl.className = `performance-change ${changeClass}`;
+            }
+            if (barEl) {
+                const percentage = Math.min(Math.abs(changePercent), 100);
+                barEl.style.width = `${percentage}%`;
+                barEl.className = `performance-bar-fill ${changeClass}`;
+            }
+        } else if (type === 'customers') {
+            // Customer Growth
+            const todayEl = document.getElementById('todayCustomersCount');
+            const yesterdayEl = document.getElementById('yesterdayCustomers');
+            const changeEl = document.getElementById('customersChange');
+            const barEl = document.getElementById('customersBar');
+            
+            if (todayEl) todayEl.textContent = todayValue.toString();
+            if (yesterdayEl) yesterdayEl.textContent = yesterdayValue.toString();
+            if (changeEl) {
+                changeEl.textContent = `${changeIcon} ${Math.abs(changePercent)}%`;
+                changeEl.className = `performance-change ${changeClass}`;
+            }
+            if (barEl) {
+                const percentage = Math.min(Math.abs(changePercent), 100);
+                barEl.style.width = `${percentage}%`;
+                barEl.className = `performance-bar-fill ${changeClass}`;
+            }
+        } else if (type === 'avgBill') {
+            // Average Bill Value
+            const avgBillEl = document.getElementById('avgBillValue');
+            const changeEl = document.getElementById('avgBillChange');
+            const barEl = document.getElementById('avgBillBar');
+            
+            if (avgBillEl) avgBillEl.textContent = this.app.formatCurrency(todayValue);
+            if (changeEl) {
+                changeEl.textContent = `${changeIcon} ${Math.abs(changePercent)}%`;
+                changeEl.className = `performance-change ${changeClass}`;
+            }
+            if (barEl) {
+                const percentage = Math.min(Math.abs(changePercent), 100);
+                barEl.style.width = `${percentage}%`;
+                barEl.className = `performance-bar-fill ${changeClass}`;
+            }
         }
     }
 
@@ -281,24 +324,17 @@ class DashboardScreen {
 
     async loadRecentSales() {
         try {
-            const sales = await this.app.api.get('/sales/?limit=10');
+            const response = await this.app.api.get('/sales/?limit=10');
             const tbody = document.getElementById('recentSalesBody');
 
             if (!tbody) return;
 
             let salesList = [];
-            if (sales && sales.success === false) {
-                // Handle API error response
-                console.error('Recent Sales API returned error:', sales);
+            if (response && response.success) {
+                salesList = response.sales || response.data || [];
+            } else {
+                console.warn('Recent Sales API returned no data or error:', response);
                 salesList = [];
-            } else if (Array.isArray(sales)) {
-                salesList = sales;
-            } else if (sales && sales.data) {
-                salesList = sales.data;
-            } else if (sales && sales.sales) {
-                salesList = sales.sales;
-            } else if (sales && Array.isArray(sales.sales)) {
-                salesList = sales.sales;
             }
 
             if (salesList.length === 0) {
@@ -306,92 +342,105 @@ class DashboardScreen {
                 return;
             }
 
-            tbody.innerHTML = salesList.map(sale => {
+            // Clear existing content
+            tbody.innerHTML = '';
+            
+            salesList.forEach(sale => {
                 // Handle both object and array formats
                 let invoiceNumber, customerName, totalItems, grandTotal, createdAt, paymentStatus;
                 
-                if (Array.isArray(sale)) {
-                    // Array format - use indices
-                    invoiceNumber = (sale[1] !== undefined && sale[1] !== null) ? sale[1] : 
-                                  (sale[0] !== undefined && sale[0] !== null) ? sale[0] : 'N/A'; // invoice_number or id
-                    customerName = (sale[4] !== undefined && sale[4] !== null) ? sale[4] : 'Walk-in'; // customer_name
-                    totalItems = (sale[11] !== undefined && sale[11] !== null) ? sale[11] : 
-                                (sale[5] !== undefined && sale[5] !== null) ? sale[5] : '-'; // total_items
-                    grandTotal = (sale[22] !== undefined && sale[22] !== null) ? sale[22] : 
-                                (sale[2] !== undefined && sale[2] !== null) ? sale[2] : 0; // grand_total
-                    createdAt = (sale[37] !== undefined && sale[37] !== null) ? sale[37] : 
-                                (sale[2] !== undefined && sale[2] !== null) ? sale[2] : new Date().toISOString(); // created_at
-                    paymentStatus = (sale[28] !== undefined && sale[28] !== null) ? sale[28] : 
-                                  (sale[26] !== undefined && sale[26] !== null) ? sale[26] : 'completed'; // payment_status
-                } else {
+                if (typeof sale === 'object' && sale !== null) {
                     // Object format
-                    invoiceNumber = (sale.invoice_number !== undefined && sale.invoice_number !== null) ? sale.invoice_number : 
-                                  (sale.invoice_no !== undefined && sale.invoice_no !== null) ? sale.invoice_no : 
-                                  (sale.id !== undefined && sale.id !== null) ? sale.id : 'N/A';
-                    customerName = (sale.customer_name !== undefined && sale.customer_name !== null) ? sale.customer_name : 
-                                  (sale.customer && sale.customer.name) ? sale.customer.name : 
-                                  'Walk-in';
-                    totalItems = (sale.total_items !== undefined && sale.total_items !== null) ? sale.total_items : 
-                                (sale.item_count !== undefined && sale.item_count !== null) ? sale.item_count : 
-                                (sale.items_count !== undefined && sale.items_count !== null) ? sale.items_count : '-';
-                    grandTotal = (sale.grand_total !== undefined && sale.grand_total !== null) ? sale.grand_total : 
-                                (sale.total_amount !== undefined && sale.total_amount !== null) ? sale.total_amount : 0;
-                    createdAt = (sale.created_at !== undefined && sale.created_at !== null) ? sale.created_at : 
-                                (sale.sale_date !== undefined && sale.sale_date !== null) ? sale.sale_date : new Date().toISOString();
-                    paymentStatus = (sale.payment_status !== undefined && sale.payment_status !== null) ? sale.payment_status : 'completed';
+                    invoiceNumber = sale.invoice_number || sale.invoice_no || sale.id || 'N/A';
+                    customerName = sale.customer_name || (sale.customer && sale.customer.name) || 'Walk-in';
+                    totalItems = sale.total_items || sale.item_count || sale.items_count || '-';
+                    grandTotal = sale.grand_total || sale.total_amount || 0;
+                    createdAt = sale.created_at || sale.sale_date || new Date().toISOString();
+                    paymentStatus = sale.payment_status || 'completed';
+                } else if (Array.isArray(sale)) {
+                    // Array format - use indices
+                    invoiceNumber = sale[1] || sale[0] || 'N/A';
+                    customerName = sale[4] || 'Walk-in';
+                    totalItems = sale[11] || sale[5] || '-';
+                    grandTotal = sale[22] || sale[2] || 0;
+                    createdAt = sale[37] || sale[2] || new Date().toISOString();
+                    paymentStatus = sale[28] || sale[26] || 'completed';
+                } else {
+                    // Fallback
+                    invoiceNumber = 'N/A';
+                    customerName = 'Walk-in';
+                    totalItems = '-';
+                    grandTotal = 0;
+                    createdAt = new Date().toISOString();
+                    paymentStatus = 'completed';
                 }
                 
-                return `
-                    <tr>
-                        <td>${invoiceNumber || 'N/A'}</td>
-                        <td>${customerName || 'Walk-in'}</td>
-                        <td>${totalItems || '-'}</td>
-                        <td>${this.app.formatCurrency(parseFloat(grandTotal) || 0)}</td>
-                        <td>${new Date(createdAt).toLocaleTimeString()}</td>
-                        <td><span class="status-badge ${paymentStatus}">${paymentStatus}</span></td>
-                    </tr>
-                `;
-            }).join('');
+                // Create row element safely
+                const row = document.createElement('tr');
+                
+                const cells = [
+                    invoiceNumber || 'N/A',
+                    customerName || 'Walk-in',
+                    totalItems || '-',
+                    this.app.formatCurrency(parseFloat(grandTotal) || 0),
+                    new Date(createdAt).toLocaleTimeString(),
+                    paymentStatus
+                ];
+                
+                cells.forEach((cellData, index) => {
+                    const cell = document.createElement('td');
+                    if (index === 5) { // payment status cell
+                        const span = document.createElement('span');
+                        span.className = `status-badge ${paymentStatus}`;
+                        span.textContent = cellData;
+                        cell.appendChild(span);
+                    } else {
+                        cell.textContent = cellData;
+                    }
+                    row.appendChild(cell);
+                });
+                
+                tbody.appendChild(row);
+            });
         } catch (error) {
             console.error('Error loading recent sales:', error);
+            const tbody = document.getElementById('recentSalesBody');
+            if (tbody) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center error">Error loading sales</td></tr>';
+            }
         }
     }
 
     async loadLowStockItems() {
         try {
-            const products = await this.app.api.get('/products');
+            const response = await this.app.api.get('/products');
             const tbody = document.getElementById('lowStockBody');
 
             if (!tbody) return;
 
             let allProducts = [];
-            if (products && products.success === false) {
-                // Handle API error response
-                console.error('Low Stock Products API returned error:', products);
+            if (response && response.success) {
+                allProducts = response.products || response.data || [];
+            } else {
+                console.warn('Low Stock Products API returned no data or error:', response);
                 allProducts = [];
-            } else if (Array.isArray(products)) {
-                allProducts = products;
-            } else if (products && products.data) {
-                allProducts = products.data;
-            } else if (products && products.products) {
-                allProducts = products.products;
-            } else if (products && Array.isArray(products.products)) {
-                allProducts = products.products;
             }
 
             // Filter for low stock items
             const lowStockProducts = allProducts.filter(product => {
                 // Handle both object and array formats
                 let currentStock, minStock;
-                if (Array.isArray(product)) {
-                    // Array format - use indices
-                    currentStock = (product[13] !== undefined && product[13] !== null) ? product[13] : 0; // current_stock
-                    minStock = (product[14] !== undefined && product[14] !== null) ? product[14] : 10; // min_stock
-                } else {
+                if (typeof product === 'object' && product !== null) {
                     // Object format
-                    currentStock = (product.current_stock !== undefined && product.current_stock !== null) ? product.current_stock : 
-                                (product.stock !== undefined && product.stock !== null) ? product.stock : 0;
-                    minStock = (product.min_stock !== undefined && product.min_stock !== null) ? product.min_stock : 10;
+                    currentStock = product.current_stock || product.stock || 0;
+                    minStock = product.min_stock || 10;
+                } else if (Array.isArray(product)) {
+                    // Array format - use indices
+                    currentStock = product[13] || 0; // current_stock
+                    minStock = product[14] || 10; // min_stock
+                } else {
+                    currentStock = 0;
+                    minStock = 10;
                 }
                 return parseInt(currentStock) < parseInt(minStock);
             }).slice(0, 10);
@@ -401,48 +450,73 @@ class DashboardScreen {
                 return;
             }
 
-            tbody.innerHTML = lowStockProducts.map(product => {
+            // Clear existing content
+            tbody.innerHTML = '';
+            
+            lowStockProducts.forEach(product => {
                 // Handle both object and array formats
                 let productCode, productName, currentStock, minStock;
                 
-                if (Array.isArray(product)) {
-                    // Array format - use indices
-                    productCode = (product[2] !== undefined && product[2] !== null) ? product[2] : 
-                                 (product[0] !== undefined && product[0] !== null) ? product[0] : 'N/A'; // product_code or id
-                    productName = (product[3] !== undefined && product[3] !== null) ? product[3] : 
-                                  (product[1] !== undefined && product[1] !== null) ? product[1] : 'Unknown'; // name
-                    currentStock = (product[13] !== undefined && product[13] !== null) ? product[13] : 0; // current_stock
-                    minStock = (product[14] !== undefined && product[14] !== null) ? product[14] : 10; // min_stock
-                } else {
+                if (typeof product === 'object' && product !== null) {
                     // Object format
-                    productCode = (product.product_code !== undefined && product.product_code !== null) ? product.product_code : 
-                                 (product.code !== undefined && product.code !== null) ? product.code : 'N/A';
-                    productName = (product.name !== undefined && product.name !== null) ? product.name : 'Unknown';
-                    currentStock = (product.current_stock !== undefined && product.current_stock !== null) ? product.current_stock : 
-                                   (product.stock !== undefined && product.stock !== null) ? product.stock : 0;
-                    minStock = (product.min_stock !== undefined && product.min_stock !== null) ? product.min_stock : 10;
+                    productCode = product.product_code || product.code || 'N/A';
+                    productName = product.name || 'Unknown';
+                    currentStock = product.current_stock || product.stock || 0;
+                    minStock = product.min_stock || 10;
+                } else if (Array.isArray(product)) {
+                    // Array format - use indices
+                    productCode = product[2] || product[0] || 'N/A'; // product_code or id
+                    productName = product[3] || product[1] || 'Unknown'; // name
+                    currentStock = product[13] || 0; // current_stock
+                    minStock = product[14] || 10; // min_stock
+                } else {
+                    productCode = 'N/A';
+                    productName = 'Unknown';
+                    currentStock = 0;
+                    minStock = 10;
                 }
                 
-                return `
-                    <tr>
-                        <td>${productCode || 'N/A'}</td>
-                        <td>${productName || 'Unknown'}</td>
-                        <td>${currentStock || 0}</td>
-                        <td>${minStock || 10}</td>
-                        <td><span class="status-badge danger">Low Stock</span></td>
-                        <td><button class="btn btn-small btn-primary btn-restock-item">Restock</button></td>
-                    </tr>
-                `;
-            }).join('');
-            
-            // Bind restock buttons
-            document.querySelectorAll('.btn-restock-item').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    this.app.loadScreen('inventory');
+                // Create row element safely
+                const row = document.createElement('tr');
+                
+                const cells = [
+                    productCode || 'N/A',
+                    productName || 'Unknown',
+                    currentStock || 0,
+                    minStock || 10,
+                    'Low Stock', // status
+                    '' // button cell
+                ];
+                
+                cells.forEach((cellData, index) => {
+                    const cell = document.createElement('td');
+                    if (index === 4) { // status cell
+                        const span = document.createElement('span');
+                        span.className = 'status-badge danger';
+                        span.textContent = cellData;
+                        cell.appendChild(span);
+                    } else if (index === 5) { // button cell
+                        const button = document.createElement('button');
+                        button.className = 'btn btn-small btn-primary btn-restock-item';
+                        button.textContent = 'Restock';
+                        button.addEventListener('click', () => {
+                            this.app.loadScreen('inventory');
+                        });
+                        cell.appendChild(button);
+                    } else {
+                        cell.textContent = cellData;
+                    }
+                    row.appendChild(cell);
                 });
+                
+                tbody.appendChild(row);
             });
         } catch (error) {
             console.error('Error loading low stock items:', error);
+            const tbody = document.getElementById('lowStockBody');
+            if (tbody) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center error">Error loading products</td></tr>';
+            }
         }
     }
 
@@ -455,6 +529,98 @@ class DashboardScreen {
             this.initCategoryChart(),
             this.initPaymentMethodChart()
         ]);
+    }
+
+    async updateSalesChart(period) {
+        const canvas = document.getElementById('salesTrendChart');
+        if (!canvas) return;
+
+        try {
+            let startDate;
+            const endDate = new Date();
+            
+            if (period === 'week') {
+                // Last 7 days
+                startDate = new Date(endDate);
+                startDate.setDate(startDate.getDate() - 6); // 6 days back to make 7 days total
+            } else if (period === 'month') {
+                // Last 30 days
+                startDate = new Date(endDate);
+                startDate.setDate(startDate.getDate() - 29); // 29 days back to make 30 days total
+            }
+            
+            // Format dates as YYYY-MM-DD
+            const startDateStr = startDate.toISOString().split('T')[0];
+            const endDateStr = endDate.toISOString().split('T')[0];
+            
+            const data = await this.app.api.get(`/reports/sales-summary?start_date=${startDateStr}&end_date=${endDateStr}`);
+
+            const labels = [];
+            const values = [];
+            
+            // Generate date range based on selected period
+            const dateRange = [];
+            const currentDate = new Date(startDate);
+            
+            if (period === 'week') {
+                // For week, add 7 days
+                for (let i = 0; i < 7; i++) {
+                    dateRange.push(new Date(currentDate));
+                    currentDate.setDate(currentDate.getDate() + 1);
+                }
+            } else if (period === 'month') {
+                // For month, add 30 days (or sample every 3-4 days to avoid overcrowding)
+                for (let i = 0; i < 30; i++) {
+                    dateRange.push(new Date(currentDate));
+                    currentDate.setDate(currentDate.getDate() + 1);
+                }
+            }
+
+            dateRange.forEach(date => {
+                const dateStr = date.toISOString().split('T')[0];
+                labels.push(date.toLocaleDateString('en-US', period === 'week' ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric' }));
+                
+                const dayData = (data.daily_sales || []).find(d => {
+                    return (d.date === dateStr || d.date?.substring(0, 10) === dateStr);
+                });
+                values.push(dayData ? dayData.revenue : 0);
+            });
+
+            // Update the chart
+            if (this.charts.salesTrend) this.charts.salesTrend.destroy();
+
+            const ctx = canvas.getContext('2d');
+            this.charts.salesTrend = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Sales',
+                        data: values,
+                        borderColor: '#27ae60',
+                        backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: { 
+                    responsive: true, 
+                    plugins: { 
+                        legend: { display: false } 
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (e) {
+            console.error('Update sales chart error:', e);
+        }
     }
 
     // Chart methods placeholder - implemented similar to functional version but attached to class
@@ -513,14 +679,12 @@ class DashboardScreen {
             const data = await this.app.api.get('/reports/top-products?limit=5');
 
             let items = [];
-            if (data && data.data) {
-                items = data.data;
-            } else if (data && data.top_products) {
+            if (data && data.top_products) {
                 items = data.top_products;
             }
             
-            const labels = items.map(p => p.name || p.product_name);
-            const values = items.map(p => p.quantity_sold || p.qty_sold || 0);
+            const labels = items.map(p => p.name || 'Unknown');
+            const values = items.map(p => p.quantity_sold || 0);
 
             if (this.charts.topProducts) this.charts.topProducts.destroy();
 
@@ -545,12 +709,16 @@ class DashboardScreen {
             const canvas = document.getElementById('categoryChart');
             if (!canvas) return;
             
-            const data = await this.app.api.get('/reports/sales-summary');
+            const data = await this.app.api.get('/reports/sales-by-category');
 
-            // For category chart, we need to get sales by category
-            // This would require a new endpoint, for now we'll simulate
-            const labels = ['Brakes', 'Oil', 'Filters', 'Tires', 'Accessories'];
-            const values = [30, 25, 20, 15, 10];
+            let labels = [];
+            let values = [];
+            
+            if (data && data.category_sales) {
+                const categories = data.category_sales.slice(0, 5); // Top 5 categories
+                labels = categories.map(cat => cat.category || 'Unknown');
+                values = categories.map(cat => cat.revenue || 0);
+            }
 
             if (this.charts.categoryChart) this.charts.categoryChart.destroy();
 
@@ -566,7 +734,7 @@ class DashboardScreen {
                 },
                 options: { responsive: true, plugins: { legend: { display: true } } }
             });
-        } catch (e) { console.error(e); }
+        } catch (e) { console.error('Category chart error:', e); }
     }
 
     async initPaymentMethodChart() {
@@ -574,9 +742,17 @@ class DashboardScreen {
             const canvas = document.getElementById('paymentMethodChart');
             if (!canvas) return;
             
-            // For payment method chart, we'll simulate data
-            const labels = ['Cash', 'Credit', 'Debit', 'Mobile'];
-            const values = [60, 20, 15, 5];
+            const data = await this.app.api.get('/reports/payment-methods');
+
+            let labels = [];
+            let values = [];
+            
+            if (data && data.payment_methods) {
+                data.payment_methods.forEach(pm => {
+                    labels.push(pm.method || 'Unknown');
+                    values.push(pm.total_amount || 0);
+                });
+            }
 
             if (this.charts.paymentMethodChart) this.charts.paymentMethodChart.destroy();
 
@@ -592,7 +768,7 @@ class DashboardScreen {
                 },
                 options: { responsive: true, plugins: { legend: { display: true } } }
             });
-        } catch (e) { console.error(e); }
+        } catch (e) { console.error('Payment method chart error:', e); }
     }
 }
 

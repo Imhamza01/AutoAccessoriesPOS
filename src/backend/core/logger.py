@@ -47,12 +47,31 @@ def setup_logging(log_dir: Optional[Path] = None):
     logger.addHandler(console_handler)
     
     # Main application log (daily rotation)
+    # Use delayed file opening to avoid holding the file across process forks
+    # and provide a safe rotator to avoid PermissionError on Windows when
+    # multiple processes attempt to rotate the same file (e.g., uvicorn reload).
     app_log_handler = logging.handlers.TimedRotatingFileHandler(
         log_dir / "app.log",
         when="midnight",
         interval=1,
-        backupCount=30
+        backupCount=30,
+        delay=True,
+        encoding='utf-8'
     )
+    # Provide a safe rotator that swallows permission errors during rollover
+    def _safe_rotator(source, dest):
+        try:
+            # Prefer atomic replace when available
+            try:
+                os.replace(source, dest)
+            except Exception:
+                os.rename(source, dest)
+        except Exception as e:
+            # If rotation fails (file locked by another process), log a warning
+            # but do not raise — allow the application to continue running.
+            logging.getLogger(__name__).warning(f"Log rotation skipped: {e}")
+
+    app_log_handler.rotator = _safe_rotator
     app_log_handler.setLevel(logging.INFO)
     app_format = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s',

@@ -76,16 +76,28 @@ async def refresh_token(
         New access token
     """
     try:
+        if not refresh_token or not refresh_token.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Refresh token is required"
+            )
+            
         result = await auth_manager.refresh_token(refresh_token)
         return result
         
-    except HTTPException as e:
-        raise e
+    except ValueError as e:
+        logger.warning(f"Invalid refresh token: {e}")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired refresh token"
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Token refresh error: {e}")
         raise HTTPException(
             status_code=500,
-            detail="Failed to refresh token"
+            detail="Internal server error during token refresh"
         )
 
 @router.post("/logout")

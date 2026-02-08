@@ -108,13 +108,19 @@ class AutoAccessoriesPOS {
                 refresh_token: refreshToken
             });
 
-            // Update tokens
-            localStorage.setItem('access_token', response.access_token);
+            // Normalize response (APIClient may wrap response under `.data`)
+            const accessToken = (response && response.data && response.data.access_token) || response.access_token;
+            if (!accessToken) throw new Error('Failed to refresh access token');
 
-            // Get user data
+            // Update tokens and API client
+            localStorage.setItem('access_token', accessToken);
+            this.api.setToken(accessToken);
+
+            // Get user data (APIClient wraps /auth/me under .data)
             const userResponse = await this.api.get('/auth/me');
-            this.currentUser = userResponse;
-            localStorage.setItem('user_data', JSON.stringify(userResponse));
+            const userData = (userResponse && userResponse.data) || userResponse;
+            this.currentUser = userData;
+            localStorage.setItem('user_data', JSON.stringify(userData));
 
         } catch (error) {
             throw error;
@@ -219,6 +225,8 @@ class AutoAccessoriesPOS {
             console.log('[App] Step 2A: Fetching sidebar HTML...');
             const sidebarHtml = await this.loadTemplate('components/sidebar/sidebar.html');
             console.log('[App] Step 2B: Got sidebar HTML, finding element...');
+            console.log('[App] Sidebar HTML length:', sidebarHtml.length);
+            console.log('[App] Sidebar HTML preview:', sidebarHtml.substring(0, 200));
             
             const sidebarEl = document.getElementById('app-sidebar');
             if (!sidebarEl) {
@@ -227,6 +235,17 @@ class AutoAccessoriesPOS {
             console.log('[App] Step 2C: Setting sidebar innerHTML...');
             sidebarEl.innerHTML = sidebarHtml;
             console.log('[App] ✓ Sidebar loaded and inserted into DOM');
+            
+            // Debug: Check if credit-management button is in the DOM after insertion
+            const creditBtnAfterInsert = document.querySelector('[data-screen="credit-management"]');
+            if (creditBtnAfterInsert) {
+                console.log('[App] ✓ Credit Management button found in DOM after insertion');
+            } else {
+                console.error('[App] ✗ Credit Management button NOT found in DOM after insertion');
+                // Let's check what buttons are actually in the DOM
+                const allButtons = document.querySelectorAll('.sidebar-btn[data-screen]');
+                console.log('[App] All sidebar buttons in DOM:', Array.from(allButtons).map(btn => btn.getAttribute('data-screen')));
+            }
 
             // Load sidebar CSS
             console.log('[App] Loading sidebar CSS...');
@@ -322,16 +341,26 @@ class AutoAccessoriesPOS {
     }
 
     loadComponentCSS(componentName) {
+        const hrefBase = `components/${componentName}/${componentName}.css`;
+        const existing = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).find(l => l.href && l.href.indexOf(hrefBase) !== -1);
+        if (existing) return;
         const link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = `components/${componentName}/${componentName}.css?v=${Date.now()}`;
+        link.href = `${hrefBase}?v=${Date.now()}`;
         document.head.appendChild(link);
     }
 
     loadComponentScript(componentName) {
         return new Promise((resolve, reject) => {
+            const srcBase = `components/${componentName}/${componentName}.js`;
+            const existing = Array.from(document.querySelectorAll('script')).find(s => s.src && s.src.indexOf(srcBase) !== -1);
+            if (existing) {
+                // Already loaded
+                return resolve();
+            }
+
             const script = document.createElement('script');
-            script.src = `components/${componentName}/${componentName}.js?v=${Date.now()}`;
+            script.src = `${srcBase}?v=${Date.now()}`;
 
             script.onload = () => resolve();
             script.onerror = () => {
@@ -346,7 +375,7 @@ class AutoAccessoriesPOS {
     async loadTemplate(templatePath) {
         try {
             console.log(`[App] Fetching template: ${templatePath}`);
-            const response = await fetch(templatePath);
+            const response = await fetch(templatePath + "?v=" + Date.now());
             if (!response.ok) {
                 const error = new Error(`HTTP ${response.status}: Failed to load template: ${templatePath}`);
                 error.status = response.status;
@@ -661,51 +690,81 @@ class AutoAccessoriesPOS {
 
     async loadScreenScript(screenName, screenElement) {
         return new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = `screens/${screenName}/script.js?v=${Date.now()}`;
+            const srcBase = `screens/${screenName}/script.js`;
+            const existing = Array.from(document.querySelectorAll('script')).find(s => s.src && s.src.indexOf(srcBase) !== -1);
 
-            script.onload = () => {
+            const finalizeInit = () => {
                 try {
                     const className = this.getScreenClassName(screenName);
 
-                    // Check for class-based initialization (Standard)
                     if (window[className]) {
-                        this.screens[screenName] = new window[className](this);
-                        if (typeof this.screens[screenName].init === 'function') {
-                            this.screens[screenName].init();
+                        try {
+                                const instance = new window[className](this);
+                                this.screens[screenName] = instance;
+                                // Also register under a camelCase short name so older inline
+                                // handlers (e.g. window.app.screens.creditManagement) continue
+                                // to work. Example: 'credit-management' -> 'creditManagement'
+                                try {
+                                    const short = className.replace(/Screen$/, '');
+                                    const shortCamel = short.charAt(0).toLowerCase() + short.slice(1);
+                                    this.screens[shortCamel] = instance;
+                                    // also expose on global window.app.screens for inline onclicks
+                                    try { if (window.app && window.app.screens) window.app.screens[shortCamel] = instance; } catch(e){}
+                                } catch (regErr) {
+                                    console.warn('Failed to register short screen name:', regErr);
+                                }
+
+                                if (typeof instance.init === 'function') {
+                                    instance.init();
+                                }
+                        } catch (e) {
+                            console.warn(`Screen ${screenName} initialization error:`, e);
                         }
-                        resolve();
+                        return resolve();
                     }
-                    // Check for function-based initialization (Legacy/Fallback)
-                    else if (window[`init${className}`]) {
-                        console.warn(`Screen ${screenName} is using legacy function-based init. Please convert to Class.`);
-                        // Wrap legacy function in a pseudo-class for compatibility
-                        this.screens[screenName] = {
-                            refresh: window[`init${className}`]
-                        };
-                        window[`init${className}`]();
-                        resolve();
-                    } else {
-                        console.warn(`No init function or class found for ${screenName}. Checking for global instance...`);
-                        // Last resort: Check if the script assigned itself to window.POS.screens
-                        if (window.POS && window.POS.screens && window.POS.screens[screenName]) {
+
+                    if (window[`init${className}`]) {
+                        console.warn(`Screen ${screenName} is using legacy function-based init.`);
+                        try { window[`init${className}`](); } catch (e) { console.warn(e); }
+                        this.screens[screenName] = { refresh: window[`init${className}`] };
+                        return resolve();
+                    }
+
+                    if (window.POS && window.POS.screens && window.POS.screens[screenName]) {
+                        try {
                             const ScreenClass = window.POS.screens[screenName];
                             this.screens[screenName] = new ScreenClass(this);
-                            this.screens[screenName].init();
-                            resolve();
-                        } else {
-                            resolve(); // Don't fail, just warn
-                        }
+                            if (typeof this.screens[screenName].init === 'function') this.screens[screenName].init();
+                        } catch (e) { console.warn(e); }
+                        return resolve();
                     }
+
+                    // Nothing to initialize but resolve to avoid blocking
+                    return resolve();
                 } catch (error) {
-                    console.error('Error in screen script:', error);
-                    resolve(); // Don't fail, just warn
+                    console.error('Error in screen script finalize:', error);
+                    return resolve();
                 }
+            };
+
+            if (existing) {
+                // If script already present, don't inject again — just init
+                finalizeInit();
+                return;
+            }
+
+            const script = document.createElement('script');
+            script.src = `${srcBase}?v=${Date.now()}`;
+            script.async = false;
+
+            script.onload = () => {
+                // Give the loaded script a tick to register globals
+                setTimeout(finalizeInit, 0);
             };
 
             script.onerror = () => {
                 console.error(`Failed to load script for screen: ${screenName}`);
-                resolve(); // Don't fail on script load error
+                return resolve();
             };
 
             document.head.appendChild(script);
@@ -713,17 +772,32 @@ class AutoAccessoriesPOS {
     }
 
     loadScreenCSS(screenName) {
+        const hrefBase = `screens/${screenName}/style.css`;
+        const existingLink = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).find(l => l.href && l.href.indexOf(hrefBase) !== -1);
+        if (existingLink) return; // already loaded
+
         const link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = `screens/${screenName}/style.css?v=${Date.now()}`;
-        link.onerror = () => {
-            // CSS file might not exist, that's okay
-        };
+        link.href = `${hrefBase}?v=${Date.now()}`;
+        link.onerror = () => { /* CSS file might not exist, that's okay */ };
         document.head.appendChild(link);
     }
 
     getScreenClassName(screenName) {
-        return screenName.charAt(0).toUpperCase() + screenName.slice(1) + 'Screen';
+        // Special cases for screens with different naming conventions
+        const specialCases = {
+            'pos': 'PosScreen',
+            'credit-management': 'CreditManagementScreen'
+        };
+        
+        if (specialCases[screenName]) {
+            return specialCases[screenName];
+        }
+        // Default: convert kebab-case to PascalCase and append 'Screen'
+        return screenName
+            .split('-')
+            .map(seg => seg.charAt(0).toUpperCase() + seg.slice(1))
+            .join('') + 'Screen';
     }
 
     getScreenDisplayName(screenName) {
@@ -737,7 +811,8 @@ class AutoAccessoriesPOS {
             'reports': 'Reports',
             'expenses': 'Expenses',
             'users': 'Users',
-            'settings': 'Settings'
+            'settings': 'Settings',
+            'credit-management': 'Credit Management'
         };
         return names[screenName] || screenName;
     }
@@ -786,13 +861,23 @@ class AutoAccessoriesPOS {
         const notification = document.createElement('div');
         notification.id = id;
         notification.className = `notification ${type}`;
-        notification.innerHTML = `
-            <span class="notification-icon">
-                ${type === 'success' ? '✓' : type === 'error' ? '✗' : type === 'warning' ? '⚠' : 'ℹ'}
-            </span>
-            <span>${message}</span>
-            <button class="notification-close" onclick="window.POS.removeNotification('${id}')">&times;</button>
-        `;
+        
+        // Create elements safely to prevent XSS
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'notification-icon';
+        iconSpan.textContent = type === 'success' ? '✓' : type === 'error' ? '✗' : type === 'warning' ? '⚠' : 'ℹ';
+        
+        const messageSpan = document.createElement('span');
+        messageSpan.textContent = message; // Safe text content
+        
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'notification-close';
+        closeBtn.textContent = '×';
+        closeBtn.onclick = () => window.POS.removeNotification(id);
+        
+        notification.appendChild(iconSpan);
+        notification.appendChild(messageSpan);
+        notification.appendChild(closeBtn);
 
         container.appendChild(notification);
         this.notifications.push(id);

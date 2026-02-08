@@ -249,58 +249,254 @@ class ReportsScreen {
     
     // Export methods (placeholder - would use jsPDF or similar)
     exportSalesReport() {
-        this.app.showNotification('Exporting Sales Report...', 'info');
-        // In a real implementation, this would generate a PDF using jsPDF
-        this.generatePDFReport('Sales Report', this.getSalesReportData());
+        (async () => {
+            this.app.showNotification('Exporting Sales Report...', 'info');
+            const startDate = document.getElementById('sales-start-date')?.value || null;
+            const endDate = document.getElementById('sales-end-date')?.value || null;
+            const params = new URLSearchParams();
+            if (startDate) params.append('start_date', startDate);
+            if (endDate) params.append('end_date', endDate);
+
+            // Try server-side PDF first
+            try {
+                const res = await this.app.api.download('/reports/sales-pdf' + (params.toString() ? ('?' + params.toString()) : ''), `sales_report_${startDate||'all'}_${endDate||''}.pdf`);
+                if (res && res.success) return; // downloaded successfully
+            } catch (e) {
+                console.warn('Server-side sales PDF failed, falling back to client:', e);
+            }
+
+            // Fallback: build client-side professional PDF
+            try {
+                // Fetch summary metrics
+                const summaryRes = await this.app.api.get('/reports/sales-summary' + (params.toString() ? ('?' + params.toString()) : ''));
+                const summary = summaryRes && summaryRes.metrics ? summaryRes.metrics : (summaryRes || {});
+
+                // Fetch detailed sales (large limit to cover range)
+                const salesRes = await this.app.api.get('/sales?' + new URLSearchParams({ skip: '0', limit: '10000', ...(startDate ? { start_date: startDate } : {}), ...(endDate ? { end_date: endDate } : {}) }).toString());
+                const sales = (salesRes && salesRes.sales) ? salesRes.sales : (salesRes || []);
+
+                await this.loadPdfLibraries();
+                this.generateProfessionalPDFReport('Sales Report', { startDate, endDate, summary, sales });
+            } catch (e) {
+                console.error('Failed to export sales report (client):', e);
+                this.generatePDFReport('Sales Report', this.getSalesReportData());
+            }
+        })();
     }
     
     exportInventoryReport() {
-        this.app.showNotification('Exporting Inventory Report...', 'info');
-        this.generatePDFReport('Inventory Report', this.getInventoryReportData());
+        (async () => {
+            this.app.showNotification('Exporting Inventory Report...', 'info');
+            try {
+                const res = await this.app.api.download('/reports/inventory-pdf', 'inventory_valuation.pdf');
+                if (!res.success) {
+                    // fallback to client-side
+                    this.generatePDFReport('Inventory Report', this.getInventoryReportData());
+                }
+            } catch (e) {
+                console.error('Inventory PDF export failed:', e);
+                this.generatePDFReport('Inventory Report', this.getInventoryReportData());
+            }
+        })();
     }
     
     exportGSTReport() {
-        this.app.showNotification('Exporting GST Report...', 'info');
-        this.generatePDFReport('GST Report', this.getGSTReportData());
+        (async () => {
+            this.app.showNotification('Exporting GST Report...', 'info');
+            const startDate = document.getElementById('gst-start-date')?.value || null;
+            const endDate = document.getElementById('gst-end-date')?.value || null;
+            try {
+                const params = new URLSearchParams();
+                if (startDate) params.append('start_date', startDate);
+                if (endDate) params.append('end_date', endDate);
+                const res = await this.app.api.download('/reports/gst-pdf?' + params.toString(), 'gst_report.pdf');
+                if (!res.success) this.generatePDFReport('GST Report', this.getGSTReportData());
+            } catch (e) {
+                console.error('GST PDF export failed:', e);
+                this.generatePDFReport('GST Report', this.getGSTReportData());
+            }
+        })();
     }
     
     exportProfitLossReport() {
-        this.app.showNotification('Exporting Profit & Loss Report...', 'info');
-        this.generatePDFReport('Profit & Loss Report', this.getProfitLossReportData());
+        (async () => {
+            this.app.showNotification('Exporting Profit & Loss Report...', 'info');
+            const startDate = document.getElementById('pl-start-date')?.value || null;
+            const endDate = document.getElementById('pl-end-date')?.value || null;
+            try {
+                const params = new URLSearchParams();
+                if (startDate) params.append('start_date', startDate);
+                if (endDate) params.append('end_date', endDate);
+                const res = await this.app.api.download('/reports/profit-loss-pdf?' + params.toString(), 'profit_loss_report.pdf');
+                if (!res.success) this.generatePDFReport('Profit & Loss Report', this.getProfitLossReportData());
+            } catch (e) {
+                console.error('Profit/Loss PDF export failed:', e);
+                this.generatePDFReport('Profit & Loss Report', this.getProfitLossReportData());
+            }
+        })();
     }
     
     // Helper methods to get report data
     getSalesReportData() {
-        // In a real implementation, this would fetch the actual report data
-        return 'Sales Report Data';
+        const el = document.getElementById('reports-content');
+        if (!el) return 'No report data available.';
+        return el.innerHTML || el.textContent || 'No report data available.';
     }
     
     getInventoryReportData() {
-        return 'Inventory Report Data';
+        const el = document.getElementById('reports-content');
+        if (!el) return 'No report data available.';
+        return el.innerHTML || el.textContent || 'No report data available.';
     }
     
     getGSTReportData() {
-        return 'GST Report Data';
+        const el = document.getElementById('reports-content');
+        if (!el) return 'No report data available.';
+        return el.innerHTML || el.textContent || 'No report data available.';
     }
     
     getProfitLossReportData() {
-        return 'Profit & Loss Report Data';
+        const el = document.getElementById('reports-content');
+        if (!el) return 'No report data available.';
+        return el.innerHTML || el.textContent || 'No report data available.';
+    }
+
+    // Load jsPDF and autotable from CDN
+    loadPdfLibraries() {
+        if (window.jspdf && window.jspdf.jsPDF && window.jspdfAutoTableLoaded) return Promise.resolve();
+        return new Promise((resolve, reject) => {
+            const libs = [
+                { src: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js' },
+                { src: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js' }
+            ];
+
+            let loaded = 0;
+            libs.forEach(lib => {
+                const s = document.createElement('script');
+                s.src = lib.src;
+                s.async = false;
+                s.onload = () => {
+                    loaded += 1;
+                    if (loaded === libs.length) {
+                        if (window.jspdf && window.jspdf.jsPDF) {
+                            window.jspdfAutoTableLoaded = true;
+                            return resolve();
+                        }
+                        if (window.jsPDF) {
+                            window.jspdf = { jsPDF: window.jsPDF };
+                            window.jspdfAutoTableLoaded = true;
+                            return resolve();
+                        }
+                        window.jspdfAutoTableLoaded = true;
+                        resolve();
+                    }
+                };
+                s.onerror = (e) => reject(new Error('Failed to load PDF libraries: ' + lib.src));
+                document.head.appendChild(s);
+            });
+        });
+    }
+
+    // Generate a professional PDF report using jsPDF + autoTable
+    generateProfessionalPDFReport(title, payload) {
+        try {
+            const { startDate, endDate, summary, sales } = payload;
+            const ShopName = (window.shopSettings && (window.shopSettings.getSetting('shopName') || window.shopSettings.getSetting('shop_name'))) || document.getElementById('shop-name')?.textContent || 'Auto Accessories POS';
+
+            const { jsPDF } = window.jspdf || window.jspdf || { jsPDF: window.jsPDF };
+            const doc = new jsPDF('p', 'pt', 'a4');
+            const margin = 40;
+            let y = margin;
+
+            doc.setFontSize(18);
+            doc.text(ShopName, doc.internal.pageSize.getWidth() / 2, y, { align: 'center' });
+            y += 24;
+            doc.setFontSize(12);
+            const rangeText = startDate || endDate ? `From: ${startDate || '---'} To: ${endDate || '---'}` : `All Dates`;
+            doc.text(rangeText, doc.internal.pageSize.getWidth() / 2, y, { align: 'center' });
+            y += 20;
+            doc.setFontSize(10);
+            doc.text(`Generated: ${new Date().toLocaleString()}`, margin, y);
+            y += 16;
+
+            // Summary block
+            const totalRevenue = (summary && summary.total_revenue) || 0;
+            const totalTransactions = (summary && summary.total_transactions) || (sales && sales.length) || 0;
+            const totalGST = (summary && summary.total_gst) || 0;
+
+            doc.setFontSize(11);
+            doc.text(`Total Revenue: PKR ${Number(totalRevenue).toLocaleString()}`, margin, y);
+            doc.text(`Total Transactions: ${totalTransactions}`, margin + 250, y);
+            doc.text(`Total GST: PKR ${Number(totalGST).toLocaleString()}`, margin + 420, y);
+            y += 18;
+
+            // Table of sales
+            const columns = [
+                { header: 'Invoice', dataKey: 'invoice_number' },
+                { header: 'Date', dataKey: 'created_at' },
+                { header: 'Customer', dataKey: 'customer_name' },
+                { header: 'Total', dataKey: 'grand_total' },
+                { header: 'GST', dataKey: 'gst_amount' },
+                { header: 'Payment', dataKey: 'payment_method' },
+                { header: 'Status', dataKey: 'payment_status' },
+                { header: 'Cashier', dataKey: 'cashier_name' }
+            ];
+
+            const rows = (sales || []).map(s => ({
+                invoice_number: s.invoice_number || s.invoice || 'N/A',
+                created_at: (s.created_at) ? new Date(s.created_at).toLocaleString() : '',
+                customer_name: s.customer_name || s.customer || (s.customer_id ? `#${s.customer_id}` : 'Walk-in'),
+                grand_total: (s.grand_total != null) ? `PKR ${Number(s.grand_total).toLocaleString()}` : 'PKR 0.00',
+                gst_amount: (s.gst_amount != null) ? `PKR ${Number(s.gst_amount).toLocaleString()}` : 'PKR 0.00',
+                payment_method: s.payment_method || s.payment_type || '',
+                payment_status: s.payment_status || s.payment || '',
+                cashier_name: s.cashier_name || s.cashier || ''
+            }));
+
+            // Use autoTable
+            if (doc.autoTable) {
+                doc.autoTable({
+                    startY: y,
+                    head: [columns.map(c => c.header)],
+                    body: rows.map(r => columns.map(c => r[c.dataKey])),
+                    styles: { fontSize: 9 },
+                    headStyles: { fillColor: [22, 160, 133] },
+                    theme: 'striped',
+                    margin: { left: margin, right: margin }
+                });
+            } else if (window.jspdf && window.jspdfAutoTableLoaded && window.jspdfAutoTableLoaded !== undefined && window.jsPDF && window.jsPDF.autoTable) {
+                // older global
+                window.jsPDF.autoTable(doc, columns.map(c=>c.header), rows.map(r=>columns.map(c=>r[c.dataKey])), { startY: y, margin:{left:margin, right:margin} });
+            } else {
+                // Fallback: print a simple HTML window
+                const content = rows.map(r => `${r.invoice_number} | ${r.created_at} | ${r.customer_name} | ${r.grand_total}`).join('\n');
+                this.generatePDFReport(title, content);
+                return;
+            }
+
+            // Save PDF
+            doc.save(`${title.replace(/\s+/g,'_')}_${(startDate||'all')}_${(endDate||'')}.pdf`);
+        } catch (e) {
+            console.error('Failed to generate professional PDF:', e);
+            this.app.showNotification('PDF generation failed, using fallback', 'warning');
+            this.generatePDFReport(title, this.getSalesReportData());
+        }
     }
     
     // PDF generation method (placeholder)
     generatePDFReport(title, data) {
-        // This is a placeholder implementation
-        // In a real implementation, you would use a library like jsPDF
+        // Print the rendered report HTML in a new window and wait for load
         const reportWindow = window.open('', '_blank');
-        reportWindow.document.write(`
-            <!DOCTYPE html>
+        const html = `<!DOCTYPE html>
             <html>
             <head>
+                <meta charset="utf-8">
                 <title>${title}</title>
                 <style>
-                    body { font-family: Arial, sans-serif; margin: 20px; }
+                    body { font-family: Arial, sans-serif; margin: 20px; color: #000; }
                     .header { text-align: center; margin-bottom: 20px; }
-                    .content { white-space: pre-line; }
+                    .content { white-space: normal; }
+                    @media print { body { margin: 10mm; } }
                 </style>
             </head>
             <body>
@@ -311,12 +507,19 @@ class ReportsScreen {
                 <div class="content">
                     ${data}
                 </div>
+                <script>
+                    function doPrint() {
+                        try { window.focus(); setTimeout(function(){ window.print(); }, 250); }
+                        catch(e){ console.error('Print failed', e); }
+                    }
+                    if (document.readyState === 'complete') doPrint(); else window.onload = doPrint;
+                <\/script>
             </body>
-            </html>
-        `);
+            </html>`;
+
+        reportWindow.document.open();
+        reportWindow.document.write(html);
         reportWindow.document.close();
-        reportWindow.focus();
-        reportWindow.print();
     }
 }
 

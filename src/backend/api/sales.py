@@ -28,7 +28,7 @@ async def list_sales(
     try:
         db = get_database_manager()
         with db.get_cursor() as cur:
-            query = "SELECT * FROM sales WHERE 1=1"
+            query = "SELECT * FROM sales WHERE sale_status != 'cancelled'"
             params = []
             
             if start_date:
@@ -62,7 +62,7 @@ async def list_sales(
                     sales.append(row)
             
             # Get total
-            count_query = "SELECT COUNT(*) FROM sales WHERE 1=1"
+            count_query = "SELECT COUNT(*) FROM sales WHERE sale_status != 'cancelled'"
             count_params = []
             if start_date:
                 count_query += " AND DATE(created_at) >= ?"
@@ -197,6 +197,14 @@ async def create_sale(
             # Get cashier name from current user
             cashier_name = current_user.get("name") or current_user.get("username") or f"User {current_user['id']}"
             
+            # Determine payment status based on payment method
+            payment_method = sale_data.get("payment_type", "cash")
+            # If payment_status is not provided, determine it based on payment method
+            if "payment_status" in sale_data:
+                payment_status = sale_data.get("payment_status", "paid")
+            else:
+                payment_status = "pending" if payment_method.lower() in ["credit", "credit_sale"] else "paid"
+            
             # Create sale
             cur.execute("""
                 INSERT INTO sales (
@@ -211,8 +219,8 @@ async def create_sale(
                 sale_data.get("subtotal", 0),
                 sale_data.get("discount_amount", 0),
                 sale_data.get("gst_amount", 0),
-                sale_data.get("payment_type", "cash"),
-                sale_data.get("payment_status", "paid"),  # Changed from 'completed' to 'paid' to match CHECK constraint
+                payment_method,
+                payment_status,
                 sale_data.get("notes"),
                 current_user["id"],
                 cashier_name,
@@ -221,6 +229,17 @@ async def create_sale(
             ))
             
             sale_id = cur.lastrowid
+            
+            # Update customer credit if this is a credit sale
+            if sale_data.get("payment_status") == "pending" and sale_data.get("customer_id"):
+                cur.execute("""
+                    UPDATE customers 
+                    SET current_balance = current_balance + ?
+                    WHERE id = ?
+                """, (
+                    sale_data.get("total_amount", 0),
+                    sale_data.get("customer_id")
+                ))
             
             # Add items
             for item in sale_data.get("items", []):
@@ -360,7 +379,13 @@ async def daily_summary(
     """Get daily sales summary and metrics."""
     try:
         db = get_database_manager()
+        if not db:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+            
         with db.get_cursor() as cur:
+            if not cur:
+                raise HTTPException(status_code=500, detail="Database cursor failed")
+                
             target_date = date or datetime.datetime.now().strftime("%Y-%m-%d")
             
             # Daily totals
@@ -371,7 +396,7 @@ async def daily_summary(
                     COALESCE(SUM(gst_amount), 0) as total_gst,
                     COALESCE(AVG(grand_total), 0) as avg_transaction
                 FROM sales
-                WHERE DATE(created_at) = ?
+                WHERE sale_status != 'cancelled' AND DATE(created_at) = ?
             """, (target_date,))
             result = cur.fetchone()
             
@@ -398,7 +423,7 @@ async def daily_summary(
             cur.execute("""
                 SELECT payment_type, COUNT(*), SUM(grand_total)
                 FROM sales
-                WHERE DATE(created_at) = ?
+                WHERE sale_status != 'cancelled' AND DATE(created_at) = ?
                 GROUP BY payment_type
             """, (target_date,))
             raw_by_payment = cur.fetchall()

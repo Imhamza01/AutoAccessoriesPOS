@@ -108,21 +108,6 @@ function showDeleteConfirmation(itemName, onConfirm) {
     openModal('delete-modal');
 }
 
-// Close modal when clicking outside
-document.addEventListener('click', function(e) {
-    if (e.target.classList.contains('modal-overlay')) {
-        e.target.style.display = 'none';
-    }
-});
-
-// Prevent modal close on inner content click
-document.addEventListener('click', function(e) {
-    if (e.target.classList.contains('modal')) {
-        e.stopPropagation();
-    }
-});
-
-console.log('[Modals] Modal functions loaded and available globally');
 // Ensure functions are explicitly available on the window object for callers
 try {
     window.openModal = openModal;
@@ -135,3 +120,36 @@ try {
 } catch (e) {
     console.warn('[Modals] Unable to attach modal functions to window', e);
 }
+
+// Close modal when clicking outside
+document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('modal-overlay')) {
+        e.target.style.display = 'none';
+    }
+});
+
+// Close modal with Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        const modals = document.querySelectorAll('.modal-overlay[style*="flex"]');
+        modals.forEach(modal => {
+            modal.style.display = 'none';
+        });
+    }
+});
+
+// Ensure all modal close buttons work
+document.addEventListener('DOMContentLoaded', function() {
+    // Add event listeners to all modal close buttons
+    const closeButtons = document.querySelectorAll('.modal-close');
+    closeButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const modal = this.closest('.modal-overlay');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        });
+    });
+});
+
+console.log('[Modals] Modal functions loaded and available globally');

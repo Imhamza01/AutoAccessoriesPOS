@@ -6,7 +6,8 @@ import datetime
 from fastapi import APIRouter, HTTPException, Depends, Query, Body
 from typing import List, Dict, Any, Optional
 import logging
-import hashlib
+import bcrypt
+from datetime import timezone
 
 from core.auth import get_current_user, require_permission
 from core.database import get_database_manager
@@ -26,8 +27,13 @@ async def list_users(
     """Get all users."""
     try:
         db = get_database_manager()
+        if not db:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+            
         with db.get_cursor() as cur:
-            query = "SELECT id, username, email, full_name, role, is_active, created_at FROM users"
+            if not cur:
+                raise HTTPException(status_code=500, detail="Database cursor failed")
+            query = "SELECT id, username, email, full_name, role, is_active, created_at FROM users WHERE 1=1"
             params = []
             
             if role:
@@ -70,7 +76,12 @@ async def get_user(
     """Get user details with permissions."""
     try:
         db = get_database_manager()
+        if not db:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+            
         with db.get_cursor() as cur:
+            if not cur:
+                raise HTTPException(status_code=500, detail="Database cursor failed")
             cur.execute(
                 "SELECT * FROM users WHERE id = ?",
                 (user_id,)
@@ -80,13 +91,24 @@ async def get_user(
             if not user:
                 raise HTTPException(status_code=404, detail="User not found")
             
-            # Get permissions for role
-            role = user[4]  # role column
-            cur.execute(
-                "SELECT permission_name FROM role_permissions WHERE role = ?",
-                (role,)
-            )
-            permissions = [p[0] for p in cur.fetchall()]
+            # Get permissions for role - handle potential index errors
+            try:
+                role = user[4] if len(user) > 4 else None  # role column
+            except (IndexError, TypeError):
+                role = None
+                
+            if role:
+                try:
+                    cur.execute(
+                        "SELECT permission_name FROM role_permissions WHERE role = ?",
+                        (role,)
+                    )
+                    permissions = [p[0] for p in cur.fetchall()]
+                except Exception as e:
+                    logger.warning(f"Failed to get permissions for role {role}: {e}")
+                    permissions = []
+            else:
+                permissions = []
         
         return {
             "success": True,
@@ -117,10 +139,8 @@ async def create_user(
         if not username or not password:
             raise ValueError("Username and password required")
         
-        # Hash password
-        salt = secrets.token_hex(16)
-        hash_obj = hashlib.sha256(f"{password}{salt}".encode())
-        password_hash = f"sha256${salt}${hash_obj.hexdigest()}"
+        # Hash password securely with bcrypt
+        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         
         db = get_database_manager()
         with db.get_cursor() as cur:
@@ -142,8 +162,8 @@ async def create_user(
                 role,
                 True,
                 current_user["id"],
-                datetime.datetime.now().isoformat(),
-                datetime.datetime.now().isoformat()
+                datetime.datetime.now(timezone.utc).isoformat(),
+                datetime.datetime.now(timezone.utc).isoformat()
             ))
         
         return {
@@ -183,7 +203,7 @@ async def update_user(
             
             if updates:
                 updates.append("updated_at = ?")
-                params.append(datetime.datetime.now().isoformat())
+                params.append(datetime.datetime.now(timezone.utc).isoformat())
                 params.append(user_id)
                 
                 query = f"UPDATE users SET {', '.join(updates)} WHERE id = ?"
@@ -207,8 +227,22 @@ async def delete_user(
 ):
     """Soft delete user."""
     try:
+        # Log the deletion action with current user info
+        logger.info(f"User {current_user.get('username', 'unknown')} deleting user {user_id}")
+        
         db = get_database_manager()
+        if not db:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+            
         with db.get_cursor() as cur:
+            if not cur:
+                raise HTTPException(status_code=500, detail="Database cursor failed")
+                
+            # Verify user exists before deletion
+            cur.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="User not found")
+                
             # Actually delete the record since soft delete column doesn't exist
             cur.execute(
                 "DELETE FROM users WHERE id = ?",
@@ -237,17 +271,30 @@ async def reset_user_password(
         if not new_password:
             raise ValueError("Password required")
         
-        # Hash password
-        salt = secrets.token_hex(16)
-        hash_obj = hashlib.sha256(f"{new_password}{salt}".encode())
-        password_hash = f"sha256${salt}${hash_obj.hexdigest()}"
+        # Hash password securely with bcrypt
+        password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         
         db = get_database_manager()
+        if not db:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+            
         with db.get_cursor() as cur:
+            if not cur:
+                raise HTTPException(status_code=500, detail="Database cursor failed")
+                
+            # Verify user exists before updating password
+            cur.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="User not found")
+                
             cur.execute(
                 "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?",
-                (password_hash, datetime.datetime.now().isoformat(), user_id)
+                (password_hash, datetime.datetime.now(timezone.utc).isoformat(), user_id)
             )
+            
+            # Check if the update was successful
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="User not found or password not updated")
         
         return {
             "success": True,
@@ -269,7 +316,13 @@ async def user_activity(
     """Get user activity log."""
     try:
         db = get_database_manager()
+        if not db:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+            
         with db.get_cursor() as cur:
+            if not cur:
+                raise HTTPException(status_code=500, detail="Database cursor failed")
+                
             cur.execute("""
                 SELECT * FROM user_activity_log
                 WHERE user_id = ?

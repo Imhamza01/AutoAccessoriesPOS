@@ -3,6 +3,8 @@
  * PRODUCT MANAGEMENT SCREEN
  */
 
+if (!window.__ProductsScreenDefined) {
+
 class ProductsScreen {
     constructor(app) {
         this.app = app;
@@ -273,11 +275,14 @@ class ProductsScreen {
     async loadCategories() {
         try {
             const response = await this.api.get('/products/categories');
-            this.categories = response.categories;
+            // Handle API response properly - ensure categories is always an array
+            this.categories = (response.categories || response.data || []);
             this.renderCategoryFilter();
         } catch (error) {
             console.error('Failed to load categories:', error);
             this.app.showNotification('Failed to load categories', 'error');
+            // Ensure categories is always an array even on error
+            this.categories = [];
         }
     }
 
@@ -372,9 +377,10 @@ class ProductsScreen {
 
             const response = await this.api.get(`/products?${params.toString()}`);
 
-            this.products = response.products;
-            this.totalPages = response.total_pages;
-            this.currentPage = response.current_page;
+            // Handle API response properly - ensure products is always an array
+            this.products = (response.products || response.data || []);
+            this.totalPages = response.total_pages || 1;
+            this.currentPage = response.current_page || 1;
 
             this.renderProducts();
             this.updatePagination();
@@ -392,23 +398,33 @@ class ProductsScreen {
         const tbody = document.getElementById('products-tbody');
         if (!tbody) return;
 
-        tbody.innerHTML = this.products.map(product => `
-            <tr data-product-id="${product.id}" class="${product.current_stock <= 0 ? 'out-of-stock' : product.current_stock <= product.min_stock ? 'low-stock' : ''}">
+        const escapeHtml = (text) => {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        };
+
+        tbody.innerHTML = this.products.map(product => {
+            const stockClass = product.current_stock <= 0 ? 'out-of-stock' : 
+                product.current_stock <= product.min_stock ? 'low-stock' : '';
+            
+            return `
+            <tr data-product-id="${product.id}" class="${stockClass}">
                 <td>
                     <input type="checkbox" class="product-select" 
                            data-product-id="${product.id}"
                            ${this.selectedProducts.has(product.id) ? 'checked' : ''}>
                 </td>
                 <td>
-                    <div class="product-code">${product.product_code}</div>
-                    ${product.barcode ? `<div class="barcode">${product.barcode}</div>` : ''}
+                    <div class="product-code">${escapeHtml(product.product_code)}</div>
+                    ${product.barcode ? `<div class="barcode">${escapeHtml(product.barcode)}</div>` : ''}
                 </td>
                 <td>
-                    <div class="product-name">${product.name}</div>
-                    ${product.description ? `<div class="product-desc">${product.description.substring(0, 50)}${product.description.length > 50 ? '...' : ''}</div>` : ''}
+                    <div class="product-name">${escapeHtml(product.name)}</div>
+                    ${product.description ? `<div class="product-desc">${escapeHtml(product.description.substring(0, 50))}${product.description.length > 50 ? '...' : ''}</div>` : ''}
                 </td>
-                <td>${product.category_name || '-'}</td>
-                <td>${product.brand_name || '-'}</td>
+                <td>${escapeHtml(product.category_name) || '-'}</td>
+                <td>${escapeHtml(product.brand_name) || '-'}</td>
                 <td>
                     <div class="stock-info">
                         <span class="stock-quantity ${product.current_stock <= product.min_stock ? 'text-warning' : ''} ${product.current_stock <= 0 ? 'text-danger' : ''}">
@@ -450,7 +466,8 @@ class ProductsScreen {
                     </div>
                 </td>
             </tr>
-        `).join('');
+        `;
+        }).join('');
 
         // Add event listeners to action buttons
         tbody.querySelectorAll('.btn-view').forEach(btn => {
@@ -1054,7 +1071,12 @@ class ProductsScreen {
         let options = '';
         categories.forEach(category => {
             const indent = ' '.repeat(level * 2);
-            options += `<option value="${category.id}">${indent}${category.name}</option>`;
+            const escapeHtml = (text) => {
+                const div = document.createElement('div');
+                div.textContent = text || '';
+                return div.innerHTML;
+            };
+            options += `<option value="${escapeHtml(category.id)}">${indent}${escapeHtml(category.name)}</option>`;
 
             if (category.children) {
                 options += this.generateCategoryOptions(category.children, level + 1);
@@ -1140,6 +1162,12 @@ class ProductsScreen {
     }
 
     showEditProductModal(product) {
+        const escapeHtml = (text) => {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        };
+        
         const modalHtml = `
             <div class="modal" style="width: 700px;">
                 <div class="modal-header">
@@ -1154,17 +1182,17 @@ class ProductsScreen {
                                 <div class="form-group">
                                     <label class="input-label required">Product Code</label>
                                     <input type="text" id="edit-product-code" class="input-field" 
-                                           value="${product.product_code || ''}" required>
+                                           value="${escapeHtml(product.product_code)}" required>
                                 </div>
                                 <div class="form-group">
                                     <label class="input-label">Barcode</label>
                                     <input type="text" id="edit-barcode" class="input-field" 
-                                           value="${product.barcode || ''}" placeholder="8901234567890">
+                                           value="${escapeHtml(product.barcode)}" placeholder="8901234567890">
                                 </div>
                                 <div class="form-group">
                                     <label class="input-label required">Product Name</label>
                                     <input type="text" id="edit-product-name" class="input-field" 
-                                           value="${product.name || ''}" required>
+                                           value="${escapeHtml(product.name)}" required>
                                 </div>
                                 <div class="form-group">
                                     <label class="input-label required">Category</label>
@@ -1178,7 +1206,7 @@ class ProductsScreen {
                                     <select id="edit-brand" class="input-field">
                                         <option value="">Select Brand</option>
                                         ${this.brands.map(brand => `
-                                            <option value="${brand.id}" ${product.brand_id == brand.id ? 'selected' : ''}>${brand.name}</option>
+                                            <option value="${escapeHtml(brand.id)}" ${product.brand_id == brand.id ? 'selected' : ''}>${escapeHtml(brand.name)}</option>
                                         `).join('')}
                                     </select>
                                 </div>
@@ -1196,7 +1224,7 @@ class ProductsScreen {
                                 <div class="form-group full-width">
                                     <label class="input-label">Description</label>
                                     <textarea id="edit-description" class="input-field" 
-                                              rows="3" placeholder="Product description">${product.description || ''}</textarea>
+                                              rows="3" placeholder="Product description">${escapeHtml(product.description)}</textarea>
                                 </div>
                             </div>
                         </div>
@@ -1405,7 +1433,7 @@ n            }
                     <button class="btn btn-secondary" onclick="window.app.screens.products.closeModal()">
                         Cancel
                     </button>
-                    <button class="btn btn-primary" onclick="window.app.screens.products.submitStockAdjustment(${productId})">
+                    <button class="btn btn-primary" data-product-id="${productId}">
                         Adjust Stock
                     </button>
                 </div>
@@ -1423,14 +1451,33 @@ n            }
 
         // Load current stock
         this.loadProductStock(productId);
+        
+        // Add event listener for submit button
+        setTimeout(() => {
+            const submitBtn = modalContainer.querySelector('[data-product-id]');
+            if (submitBtn) {
+                submitBtn.addEventListener('click', () => {
+                    this.submitStockAdjustment(parseInt(submitBtn.dataset.productId));
+                });
+            }
+        }, 100);
     }
 
     async loadProductStock(productId) {
         try {
+            if (!productId) {
+                throw new Error('Product ID is required');
+            }
+            
             const response = await this.api.get(`/products/${productId}`);
+            
+            if (!response || !response.product) {
+                throw new Error('Invalid product data received');
+            }
+            
             const currentStock = response.product.current_stock;
-
             const stockElement = document.getElementById('current-stock-value');
+            
             if (stockElement) {
                 stockElement.textContent = currentStock;
                 stockElement.className = currentStock <= 0 ? 'text-danger' :
@@ -1438,6 +1485,12 @@ n            }
             }
         } catch (error) {
             console.error('Failed to load product stock:', error);
+            const stockElement = document.getElementById('current-stock-value');
+            if (stockElement) {
+                stockElement.textContent = 'Error loading';
+                stockElement.className = 'text-danger';
+            }
+            this.app?.showNotification?.('Failed to load current stock', 'error');
         }
     }
 
@@ -1857,46 +1910,103 @@ n            }
     }
 
     downloadTemplate() {
-        // Create template data
-        const templateData = [
-            ['product_code', 'barcode', 'name', 'description', 'category_id', 'brand_id',
-                'unit', 'cost_price', 'retail_price', 'wholesale_price', 'dealer_price',
-                'min_sale_price', 'current_stock', 'min_stock', 'gst_rate', 'for_vehicle_type',
-                'warranty_days', 'has_serial', 'is_service', 'is_active'],
-            ['PROD001', '8901234567890', 'Sample Product', 'Product description', '1', '1',
-                'pcs', '100.00', '150.00', '135.00', '120.00', '110.00', '10', '5', '17.0',
-                'car', '180', 'false', 'false', 'true'],
-            ['PROD002', '', 'Another Product', '', '2', '', 'pcs', '50.00', '75.00', '',
-                '', '', '20', '10', '17.0', '', '90', 'false', 'false', 'true']
-        ];
+        try {
+            // Create template data
+            const templateData = [
+                ['product_code', 'barcode', 'name', 'description', 'category_id', 'brand_id',
+                    'unit', 'cost_price', 'retail_price', 'wholesale_price', 'dealer_price',
+                    'min_sale_price', 'current_stock', 'min_stock', 'gst_rate', 'for_vehicle_type',
+                    'warranty_days', 'has_serial', 'is_service', 'is_active'],
+                ['PROD001', '8901234567890', 'Sample Product', 'Product description', '1', '1',
+                    'pcs', '100.00', '150.00', '135.00', '120.00', '110.00', '10', '5', '17.0',
+                    'car', '180', 'false', 'false', 'true'],
+                ['PROD002', '', 'Another Product', '', '2', '', 'pcs', '50.00', '75.00', '',
+                    '', '', '20', '10', '17.0', '', '90', 'false', 'false', 'true']
+            ];
 
-        // Convert to CSV
-        const csvContent = templateData.map(row => row.join(',')).join('\n');
-        const blob = new Blob([csvContent], { type: 'text/csv' });
-        const url = window.URL.createObjectURL(blob);
+            // Convert to CSV
+            const csvContent = templateData.map(row => row.join(',')).join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
 
-        // Download
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'product_import_template.csv';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
+            // Download
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'product_import_template.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Failed to download template:', error);
+            this.app.showNotification('Failed to download template: ' + error.message, 'error');
+        }
     }
 
     previewImportFile(file) {
-        // Preview first few rows of the file
-        // This would parse CSV/Excel and show preview
-        console.log('Preview file:', file);
+        const errorElement = document.getElementById('import-error');
+        
+        try {
+            if (!file) {
+                throw new Error('No file provided for preview');
+            }
 
-        const previewDiv = document.getElementById('import-preview');
-        if (previewDiv) {
+            const previewDiv = document.getElementById('import-preview');
+            if (!previewDiv) {
+                throw new Error('Preview container not found');
+            }
+
+            const previewTable = previewDiv.querySelector('.preview-table');
+            if (!previewTable) {
+                throw new Error('Preview table container not found');
+            }
+            
+            // Validate file type
+            const allowedTypes = ['.csv', '.xlsx', '.xls'];
+            const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+            if (!allowedTypes.includes(fileExtension)) {
+                throw new Error('Invalid file type. Please use CSV or Excel files.');
+            }
+            
+            // Validate file size (max 10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                throw new Error('File too large. Maximum size is 10MB.');
+            }
+            
             previewDiv.style.display = 'block';
-            previewDiv.querySelector('.preview-table').innerHTML = `
-                <p>File: ${file.name} (${(file.size / 1024).toFixed(1)} KB)</p>
-                <p>Parsing would show first few rows here...</p>
-            `;
+            previewTable.innerHTML = '';
+            
+            const fileInfo = document.createElement('p');
+            const escapeHtml = (text) => {
+                const div = document.createElement('div');
+                div.textContent = text || '';
+                return div.innerHTML;
+            };
+            
+            fileInfo.textContent = `File: ${escapeHtml(file.name)} (${(file.size / 1024).toFixed(1)} KB)`;
+            
+            const parseInfo = document.createElement('p');
+            parseInfo.textContent = 'Parsing would show first few rows here...';
+            
+            previewTable.appendChild(fileInfo);
+            previewTable.appendChild(parseInfo);
+            
+            // Hide error if preview successful
+            if (errorElement) {
+                errorElement.style.display = 'none';
+            }
+        } catch (error) {
+            console.error('Failed to preview file:', error);
+            if (errorElement) {
+                errorElement.textContent = error.message || 'Failed to preview file';
+                errorElement.style.display = 'block';
+            }
+            
+            // Hide preview on error
+            const previewDiv = document.getElementById('import-preview');
+            if (previewDiv) {
+                previewDiv.style.display = 'none';
+            }
         }
     }
 
@@ -1938,56 +2048,76 @@ n            }
 
     parseImportFile(file) {
         return new Promise((resolve, reject) => {
-            // Simplified parsing - in real app use Papa Parse for CSV or similar
-            if (file.name.endsWith('.csv')) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    try {
-                        const content = e.target.result;
-                        const lines = content.split('\n');
-                        const headers = lines[0].split(',');
+            try {
+                if (!file) {
+                    reject(new Error('No file provided for parsing'));
+                    return;
+                }
 
-                        const products = [];
-                        for (let i = 1; i < Math.min(lines.length, 1000); i++) {
-                            if (!lines[i].trim()) continue;
+                if (file.name.endsWith('.csv')) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const content = e.target.result;
+                            if (!content || content.trim() === '') {
+                                reject(new Error('File is empty or contains no data'));
+                                return;
+                            }
 
-                            const values = lines[i].split(',');
-                            const product = {};
+                            const lines = content.split('\n');
+                            if (lines.length < 2) {
+                                reject(new Error('File must contain at least a header row and one data row'));
+                                return;
+                            }
 
-                            headers.forEach((header, index) => {
-                                if (values[index]) {
-                                    product[header.trim()] = values[index].trim();
-                                }
-                            });
+                            const headers = lines[0].split(',');
+                            const products = [];
+                            
+                            for (let i = 1; i < Math.min(lines.length, 1000); i++) {
+                                if (!lines[i].trim()) continue;
 
-                            // Convert numeric fields
-                            ['cost_price', 'retail_price', 'wholesale_price', 'dealer_price',
-                                'min_sale_price', 'current_stock', 'min_stock', 'gst_rate',
-                                'warranty_days', 'category_id', 'brand_id'].forEach(field => {
-                                    if (product[field]) {
-                                        product[field] = parseFloat(product[field]);
+                                const values = lines[i].split(',');
+                                const product = {};
+
+                                headers.forEach((header, index) => {
+                                    if (values[index]) {
+                                        product[header.trim()] = values[index].trim();
                                     }
                                 });
 
-                            // Convert boolean fields
-                            ['has_serial', 'is_service', 'is_active'].forEach(field => {
-                                if (product[field]) {
-                                    product[field] = product[field].toLowerCase() === 'true';
-                                }
-                            });
+                                // Convert numeric fields
+                                ['cost_price', 'retail_price', 'wholesale_price', 'dealer_price',
+                                    'min_sale_price', 'current_stock', 'min_stock', 'gst_rate',
+                                    'warranty_days', 'category_id', 'brand_id'].forEach(field => {
+                                        if (product[field]) {
+                                            product[field] = parseFloat(product[field]);
+                                        }
+                                    });
 
-                            products.push(product);
+                                // Convert boolean fields
+                                ['has_serial', 'is_service', 'is_active'].forEach(field => {
+                                    if (product[field]) {
+                                        product[field] = product[field].toLowerCase() === 'true';
+                                    }
+                                });
+
+                                products.push(product);
+                            }
+
+                            resolve(products);
+                        } catch (error) {
+                            reject(new Error('Failed to parse CSV file: ' + error.message));
                         }
-
-                        resolve(products);
-                    } catch (error) {
-                        reject(new Error('Failed to parse CSV file: ' + error.message));
-                    }
-                };
-                reader.onerror = () => reject(new Error('Failed to read file'));
-                reader.readAsText(file);
-            } else {
-                reject(new Error('Unsupported file format. Please use CSV.'));
+                    };
+                    reader.onerror = (error) => {
+                        reject(new Error('Failed to read file: ' + (error.message || 'Unknown file reading error')));
+                    };
+                    reader.readAsText(file);
+                } else {
+                    reject(new Error('Unsupported file format. Please use CSV.'));
+                }
+            } catch (error) {
+                reject(new Error('Failed to process file: ' + error.message));
             }
         });
     }
@@ -2137,100 +2267,169 @@ n            }
     }
 
     exportProducts() {
-        // Export products to CSV/Excel
-        const csvData = [
-            ['Code', 'Name', 'Category', 'Brand', 'Stock', 'Cost Price', 'Retail Price', 'Status']
-        ];
+        try {
+            if (!this.products || this.products.length === 0) {
+                this.app.showNotification('No products to export', 'warning');
+                return;
+            }
 
-        this.products.forEach(product => {
-            csvData.push([
-                product.product_code,
-                product.name,
-                product.category_name || '',
-                product.brand_name || '',
-                product.current_stock,
-                product.cost_price,
-                product.retail_price,
-                product.is_active ? 'Active' : 'Inactive'
-            ]);
-        });
+            const csvData = [
+                ['Code', 'Name', 'Category', 'Brand', 'Stock', 'Cost Price', 'Retail Price', 'Status']
+            ];
 
-        const csvContent = csvData.map(row => row.join(',')).join('\n');
-        const blob = new Blob([csvContent], { type: 'text/csv' });
-        const url = window.URL.createObjectURL(blob);
+            this.products.forEach(product => {
+                csvData.push([
+                    product.product_code,
+                    product.name,
+                    product.category_name || '',
+                    product.brand_name || '',
+                    product.current_stock,
+                    product.cost_price,
+                    product.retail_price,
+                    product.is_active ? 'Active' : 'Inactive'
+                ]);
+            });
 
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `products_export_${new Date().toISOString().split('T')[0]}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
+            const csvContent = csvData.map(row => row.join(',')).join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
 
-        this.app.showNotification('Products exported successfully', 'success');
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `products_export_${new Date().toISOString().split('T')[0]}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+
+            this.app.showNotification('Products exported successfully', 'success');
+        } catch (error) {
+            console.error('Failed to export products:', error);
+            this.app.showNotification('Failed to export products: ' + error.message, 'error');
+        }
     }
 
     printProducts() {
-        // Print products list
-        const printContent = `
-            <html>
-            <head>
-                <title>Products List</title>
-                <style>
-                    body { font-family: Arial, sans-serif; }
-                    h1 { text-align: center; }
-                    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                    th, td { border: 1px solid #000; padding: 8px; text-align: left; }
-                    th { background-color: #f0f0f0; }
-                </style>
-            </head>
-            <body>
-                <h1>Products List</h1>
-                <p>Generated: ${new Date().toLocaleString()}</p>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Code</th>
-                            <th>Name</th>
-                            <th>Category</th>
-                            <th>Brand</th>
-                            <th>Stock</th>
-                            <th>Cost Price</th>
-                            <th>Retail Price</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${this.products.map(product => `
-                            <tr>
-                                <td>${product.product_code}</td>
-                                <td>${product.name}</td>
-                                <td>${product.category_name || ''}</td>
-                                <td>${product.brand_name || ''}</td>
-                                <td>${product.current_stock}</td>
-                                <td>${product.cost_price.toFixed(2)}</td>
-                                <td>${product.retail_price.toFixed(2)}</td>
-                                <td>${product.is_active ? 'Active' : 'Inactive'}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </body>
-            </html>
-        `;
+        try {
+            // Validate products data
+            if (!this.products || this.products.length === 0) {
+                this.app.showNotification('No products to print', 'warning');
+                return;
+            }
 
-        const printWindow = window.open('', '_blank');
-        printWindow.document.write(printContent);
-        printWindow.document.close();
-        printWindow.focus();
-        printWindow.print();
-        printWindow.close();
+            // Print products list
+            const printContent = `
+                <html>
+                <head>
+                    <title>Products List</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; }
+                        h1 { text-align: center; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                        th, td { border: 1px solid #000; padding: 8px; text-align: left; }
+                        th { background-color: #f0f0f0; }
+                    </style>
+                </head>
+                <body>
+                    <h1>Products List</h1>
+                    <p>Generated: ${new Date().toLocaleString()}</p>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Name</th>
+                                <th>Category</th>
+                                <th>Brand</th>
+                                <th>Stock</th>
+                                <th>Cost Price</th>
+                                <th>Retail Price</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${this.products.map(product => {
+                                const escapeHtml = (text) => {
+                                    const div = document.createElement('div');
+                                    div.textContent = text || '';
+                                    return div.innerHTML;
+                                };
+                                
+                                return `
+                                    <tr>
+                                        <td>${escapeHtml(product.product_code)}</td>
+                                        <td>${escapeHtml(product.name)}</td>
+                                        <td>${escapeHtml(product.category_name)}</td>
+                                        <td>${escapeHtml(product.brand_name)}</td>
+                                        <td>${product.current_stock || 0}</td>
+                                        <td>${(product.cost_price || 0).toFixed(2)}</td>
+                                        <td>${(product.retail_price || 0).toFixed(2)}</td>
+                                        <td>${product.is_active ? 'Active' : 'Inactive'}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </body>
+                </html>
+            `;
+
+            const printWindow = window.open('', '_blank');
+            if (!printWindow) {
+                throw new Error('Unable to open print window. Please check popup blocker settings.');
+            }
+
+            printWindow.document.write(printContent);
+            printWindow.document.close();
+            
+            // Add error handling for print operations
+            printWindow.addEventListener('error', (e) => {
+                console.error('Print window error:', e);
+                this.app.showNotification('Print operation failed', 'error');
+            });
+            
+            try {
+                printWindow.focus();
+                printWindow.print();
+                
+                // Close window after a delay to ensure printing completes
+                setTimeout(() => {
+                    try {
+                        printWindow.close();
+                    } catch (closeError) {
+                        console.warn('Could not close print window:', closeError);
+                    }
+                }, 1000);
+            } catch (printError) {
+                console.error('Print operation failed:', printError);
+                this.app.showNotification('Print operation failed: ' + printError.message, 'error');
+                try {
+                    printWindow.close();
+                } catch (closeError) {
+                    console.warn('Could not close print window after error:', closeError);
+                }
+            }
+            
+        } catch (error) {
+            console.error('Failed to print products:', error);
+            const errorMessage = error?.message || 'Unknown error occurred while printing';
+            this.app?.showNotification?.('Failed to print products: ' + errorMessage, 'error') || 
+                alert('Failed to print products: ' + errorMessage);
+        }
     }
 
     showModal(html) {
         const modalContainer = document.getElementById('product-modal');
         if (modalContainer) {
-            modalContainer.innerHTML = `<div class="modal-overlay">${html}</div>`;
+            // Create modal overlay element safely
+            const modalOverlay = document.createElement('div');
+            modalOverlay.className = 'modal-overlay';
+            
+            // Clear container and append safely created element
+            modalContainer.innerHTML = '';
+            modalContainer.appendChild(modalOverlay);
+            
+            // Set content using textContent to prevent XSS
+            modalOverlay.textContent = html;
             modalContainer.style.display = 'flex';
         }
     }
@@ -2261,10 +2460,24 @@ n            }
 // Register screen with main app
 if (window.POS) {
     // Register class for app.js to instantiate
-    window.POS = window.POS || {}; window.POS.screens = window.POS.screens || {};
+    window.POS = window.POS || {};
+    window.POS.screens = window.POS.screens || {};
     window.POS.screens.products = ProductsScreen;
     
     // Also register on app object to ensure availability
-    window.app = window.app || {}; window.app.screens = window.app.screens || {};
+    window.app = window.app || {};
+    window.app.screens = window.app.screens || {};
     window.app.screens.products = ProductsScreen;
+}
+
+// Mark as defined to prevent redeclaration on multiple loads
+window.__ProductsScreenDefined = true;
+} else {
+    // If script is loaded again, ensure the app references the existing constructor
+    window.POS = window.POS || {};
+    window.POS.screens = window.POS.screens || {};
+    window.POS.screens.products = window.ProductsScreen || window.POS.screens.products;
+    window.app = window.app || {};
+    window.app.screens = window.app.screens || {};
+    window.app.screens.products = window.ProductsScreen || window.app.screens.products;
 }

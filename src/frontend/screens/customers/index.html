@@ -1,7 +1,7 @@
 <div class="screen-header">
   <h1>Customers Management</h1>
   <div class="header-actions">
-    <button class="btn btn-primary" onclick="app.screens.customers.showAddModal()">
+    <button class="btn btn-primary" onclick="document.getElementById('customer-modal').style.display='block'">
       <i class="icon-plus"></i> Add Customer
     </button>
   </div>
@@ -38,7 +38,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2 id="modal-title">Add Customer</h2>
-        <button class="close-btn" onclick="app.screens.customers.closeModal()">&times;</button>
+        <button class="close-btn" onclick="document.getElementById('customer-modal').style.display='none'">&times;</button>
       </div>
       <form onsubmit="app.screens.customers.saveCustomer(event)">
         <input type="hidden" id="customer-id">
@@ -67,7 +67,7 @@
           <input type="number" id="customer-credit-limit" value="0">
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" onclick="app.screens.customers.closeModal()">Cancel</button>
+          <button type="button" class="btn btn-secondary" onclick="document.getElementById('customer-modal').style.display='none'">Cancel</button>
           <button type="submit" class="btn btn-primary">Save Customer</button>
         </div>
       </form>

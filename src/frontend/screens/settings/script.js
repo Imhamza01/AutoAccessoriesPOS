@@ -2,148 +2,166 @@ class SettingsScreen {
     constructor(app) {
         this.app = app;
         this.app.screens.settings = this; // Explicitly register for callbacks
+        
+        // Load shop settings module
+        this.loadShopSettingsModule();
+    }
+    
+    // Load shop settings module
+    loadShopSettingsModule() {
+        // Check if shop settings module is already loaded
+        if (window.shopSettings) {
+            console.log('Shop settings module already loaded');
+            return Promise.resolve();
+        }
+        
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'screens/pos/shop_settings.js';
+            script.onload = () => {
+                console.log('Shop settings module loaded in settings screen');
+                resolve();
+            };
+            script.onerror = () => {
+                console.error('Failed to load shop settings module in settings screen');
+                reject(new Error('Failed to load shop settings module'));
+            };
+            document.head.appendChild(script);
+        });
     }
 
     init() {
-        // Hide users tab if user doesn't have permission
-        if (!this.app.currentUser.can_manage_users) {
-            const usersTabBtn = document.querySelector('.tab-btn[data-tab="users"]');
-            if (usersTabBtn) {
-                usersTabBtn.style.display = 'none';
+        try {
+            // Hide users tab if user doesn't have permission
+            if (!this.app.currentUser?.can_manage_users) {
+                const usersTabBtn = document.querySelector('.tab-btn[data-tab="users"]');
+                if (usersTabBtn) {
+                    usersTabBtn.style.display = 'none';
+                }
+            }
+            
+            // Hide backup tab if user doesn't have backup/restore permissions
+            if (!this.app.currentUser?.can_backup_restore) {
+                const backupTabBtn = document.querySelector('.tab-btn[data-tab="backup"]');
+                if (backupTabBtn) {
+                    backupTabBtn.style.display = 'none';
+                }
+            }
+            
+            this.showTab('shop');
+        } catch (e) {
+            console.error('Failed to initialize settings screen:', e);
+            // Fallback to show shop tab even if initialization fails
+            try {
+                this.showTab('shop');
+            } catch (fallbackError) {
+                console.error('Critical error in settings initialization:', fallbackError);
+                if (this.app && this.app.showNotification) {
+                    this.app.showNotification('Failed to initialize settings screen', 'error');
+                }
             }
         }
-        
-        // Hide backup tab if user doesn't have backup/restore permissions
-        if (!this.app.currentUser.can_backup_restore) {
-            const backupTabBtn = document.querySelector('.tab-btn[data-tab="backup"]');
-            if (backupTabBtn) {
-                backupTabBtn.style.display = 'none';
-            }
-        }
-        
-        this.showTab('shop');
     }
 
     refresh() {
         this.showTab('shop');
     }
 
-    showTab(tab) {
-        // Update active tab UI
-        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-        const activeBtn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
-        if (activeBtn) activeBtn.classList.add('active');
+    showTab(tabName) {
+        try {
+            // Update active tab UI
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            const activeBtn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+            if (activeBtn) activeBtn.classList.add('active');
 
-        const content = document.getElementById('settings-content');
+            const contentEl = document.getElementById('settings-content');
+            if (!contentEl) {
+                throw new Error('Settings content container not found');
+            }
 
-        switch (tab) {
-            case 'shop':
-                this.loadShopSettings();
-                break;
-            case 'account':
-                this.loadAccountSettings();
-                break;
-            case 'users':
-                this.loadUsersSettings();
-                break;
-            case 'printer':
-                this.loadPrinterSettings();
-                break;
-            case 'backup':
-                this.loadBackupSettings();
-                break;
+            switch (tabName) {
+                case 'shop':
+                    this.loadShopSettings();
+                    break;
+                case 'account':
+                    this.loadAccountSettings();
+                    break;
+                case 'users':
+                    this.loadUsersSettings();
+                    break;
+                case 'printer':
+                    this.loadPrinterSettings();
+                    break;
+                case 'backup':
+                    this.loadBackupSettings();
+                    break;
+                default:
+                    console.warn(`Unknown tab: ${tabName}`);
+                    this.loadShopSettings();
+            }
+        } catch (e) {
+            console.error('Failed to show tab:', e);
+            if (this.app && this.app.showNotification) {
+                this.app.showNotification('Failed to load settings tab', 'error');
+            }
         }
     }
 
     async loadShopSettings() {
         try {
-            const res = await this.app.api.get('/settings/shop');
+            const response = await this.app.api.get('/settings/shop');
             
-            let s = {};
-            if (res && res.settings) {
-                s = res.settings;
-            } else if (res && res.data) {
-                s = res.data;
-            } else {
-                s = res || {};
+            // Parse response with better structure
+            const shopSettings = this.parseSettingsResponse(response);
+
+            const contentEl = document.getElementById('settings-content');
+            if (!contentEl) {
+                throw new Error('Settings content container not found');
             }
-
-            document.getElementById('settings-content').innerHTML = `
-                <form id="shop-settings-form">
-                    <div class="form-section">
-                        <h3>Shop Information</h3>
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label>Shop Name</label>
-                                <input type="text" value="${s.shop_name || ''}" id="shop-name" class="input-field">
-                            </div>
-                            <div class="form-group">
-                                <label>Phone</label>
-                                <input type="text" value="${s.shop_phone || ''}" id="shop-phone" class="input-field">
-                            </div>
-                            <div class="form-group">
-                                <label>Email</label>
-                                <input type="email" value="${s.shop_email || ''}" id="shop-email" class="input-field">
-                            </div>
-                            <div class="form-group">
-                                <label>City</label>
-                                <input type="text" value="${s.shop_city || ''}" id="shop-city" class="input-field">
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label>Address</label>
-                            <textarea id="shop-address" class="input-field" rows="3">${s.shop_address || ''}</textarea>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <h3>Tax & Legal</h3>
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label>Owner Name</label>
-                                <input type="text" value="${s.owner_name || ''}" id="owner-name" class="input-field">
-                            </div>
-                            <div class="form-group">
-                                <label>NTN Number</label>
-                                <input type="text" value="${s.shop_tax_id || ''}" id="ntn-number" class="input-field">
-                            </div>
-                            <div class="form-group">
-                                <label>GST Number</label>
-                                <input type="text" value="${s.gst_number || ''}" id="gst-number" class="input-field">
-                            </div>
-                            <div class="form-group">
-                                <label>Currency Symbol</label>
-                                <input type="text" value="${s.currency || '₹'}" id="currency-symbol" class="input-field">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <h3>Branding</h3>
-                        <div class="form-group">
-                            <label>Logo Path</label>
-                            <div style="display: flex; gap: 10px;">
-                                <input type="text" value="${s.logo_path || ''}" id="logo-path" class="input-field" style="flex: 1;">
-                                <button type="button" class="btn btn-secondary" onclick="window.app.screens.settings.selectLogo()">Browse</button>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label>Receipt Footer</label>
-                            <textarea id="receipt-footer" class="input-field" rows="3">${s.receipt_footer || ''}</textarea>
-                        </div>
-                    </div>
-
-                    <div class="action-buttons">
-                        <button type="button" class="btn btn-primary" onclick="window.app.screens.settings.saveShop()">
-                            <span>Save Changes</span>
-                        </button>
-                    </div>
-                </form>
-            `;
+            contentEl.innerHTML = '';
+            
+            const form = document.createElement('form');
+            form.id = 'shop-settings-form';
+            
+            // Create form elements more efficiently
+            const formElements = this.createShopFormElements(shopSettings);
+            formElements.forEach(element => form.appendChild(element));
+            
+            contentEl.appendChild(form);
         } catch (e) {
             console.error('Failed to load shop settings:', e);
-            document.getElementById('settings-content').innerHTML = `<div class="error-message">Failed to load shop settings: ${e.message || e}</div>`;
+            // Log the error for debugging
+            console.error('Error details:', e);
+            const contentEl = document.getElementById('settings-content');
+            if (contentEl) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error-message';
+                errorDiv.textContent = `Failed to load shop settings: ${e.message || e}`;
+                contentEl.innerHTML = '';
+                contentEl.appendChild(errorDiv);
+            }
         }
+    }
+
+    // Helper method to parse API responses consistently
+    parseSettingsResponse(response) {
+        if (response && response.settings) {
+            return response.settings;
+        } else if (response && response.data) {
+            return response.data;
+        }
+        return response || {};
+    }
+
+    // Helper method to get user ID from different data formats
+    getUserId(user) {
+        if (user.id) {
+            return user.id;
+        }
+        if (Array.isArray(user)) {
+            return user[0] || 0;
+        }
+        return 0;
     }
 
     async selectLogo() {
@@ -152,12 +170,14 @@ class SettingsScreen {
                 const path = await window.pywebview.api.select_file('Image Files (*.png;*.jpg;*.jpeg)');
                 if (path) {
                     document.getElementById('logo-path').value = path;
+                    this.app.showNotification('Logo file selected successfully', 'success');
                 }
             } else {
-                alert('File picker is only available in desktop mode.');
+                this.app.showNotification('File picker is only available in desktop mode', 'warning');
             }
         } catch (e) {
             console.error('Failed to select logo:', e);
+            this.app.showNotification('Failed to select logo file: ' + (e.message || e), 'error');
         }
     }
 
@@ -174,42 +194,269 @@ class SettingsScreen {
                 users = res.data;
             }
 
-            document.getElementById('settings-content').innerHTML = `
-                <button class="btn btn-primary" onclick="window.app.screens.settings.addUser()">Add User</button>
-                <table class="data-table" style="margin-top: 20px;">
-                    <thead>
-                        <tr>
-                            <th>Username</th>
-                            <th>Full Name</th>
-                            <th>Email</th>
-                            <th>Role</th>
-                            <th>Active</th>
-                            <th>Created</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${users.map(u => `
-                            <tr>
-                                <td data-label="Username">${u.username || (Array.isArray(u) ? u[1] : u[0]) || 'N/A'}</td>
-                                <td data-label="Full Name">${u.full_name || (Array.isArray(u) ? u[2] : u[1]) || 'N/A'}</td>
-                                <td data-label="Email">${u.email || (Array.isArray(u) ? u[3] : u[2]) || 'N/A'}</td>
-                                <td data-label="Role">${u.role || (Array.isArray(u) ? u[4] : u[3]) || 'N/A'}</td>
-                                <td data-label="Active">${(u.is_active !== undefined ? u.is_active : (Array.isArray(u) ? u[5] : u[4])) ? 'Yes' : 'No'}</td>
-                                <td data-label="Created">${(u.created_at || (Array.isArray(u) ? u[6] : u[5]) || '').substring(0, 10)}</td>
-                                <td data-label="Actions">
-                                    <button class="btn-small" onclick="window.app.screens.settings.editUser(${u.id || (Array.isArray(u) ? u[0] : u.id) || 0})">Edit</button>
-                                    <button class="btn-small btn-danger" onclick="window.app.screens.settings.deleteUser(${u.id || (Array.isArray(u) ? u[0] : u.id) || 0})">Deactivate</button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `;
+            const contentEl = document.getElementById('settings-content');
+            contentEl.innerHTML = '';
+            
+            // Add User button
+            const addBtn = document.createElement('button');
+            addBtn.className = 'btn btn-primary';
+            addBtn.textContent = 'Add User';
+            addBtn.onclick = () => this.addUser();
+            contentEl.appendChild(addBtn);
+            
+            // Create table
+            const table = document.createElement('table');
+            table.className = 'data-table';
+            table.style.marginTop = '20px';
+            
+            // Table header
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            ['Username', 'Full Name', 'Email', 'Role', 'Active', 'Created', 'Actions'].forEach(text => {
+                const th = document.createElement('th');
+                th.textContent = text;
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+            
+            // Table body
+            const tbody = document.createElement('tbody');
+            users.forEach(u => {
+                const row = document.createElement('tr');
+                
+                // Username
+                const usernameCell = document.createElement('td');
+                usernameCell.setAttribute('data-label', 'Username');
+                usernameCell.textContent = u.username || (Array.isArray(u) ? u[1] : u[0]) || 'N/A';
+                row.appendChild(usernameCell);
+                
+                // Full Name
+                const fullNameCell = document.createElement('td');
+                fullNameCell.setAttribute('data-label', 'Full Name');
+                fullNameCell.textContent = u.full_name || (Array.isArray(u) ? u[2] : u[1]) || 'N/A';
+                row.appendChild(fullNameCell);
+                
+                // Email
+                const emailCell = document.createElement('td');
+                emailCell.setAttribute('data-label', 'Email');
+                emailCell.textContent = u.email || (Array.isArray(u) ? u[3] : u[2]) || 'N/A';
+                row.appendChild(emailCell);
+                
+                // Role
+                const roleCell = document.createElement('td');
+                roleCell.setAttribute('data-label', 'Role');
+                roleCell.textContent = u.role || (Array.isArray(u) ? u[4] : u[3]) || 'N/A';
+                row.appendChild(roleCell);
+                
+                // Active
+                const activeCell = document.createElement('td');
+                activeCell.setAttribute('data-label', 'Active');
+                activeCell.textContent = (u.is_active !== undefined ? u.is_active : (Array.isArray(u) ? u[5] : u[4])) ? 'Yes' : 'No';
+                row.appendChild(activeCell);
+                
+                // Created
+                const createdCell = document.createElement('td');
+                createdCell.setAttribute('data-label', 'Created');
+                createdCell.textContent = (u.created_at || (Array.isArray(u) ? u[6] : u[5]) || '').substring(0, 10);
+                row.appendChild(createdCell);
+                
+                // Actions
+                const actionsCell = document.createElement('td');
+                actionsCell.setAttribute('data-label', 'Actions');
+                
+                const editBtn = document.createElement('button');
+                editBtn.className = 'btn-small';
+                editBtn.textContent = 'Edit';
+                
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'btn-small btn-danger';
+                deleteBtn.textContent = 'Deactivate';
+                
+                // Get user ID with cleaner logic
+                const userId = this.getUserId(u);
+                
+                // Use bound functions to prevent memory leaks
+                const editHandler = this.editUser.bind(this, userId);
+                const deleteHandler = this.deleteUser.bind(this, userId);
+                
+                editBtn.onclick = editHandler;
+                deleteBtn.onclick = deleteHandler;
+                
+                actionsCell.appendChild(editBtn);
+                actionsCell.appendChild(deleteBtn);
+                row.appendChild(actionsCell);
+                
+                tbody.appendChild(row);
+            });
+            
+            table.appendChild(tbody);
+            contentEl.appendChild(table);
         } catch (e) {
             console.error('Failed to load users settings:', e);
-            document.getElementById('settings-content').innerHTML = `<div class="error-message">Failed to load users settings: ${e.message || e}</div>`;
+            const contentEl = document.getElementById('settings-content');
+            if (contentEl) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error-message';
+                errorDiv.textContent = `Failed to load users settings: ${e.message || e}`;
+                contentEl.innerHTML = '';
+                contentEl.appendChild(errorDiv);
+            }
         }
+    }
+
+    // Helper method to create shop form elements
+    createShopFormElements(shopSettings) {
+        const sections = [];
+        
+        // Shop Information Section
+        const shopInfoSection = document.createElement('div');
+        shopInfoSection.className = 'form-section';
+        const shopInfoTitle = document.createElement('h3');
+        shopInfoTitle.textContent = 'Shop Information';
+        shopInfoSection.appendChild(shopInfoTitle);
+        
+        const formGrid = document.createElement('div');
+        formGrid.className = 'form-grid';
+        
+        const fields = [
+            { label: 'Shop Name', id: 'shop-name-input', type: 'text', value: shopSettings.shop_name },
+            { label: 'Phone', id: 'shop-phone', type: 'text', value: shopSettings.shop_phone },
+            { label: 'Email', id: 'shop-email', type: 'email', value: shopSettings.shop_email },
+            { label: 'City', id: 'shop-city', type: 'text', value: shopSettings.shop_city }
+        ];
+        
+        fields.forEach(field => {
+            const group = document.createElement('div');
+            group.className = 'form-group';
+            const label = document.createElement('label');
+            label.textContent = field.label;
+            const input = document.createElement('input');
+            input.type = field.type;
+            input.value = field.value || '';
+            input.id = field.id;
+            input.className = 'input-field';
+            group.appendChild(label);
+            group.appendChild(input);
+            formGrid.appendChild(group);
+        });
+        
+        shopInfoSection.appendChild(formGrid);
+        
+        // Address field
+        const addressGroup = document.createElement('div');
+        addressGroup.className = 'form-group';
+        const addressLabel = document.createElement('label');
+        addressLabel.textContent = 'Address';
+        const addressTextarea = document.createElement('textarea');
+        addressTextarea.id = 'shop-address';
+        addressTextarea.className = 'input-field';
+        addressTextarea.rows = 3;
+        addressTextarea.value = shopSettings.shop_address || '';
+        addressGroup.appendChild(addressLabel);
+        addressGroup.appendChild(addressTextarea);
+        shopInfoSection.appendChild(addressGroup);
+        
+        sections.push(shopInfoSection);
+        
+        // Tax & Legal Section
+        const taxSection = document.createElement('div');
+        taxSection.className = 'form-section';
+        const taxTitle = document.createElement('h3');
+        taxTitle.textContent = 'Tax & Legal';
+        taxSection.appendChild(taxTitle);
+        
+        const taxGrid = document.createElement('div');
+        taxGrid.className = 'form-grid';
+        
+        const taxFields = [
+            { label: 'Owner Name', id: 'owner-name', value: shopSettings.owner_name },
+            { label: 'NTN Number', id: 'ntn-number', value: shopSettings.shop_tax_id },
+            { label: 'GST Number', id: 'gst-number', value: shopSettings.gst_number },
+            { label: 'Currency Symbol', id: 'currency-symbol', value: shopSettings.currency || '₹' }
+        ];
+        
+        taxFields.forEach(field => {
+            const group = document.createElement('div');
+            group.className = 'form-group';
+            const label = document.createElement('label');
+            label.textContent = field.label;
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = field.value || '';
+            input.id = field.id;
+            input.className = 'input-field';
+            group.appendChild(label);
+            group.appendChild(input);
+            taxGrid.appendChild(group);
+        });
+        
+        taxSection.appendChild(taxGrid);
+        sections.push(taxSection);
+        
+        // Branding Section
+        const brandingSection = document.createElement('div');
+        brandingSection.className = 'form-section';
+        const brandingTitle = document.createElement('h3');
+        brandingTitle.textContent = 'Branding';
+        brandingSection.appendChild(brandingTitle);
+        
+        // Logo Path
+        const logoGroup = document.createElement('div');
+        logoGroup.className = 'form-group';
+        const logoLabel = document.createElement('label');
+        logoLabel.textContent = 'Logo Path';
+        const logoDiv = document.createElement('div');
+        logoDiv.style.display = 'flex';
+        logoDiv.style.gap = '10px';
+        const logoInput = document.createElement('input');
+        logoInput.type = 'text';
+        logoInput.value = shopSettings.logo_path || '';
+        logoInput.id = 'logo-path';
+        logoInput.className = 'input-field';
+        logoInput.style.flex = '1';
+        const browseBtn = document.createElement('button');
+        browseBtn.type = 'button';
+        browseBtn.className = 'btn btn-secondary';
+        browseBtn.textContent = 'Browse';
+        browseBtn.onclick = () => this.selectLogo();
+        logoDiv.appendChild(logoInput);
+        logoDiv.appendChild(browseBtn);
+        logoGroup.appendChild(logoLabel);
+        logoGroup.appendChild(logoDiv);
+        brandingSection.appendChild(logoGroup);
+        
+        // Receipt Footer
+        const footerGroup = document.createElement('div');
+        footerGroup.className = 'form-group';
+        const footerLabel = document.createElement('label');
+        footerLabel.textContent = 'Receipt Footer';
+        const footerTextarea = document.createElement('textarea');
+        footerTextarea.id = 'receipt-footer';
+        footerTextarea.className = 'input-field';
+        footerTextarea.rows = 3;
+        footerTextarea.value = shopSettings.receipt_footer || '';
+        footerGroup.appendChild(footerLabel);
+        footerGroup.appendChild(footerTextarea);
+        brandingSection.appendChild(footerGroup);
+        
+        sections.push(brandingSection);
+        
+        // Action Buttons
+        const actionButtons = document.createElement('div');
+        actionButtons.className = 'action-buttons';
+        const saveBtn = document.createElement('button');
+        saveBtn.type = 'button';
+        saveBtn.className = 'btn btn-primary';
+        saveBtn.onclick = () => this.saveShop();
+        const saveSpan = document.createElement('span');
+        saveSpan.textContent = 'Save Changes';
+        saveBtn.appendChild(saveSpan);
+        actionButtons.appendChild(saveBtn);
+        
+        sections.push(actionButtons);
+        
+        return sections;
     }
 
     async loadPrinterSettings() {
@@ -225,34 +472,91 @@ class SettingsScreen {
                 printers = res.data;
             }
 
-            document.getElementById('settings-content').innerHTML = `
-                <button class="btn btn-primary" onclick="window.app.screens.settings.addPrinter()">Add Printer</button>
-                <table class="data-table" style="margin-top: 20px;">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Type</th>
-                            <th>Port</th>
-                            <th>Default</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${printers.map(p => `
-                            <tr>
-                                <td data-label="Name">${p.printer_name || (Array.isArray(p) ? p[1] : p.name) || 'N/A'}</td>
-                                <td data-label="Type">${p.printer_type || (Array.isArray(p) ? p[2] : p.type) || 'N/A'}</td>
-                                <td data-label="Port">${p.connection_string || (Array.isArray(p) ? p[3] : p.connection_string) || 'N/A'}</td>
-                                <td data-label="Default">${(p.is_default !== undefined ? p.is_default : (Array.isArray(p) ? p[5] : p.default)) ? 'Yes' : 'No'}</td>
-                                <td data-label="Actions"><button class="btn-small" onclick="window.app.screens.settings.editPrinter(${p.id || (Array.isArray(p) ? p[0] : p.id) || 0})">Edit</button></td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `;
+            const contentEl = document.getElementById('settings-content');
+            contentEl.innerHTML = '';
+            
+            // Add Printer button
+            const addBtn = document.createElement('button');
+            addBtn.className = 'btn btn-primary';
+            addBtn.textContent = 'Add Printer';
+            addBtn.onclick = () => this.addPrinter();
+            contentEl.appendChild(addBtn);
+            
+            // Create table
+            const table = document.createElement('table');
+            table.className = 'data-table';
+            table.style.marginTop = '20px';
+            
+            // Table header
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            ['Name', 'Type', 'Port', 'Default', 'Actions'].forEach(text => {
+                const th = document.createElement('th');
+                th.textContent = text;
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+            
+            // Table body
+            const tbody = document.createElement('tbody');
+            printers.forEach(p => {
+                const row = document.createElement('tr');
+                
+                // Name
+                const nameCell = document.createElement('td');
+                nameCell.setAttribute('data-label', 'Name');
+                nameCell.textContent = p.printer_name || (Array.isArray(p) ? p[1] : p.name) || 'N/A';
+                row.appendChild(nameCell);
+                
+                // Type
+                const typeCell = document.createElement('td');
+                typeCell.setAttribute('data-label', 'Type');
+                typeCell.textContent = p.printer_type || (Array.isArray(p) ? p[2] : p.type) || 'N/A';
+                row.appendChild(typeCell);
+                
+                // Port
+                const portCell = document.createElement('td');
+                portCell.setAttribute('data-label', 'Port');
+                portCell.textContent = p.connection_string || (Array.isArray(p) ? p[3] : p.connection_string) || 'N/A';
+                row.appendChild(portCell);
+                
+                // Default
+                const defaultCell = document.createElement('td');
+                defaultCell.setAttribute('data-label', 'Default');
+                defaultCell.textContent = (p.is_default !== undefined ? p.is_default : (Array.isArray(p) ? p[5] : p.default)) ? 'Yes' : 'No';
+                row.appendChild(defaultCell);
+                
+                // Actions
+                const actionsCell = document.createElement('td');
+                actionsCell.setAttribute('data-label', 'Actions');
+                
+                const editBtn = document.createElement('button');
+                editBtn.className = 'btn-small';
+                editBtn.textContent = 'Edit';
+                
+                // Get printer ID with cleaner logic
+                const printerId = p.id || (Array.isArray(p) ? p[0] : 0) || 0;
+                editBtn.onclick = () => this.editPrinter(printerId);
+                
+                actionsCell.appendChild(editBtn);
+                row.appendChild(actionsCell);
+                
+                tbody.appendChild(row);
+            });
+            
+            table.appendChild(tbody);
+            contentEl.appendChild(table);
         } catch (e) {
             console.error('Failed to load printer settings:', e);
-            document.getElementById('settings-content').innerHTML = `<div class="error-message">Failed to load printer settings: ${e.message || e}</div>`;
+            const contentEl = document.getElementById('settings-content');
+            if (contentEl) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error-message';
+                errorDiv.textContent = `Failed to load printer settings: ${e.message || 'Unknown error'}`;
+                contentEl.innerHTML = '';
+                contentEl.appendChild(errorDiv);
+            }
         }
     }
 
@@ -269,31 +573,79 @@ class SettingsScreen {
                 backups = res.data;
             }
 
-            document.getElementById('settings-content').innerHTML = `
-                <button class="btn btn-primary" onclick="window.app.screens.settings.createBackup()">Create Backup Now</button>
-                <h3 style="margin-top: 20px;">Recent Backups</h3>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Size</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${backups.map(b => `
-                            <tr>
-                                <td>${(b.created_at || (Array.isArray(b) ? b[3] : b.date) || '').substring(0, 10)}</td>
-                                <td>${((b.file_size || (Array.isArray(b) ? b[2] : b.size) || 0)).toLocaleString()} KB</td>
-                                <td><button class="btn-small" onclick="window.app.screens.settings.restoreBackup(${b.id || (Array.isArray(b) ? b[0] : b.id) || 0})">Restore</button></td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `;
+            const contentEl = document.getElementById('settings-content');
+            contentEl.innerHTML = '';
+            
+            // Create Backup button
+            const createBtn = document.createElement('button');
+            createBtn.className = 'btn btn-primary';
+            createBtn.textContent = 'Create Backup Now';
+            createBtn.onclick = () => this.createBackup();
+            contentEl.appendChild(createBtn);
+            
+            // Recent Backups title
+            const title = document.createElement('h3');
+            title.textContent = 'Recent Backups';
+            title.style.marginTop = '20px';
+            contentEl.appendChild(title);
+            
+            // Create table
+            const table = document.createElement('table');
+            table.className = 'data-table';
+            
+            // Table header
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            ['Date', 'Size', 'Actions'].forEach(text => {
+                const th = document.createElement('th');
+                th.textContent = text;
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+            
+            // Table body
+            const tbody = document.createElement('tbody');
+            backups.forEach(b => {
+                const row = document.createElement('tr');
+                
+                // Date
+                const dateCell = document.createElement('td');
+                dateCell.textContent = (b.created_at || (Array.isArray(b) ? b[3] : b.date) || '').substring(0, 10);
+                row.appendChild(dateCell);
+                
+                // Size
+                const sizeCell = document.createElement('td');
+                sizeCell.textContent = ((b.file_size || (Array.isArray(b) ? b[2] : b.size) || 0)).toLocaleString() + ' KB';
+                row.appendChild(sizeCell);
+                
+                // Actions
+                const actionsCell = document.createElement('td');
+                const restoreBtn = document.createElement('button');
+                restoreBtn.className = 'btn-small';
+                restoreBtn.textContent = 'Restore';
+                
+                const backupId = b.id || (Array.isArray(b) ? b[0] : b.id) || 0;
+                restoreBtn.onclick = () => this.restoreBackup(backupId);
+                
+                actionsCell.appendChild(restoreBtn);
+                row.appendChild(actionsCell);
+                
+                tbody.appendChild(row);
+            });
+            
+            table.appendChild(tbody);
+            contentEl.appendChild(table);
         } catch (e) {
             console.error('Failed to load backup settings:', e);
-            document.getElementById('settings-content').innerHTML = `<div class="error-message">Failed to load backup settings: ${e.message || e}</div>`;
+            const contentEl = document.getElementById('settings-content');
+            if (contentEl) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error-message';
+                errorDiv.textContent = `Failed to load backup settings: ${e.message || e}`;
+                contentEl.innerHTML = '';
+                contentEl.appendChild(errorDiv);
+            }
         }
     }
     
@@ -302,50 +654,161 @@ class SettingsScreen {
             // Load current user information
             const user = this.app.currentUser;
             
-            document.getElementById('settings-content').innerHTML = `
-                <h2>Account Settings</h2>
-                <div class="form-section">
-                    <h3>Personal Information</h3>
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label>Full Name</label>
-                            <input type="text" id="account-full-name" class="input-field" value="${user.full_name || ''}" readonly>
-                        </div>
-                        <div class="form-group">
-                            <label>Username</label>
-                            <input type="text" id="account-username" class="input-field" value="${user.username || ''}" readonly>
-                        </div>
-                        <div class="form-group">
-                            <label>Role</label>
-                            <input type="text" id="account-role" class="input-field" value="${user.role_name || user.role || ''}" readonly>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="form-section">
-                    <h3>Change Password</h3>
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label>Current Password</label>
-                            <input type="password" id="current-password" class="input-field" placeholder="Enter current password">
-                        </div>
-                        <div class="form-group">
-                            <label>New Password</label>
-                            <input type="password" id="new-password" class="input-field" placeholder="Enter new password">
-                        </div>
-                        <div class="form-group">
-                            <label>Confirm New Password</label>
-                            <input type="password" id="confirm-password" class="input-field" placeholder="Confirm new password">
-                        </div>
-                    </div>
-                    <div class="action-buttons">
-                        <button type="button" class="btn btn-primary" onclick="window.app.screens.settings.changePassword()">Change Password</button>
-                    </div>
-                </div>
-            `;
+            if (!user) {
+                throw new Error('User information not available');
+            }
+            
+            const contentEl = document.getElementById('settings-content');
+            if (!contentEl) {
+                throw new Error('Settings content container not found');
+            }
+            
+            contentEl.innerHTML = '';
+            
+            // Create Account Settings header
+            const header = document.createElement('h2');
+            header.textContent = 'Account Settings';
+            contentEl.appendChild(header);
+            
+            // Personal Information Section
+            const personalSection = document.createElement('div');
+            personalSection.className = 'form-section';
+            
+            const personalTitle = document.createElement('h3');
+            personalTitle.textContent = 'Personal Information';
+            personalSection.appendChild(personalTitle);
+            
+            const personalGrid = document.createElement('div');
+            personalGrid.className = 'form-grid';
+            
+            // Full Name field
+            const fullNameGroup = document.createElement('div');
+            fullNameGroup.className = 'form-group';
+            const fullNameLabel = document.createElement('label');
+            fullNameLabel.textContent = 'Full Name';
+            const fullNameInput = document.createElement('input');
+            fullNameInput.type = 'text';
+            fullNameInput.id = 'account-full-name';
+            fullNameInput.className = 'input-field';
+            fullNameInput.value = user.full_name || '';
+            fullNameInput.readOnly = true;
+            fullNameGroup.appendChild(fullNameLabel);
+            fullNameGroup.appendChild(fullNameInput);
+            personalGrid.appendChild(fullNameGroup);
+            
+            // Username field
+            const usernameGroup = document.createElement('div');
+            usernameGroup.className = 'form-group';
+            const usernameLabel = document.createElement('label');
+            usernameLabel.textContent = 'Username';
+            const usernameInput = document.createElement('input');
+            usernameInput.type = 'text';
+            usernameInput.id = 'account-username';
+            usernameInput.className = 'input-field';
+            usernameInput.value = user.username || '';
+            usernameInput.readOnly = true;
+            usernameGroup.appendChild(usernameLabel);
+            usernameGroup.appendChild(usernameInput);
+            personalGrid.appendChild(usernameGroup);
+            
+            // Role field
+            const roleGroup = document.createElement('div');
+            roleGroup.className = 'form-group';
+            const roleLabel = document.createElement('label');
+            roleLabel.textContent = 'Role';
+            const roleInput = document.createElement('input');
+            roleInput.type = 'text';
+            roleInput.id = 'account-role';
+            roleInput.className = 'input-field';
+            roleInput.value = user.role_name || user.role || '';
+            roleInput.readOnly = true;
+            roleGroup.appendChild(roleLabel);
+            roleGroup.appendChild(roleInput);
+            personalGrid.appendChild(roleGroup);
+            
+            personalSection.appendChild(personalGrid);
+            contentEl.appendChild(personalSection);
+            
+            // Change Password Section
+            const passwordSection = document.createElement('div');
+            passwordSection.className = 'form-section';
+            
+            const passwordTitle = document.createElement('h3');
+            passwordTitle.textContent = 'Change Password';
+            passwordSection.appendChild(passwordTitle);
+            
+            const passwordGrid = document.createElement('div');
+            passwordGrid.className = 'form-grid';
+            
+            // Current Password field
+            const currentPasswordGroup = document.createElement('div');
+            currentPasswordGroup.className = 'form-group';
+            const currentPasswordLabel = document.createElement('label');
+            currentPasswordLabel.textContent = 'Current Password';
+            const currentPasswordInput = document.createElement('input');
+            currentPasswordInput.type = 'password';
+            currentPasswordInput.id = 'current-password';
+            currentPasswordInput.className = 'input-field';
+            currentPasswordInput.placeholder = 'Enter current password';
+            currentPasswordGroup.appendChild(currentPasswordLabel);
+            currentPasswordGroup.appendChild(currentPasswordInput);
+            passwordGrid.appendChild(currentPasswordGroup);
+            
+            // New Password field
+            const newPasswordGroup = document.createElement('div');
+            newPasswordGroup.className = 'form-group';
+            const newPasswordLabel = document.createElement('label');
+            newPasswordLabel.textContent = 'New Password';
+            const newPasswordInput = document.createElement('input');
+            newPasswordInput.type = 'password';
+            newPasswordInput.id = 'new-password';
+            newPasswordInput.className = 'input-field';
+            newPasswordInput.placeholder = 'Enter new password';
+            newPasswordGroup.appendChild(newPasswordLabel);
+            newPasswordGroup.appendChild(newPasswordInput);
+            passwordGrid.appendChild(newPasswordGroup);
+            
+            // Confirm Password field
+            const confirmPasswordGroup = document.createElement('div');
+            confirmPasswordGroup.className = 'form-group';
+            const confirmPasswordLabel = document.createElement('label');
+            confirmPasswordLabel.textContent = 'Confirm New Password';
+            const confirmPasswordInput = document.createElement('input');
+            confirmPasswordInput.type = 'password';
+            confirmPasswordInput.id = 'confirm-password';
+            confirmPasswordInput.className = 'input-field';
+            confirmPasswordInput.placeholder = 'Confirm new password';
+            confirmPasswordGroup.appendChild(confirmPasswordLabel);
+            confirmPasswordGroup.appendChild(confirmPasswordInput);
+            passwordGrid.appendChild(confirmPasswordGroup);
+            
+            passwordSection.appendChild(passwordGrid);
+            
+            // Action buttons
+            const actionButtons = document.createElement('div');
+            actionButtons.className = 'action-buttons';
+            const changePasswordBtn = document.createElement('button');
+            changePasswordBtn.type = 'button';
+            changePasswordBtn.className = 'btn btn-primary';
+            changePasswordBtn.textContent = 'Change Password';
+            changePasswordBtn.onclick = () => this.changePassword();
+            actionButtons.appendChild(changePasswordBtn);
+            passwordSection.appendChild(actionButtons);
+            
+            contentEl.appendChild(passwordSection);
         } catch (e) {
             console.error('Failed to load account settings:', e);
-            document.getElementById('settings-content').innerHTML = `<div class="error-message">Failed to load account settings: ${e.message || e}</div>`;
+            const contentEl = document.getElementById('settings-content');
+            if (contentEl) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error-message';
+                errorDiv.textContent = `Failed to load account settings: ${e.message || 'Unknown error'}`;
+                contentEl.innerHTML = '';
+                contentEl.appendChild(errorDiv);
+            }
+            if (this.app && this.app.showNotification) {
+                this.app.showNotification('Failed to load account settings', 'error');
+            }
         }
     }
     
@@ -397,7 +860,7 @@ class SettingsScreen {
     async saveShop() {
         try {
             const formData = {
-                shop_name: document.getElementById('shop-name').value,
+                shop_name: document.getElementById('shop-name-input').value,
                 shop_phone: document.getElementById('shop-phone').value,
                 shop_email: document.getElementById('shop-email').value,
                 shop_address: document.getElementById('shop-address').value,
@@ -410,11 +873,31 @@ class SettingsScreen {
                 logo_path: document.getElementById('logo-path').value
             };
             
-            await this.app.api.put('/settings/shop', formData);
+            console.log('Saving shop settings:', formData); // Debug log
             
-            this.app.showNotification('Shop settings saved successfully', 'success');
+            const response = await this.app.api.put('/settings/shop', formData);
+            console.log('Save response:', response); // Debug log
+            
+            // Also update localStorage to keep systems synchronized
+            if (window.shopSettings) {
+                const localStorageSettings = {
+                    shopName: formData.shop_name,
+                    shopPhone: formData.shop_phone,
+                    shopEmail: formData.shop_email,
+                    shopAddress: formData.shop_address,
+                    taxNumber: formData.ntn_number,
+                    receiptMessage: formData.receipt_footer,
+                    currency: formData.currency_symbol,
+                    // Preserve GST rate from current settings or default to 0.17
+                    gstRate: (window.shopSettings && window.shopSettings.getSetting('gstRate')) || 0.17
+                };
+                window.shopSettings.saveSettings(localStorageSettings);
+            }
+            
+            this.app.showNotification('Shop settings saved successfully and synchronized!', 'success');
         } catch (e) {
             console.error('Failed to save shop settings:', e);
+            console.error('Error details:', e);
             this.app.showNotification('Failed to save shop settings: ' + (e.message || e), 'error');
         }
     }
@@ -465,6 +948,10 @@ class SettingsScreen {
             let users = [];
             if (res && res.users) {
                 users = res.users;
+            } else if (Array.isArray(res)) {
+                users = res;
+            } else if (res && res.data) {
+                users = res.data;
             }
             
             const user = users.find(u => u.id == id);
@@ -473,94 +960,241 @@ class SettingsScreen {
                 return;
             }
             
-            // Show edit user form
-            document.getElementById('settings-content').innerHTML = `
-                <h2>Edit User</h2>
-                <form id="edit-user-form">
-                    <input type="hidden" id="edit-user-id" value="${user.id}">
-                    <div class="form-group">
-                        <label>Username</label>
-                        <input type="text" id="edit-username" class="input-field" value="${user.username}" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Full Name</label>
-                        <input type="text" id="edit-full-name" class="input-field" value="${user.full_name}" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Email</label>
-                        <input type="email" id="edit-email" class="input-field" value="${user.email}">
-                    </div>
-                    <div class="form-group">
-                        <label>New Password</label>
-                        <input type="password" id="edit-password" class="input-field" placeholder="Leave blank to keep current password">
-                    </div>
-                    <div class="form-group">
-                        <label>Role</label>
-                        <select id="edit-role" class="input-field">
-                            <option value="shop_boy" ${user.role === 'shop_boy' ? 'selected' : ''}>Shop Boy (Cashier)</option>
-                            <option value="stock_boy" ${user.role === 'stock_boy' ? 'selected' : ''}>Stock Boy</option>
-                            <option value="munshi" ${user.role === 'munshi' ? 'selected' : ''}>Munshi (Manager)</option>
-                            <option value="malik" ${user.role === 'malik' ? 'selected' : ''}>Malik (Owner)</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Active</label>
-                        <input type="checkbox" id="edit-is-active" class="input-checkbox" ${user.is_active ? 'checked' : ''}>
-                    </div>
-                    <button type="button" class="btn btn-primary" onclick="window.app.screens.settings.saveEditedUser()">Save Changes</button>
-                    <button type="button" class="btn btn-secondary" onclick="window.app.screens.settings.loadUsersSettings()">Cancel</button>
-                </form>
-            `;
+            const contentEl = document.getElementById('settings-content');
+            if (!contentEl) {
+                throw new Error('Settings content container not found');
+            }
+            contentEl.innerHTML = '';
+            
+            // Create Edit User header
+            const header = document.createElement('h2');
+            header.textContent = 'Edit User';
+            contentEl.appendChild(header);
+            
+            // Create form
+            const form = document.createElement('form');
+            form.id = 'edit-user-form';
+            
+            // Hidden user ID field
+            const hiddenId = document.createElement('input');
+            hiddenId.type = 'hidden';
+            hiddenId.id = 'edit-user-id';
+            hiddenId.value = user.id;
+            form.appendChild(hiddenId);
+            
+            // Username field
+            const usernameGroup = document.createElement('div');
+            usernameGroup.className = 'form-group';
+            const usernameLabel = document.createElement('label');
+            usernameLabel.textContent = 'Username';
+            const usernameInput = document.createElement('input');
+            usernameInput.type = 'text';
+            usernameInput.id = 'edit-username';
+            usernameInput.className = 'input-field';
+            usernameInput.value = user.username || '';
+            usernameInput.required = true;
+            usernameGroup.appendChild(usernameLabel);
+            usernameGroup.appendChild(usernameInput);
+            form.appendChild(usernameGroup);
+            
+            // Full Name field
+            const fullNameGroup = document.createElement('div');
+            fullNameGroup.className = 'form-group';
+            const fullNameLabel = document.createElement('label');
+            fullNameLabel.textContent = 'Full Name';
+            const fullNameInput = document.createElement('input');
+            fullNameInput.type = 'text';
+            fullNameInput.id = 'edit-full-name';
+            fullNameInput.className = 'input-field';
+            fullNameInput.value = user.full_name || '';
+            fullNameInput.required = true;
+            fullNameGroup.appendChild(fullNameLabel);
+            fullNameGroup.appendChild(fullNameInput);
+            form.appendChild(fullNameGroup);
+            
+            // Email field
+            const emailGroup = document.createElement('div');
+            emailGroup.className = 'form-group';
+            const emailLabel = document.createElement('label');
+            emailLabel.textContent = 'Email';
+            const emailInput = document.createElement('input');
+            emailInput.type = 'email';
+            emailInput.id = 'edit-email';
+            emailInput.className = 'input-field';
+            emailInput.value = user.email || '';
+            emailGroup.appendChild(emailLabel);
+            emailGroup.appendChild(emailInput);
+            form.appendChild(emailGroup);
+            
+            // Password field
+            const passwordGroup = document.createElement('div');
+            passwordGroup.className = 'form-group';
+            const passwordLabel = document.createElement('label');
+            passwordLabel.textContent = 'New Password';
+            const passwordInput = document.createElement('input');
+            passwordInput.type = 'password';
+            passwordInput.id = 'edit-password';
+            passwordInput.className = 'input-field';
+            passwordInput.placeholder = 'Leave blank to keep current password';
+            passwordGroup.appendChild(passwordLabel);
+            passwordGroup.appendChild(passwordInput);
+            form.appendChild(passwordGroup);
+            
+            // Role field
+            const roleGroup = document.createElement('div');
+            roleGroup.className = 'form-group';
+            const roleLabel = document.createElement('label');
+            roleLabel.textContent = 'Role';
+            const roleSelect = document.createElement('select');
+            roleSelect.id = 'edit-role';
+            roleSelect.className = 'input-field';
+            
+            const roles = [
+                { value: 'shop_boy', text: 'Shop Boy (Cashier)' },
+                { value: 'stock_boy', text: 'Stock Boy' },
+                { value: 'munshi', text: 'Munshi (Manager)' },
+                { value: 'malik', text: 'Malik (Owner)' }
+            ];
+            
+            roles.forEach(role => {
+                const option = document.createElement('option');
+                option.value = role.value;
+                option.textContent = role.text;
+                if (user.role === role.value) {
+                    option.selected = true;
+                }
+                roleSelect.appendChild(option);
+            });
+            
+            roleGroup.appendChild(roleLabel);
+            roleGroup.appendChild(roleSelect);
+            form.appendChild(roleGroup);
+            
+            // Active field
+            const activeGroup = document.createElement('div');
+            activeGroup.className = 'form-group';
+            const activeLabel = document.createElement('label');
+            activeLabel.textContent = 'Active';
+            const activeInput = document.createElement('input');
+            activeInput.type = 'checkbox';
+            activeInput.id = 'edit-is-active';
+            activeInput.className = 'input-checkbox';
+            activeInput.checked = user.is_active;
+            activeGroup.appendChild(activeLabel);
+            activeGroup.appendChild(activeInput);
+            form.appendChild(activeGroup);
+            
+            // Action buttons
+            const saveBtn = document.createElement('button');
+            saveBtn.type = 'button';
+            saveBtn.className = 'btn btn-primary';
+            saveBtn.textContent = 'Save Changes';
+            saveBtn.onclick = () => this.saveEditedUser();
+            form.appendChild(saveBtn);
+            
+            const cancelBtn = document.createElement('button');
+            cancelBtn.type = 'button';
+            cancelBtn.className = 'btn btn-secondary';
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.onclick = () => this.loadUsersSettings();
+            form.appendChild(cancelBtn);
+            
+            contentEl.appendChild(form);
         } catch (e) {
             console.error('Failed to load user for editing:', e);
-            this.app.showNotification('Failed to load user: ' + (e.message || e), 'error');
+            const contentEl = document.getElementById('settings-content');
+            if (contentEl) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error-message';
+                errorDiv.textContent = `Failed to load user: ${e.message || 'Unknown error'}`;
+                contentEl.innerHTML = '';
+                contentEl.appendChild(errorDiv);
+            }
+            if (this.app && this.app.showNotification) {
+                this.app.showNotification('Failed to load user', 'error');
+            }
         }
     }
     
     async saveNewUser() {
         try {
+            console.log('Attempting to create new user');
+            const usernameEl = document.getElementById('new-username');
+            const fullNameEl = document.getElementById('new-full-name');
+            const emailEl = document.getElementById('new-email');
+            const passwordEl = document.getElementById('new-password');
+            const roleEl = document.getElementById('new-role');
+            const activeEl = document.getElementById('new-is-active');
+            
+            if (!usernameEl || !fullNameEl || !passwordEl || !roleEl || !activeEl) {
+                throw new Error('Required form elements not found');
+            }
+            
             const userData = {
-                username: document.getElementById('new-username').value,
-                full_name: document.getElementById('new-full-name').value,
-                email: document.getElementById('new-email').value,
-                password: document.getElementById('new-password').value,
-                role: document.getElementById('new-role').value,
-                is_active: document.getElementById('new-is-active').checked
+                username: usernameEl.value,
+                full_name: fullNameEl.value,
+                email: emailEl ? emailEl.value : '',
+                password: passwordEl.value,
+                role: roleEl.value,
+                is_active: activeEl.checked
             };
             
-            await this.app.api.post('/settings/users', userData);
+            console.log('Creating user with role:', userData.role);
+            const response = await this.app.api.post('/settings/users', userData);
             
+            if (response && response.success === false) {
+                throw new Error(response.message || 'Server returned error');
+            }
+            
+            console.log('User created successfully:', userData.username);
             this.app.showNotification('User created successfully', 'success');
             this.loadUsersSettings(); // Refresh the user list
         } catch (e) {
             console.error('Failed to create user:', e);
-            this.app.showNotification('Failed to create user: ' + (e.message || e), 'error');
+            if (this.app && this.app.showNotification) {
+                this.app.showNotification('Failed to create user: ' + (e.message || 'Unknown error'), 'error');
+            }
         }
     }
     
     async saveEditedUser() {
         try {
-            const userId = document.getElementById('edit-user-id').value;
+            const userIdEl = document.getElementById('edit-user-id');
+            const fullNameEl = document.getElementById('edit-full-name');
+            const emailEl = document.getElementById('edit-email');
+            const roleEl = document.getElementById('edit-role');
+            const activeEl = document.getElementById('edit-is-active');
+            const passwordEl = document.getElementById('edit-password');
+            
+            if (!userIdEl || !fullNameEl || !roleEl || !activeEl) {
+                throw new Error('Required form elements not found');
+            }
+            
             const userData = {
-                full_name: document.getElementById('edit-full-name').value,
-                email: document.getElementById('edit-email').value,
-                role: document.getElementById('edit-role').value,
-                is_active: document.getElementById('edit-is-active').checked
+                full_name: fullNameEl.value,
+                email: emailEl ? emailEl.value : '',
+                role: roleEl.value,
+                is_active: activeEl.checked
             };
             
             // Add password if it was entered
-            const newPassword = document.getElementById('edit-password').value;
-            if (newPassword) {
-                userData.password = newPassword;
+            if (passwordEl && passwordEl.value) {
+                userData.password = passwordEl.value;
             }
             
-            await this.app.api.put(`/settings/users/${userId}`, userData);
+            const response = await this.app.api.put(`/settings/users/${userIdEl.value}`, userData);
+            
+            if (response && response.success === false) {
+                throw new Error(response.message || 'Server returned error');
+            }
             
             this.app.showNotification('User updated successfully', 'success');
             this.loadUsersSettings(); // Refresh the user list
         } catch (e) {
             console.error('Failed to update user:', e);
-            this.app.showNotification('Failed to update user: ' + (e.message || e), 'error');
+            if (this.app && this.app.showNotification) {
+                this.app.showNotification('Failed to update user: ' + (e.message || 'Unknown error'), 'error');
+            }
         }
     }
     

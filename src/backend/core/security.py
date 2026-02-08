@@ -8,7 +8,7 @@ import threading
 from collections import defaultdict
 from datetime import datetime, timedelta
 from fastapi import Request, HTTPException
-from fastapi.middleware import Middleware
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 import logging
@@ -47,7 +47,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:;"
+        response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' http://127.0.0.1:8000; connect-src 'self' http://127.0.0.1:8000; font-src 'self' data:; img-src 'self' data:;"
         
         # Log security events for failed requests
         if response.status_code >= 400 and response.status_code != 404:
@@ -117,34 +117,40 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.excluded_paths = ["/health", "/auth/login"]
     
     async def dispatch(self, request: Request, call_next):
-        # Skip rate limiting for excluded paths
-        if any(request.url.path.startswith(path) for path in self.excluded_paths):
+        try:
+            # Skip rate limiting for excluded paths
+            if any(request.url.path.startswith(path) for path in self.excluded_paths):
+                return await call_next(request)
+            
+            client_ip = request.client.host if request.client else "unknown"
+            
+            with self.lock:
+                now = time.time()
+                window_start = now - self.window_seconds
+                
+                # Clean old requests
+                self.requests[client_ip] = [
+                    req_time for req_time in self.requests[client_ip]
+                    if req_time > window_start
+                ]
+                
+                # Check rate limit
+                if len(self.requests[client_ip]) >= self.max_requests:
+                    logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Too many requests. Please try again later."
+                    )
+                
+                # Add current request
+                self.requests[client_ip].append(now)
+            
             return await call_next(request)
-        
-        client_ip = request.client.host if request.client else "unknown"
-        
-        with self.lock:
-            now = time.time()
-            window_start = now - self.window_seconds
-            
-            # Clean old requests
-            self.requests[client_ip] = [
-                req_time for req_time in self.requests[client_ip]
-                if req_time > window_start
-            ]
-            
-            # Check rate limit
-            if len(self.requests[client_ip]) >= self.max_requests:
-                logger.warning(f"Rate limit exceeded for IP: {client_ip}")
-                raise HTTPException(
-                    status_code=429,
-                    detail="Too many requests. Please try again later."
-                )
-            
-            # Add current request
-            self.requests[client_ip].append(now)
-        
-        return await call_next(request)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Rate limiting error: {e}")
+            return await call_next(request)
 
 class CORSMiddleware(BaseHTTPMiddleware):
     """
@@ -167,9 +173,20 @@ class CORSMiddleware(BaseHTTPMiddleware):
         
         return response
 
-# Middleware configuration
-middleware = [
-    Middleware(CORSMiddleware),
-    Middleware(SecurityMiddleware),
-    Middleware(RateLimitMiddleware, max_requests=200, window_seconds=60)
-]
+# Middleware configuration - Return class references, not instances
+middleware = {
+    'cors': {
+        'class': 'fastapi.middleware.cors.CORSMiddleware',
+        'config': {
+            'allow_origins': ['*'],
+            'allow_credentials': True,
+            'allow_methods': ['*'],
+            'allow_headers': ['*'],
+        }
+    },
+    'security': SecurityMiddleware,
+    'rate_limit': {
+        'class': RateLimitMiddleware,
+        'config': {'max_requests': 200, 'window_seconds': 60}
+    }
+}

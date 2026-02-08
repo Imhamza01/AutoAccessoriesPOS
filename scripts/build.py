@@ -170,10 +170,17 @@ def run_pyinstaller():
     ]
     
     try:
-        subprocess.run(cmd, check=True)
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
         print("PyInstaller completed successfully")
     except subprocess.CalledProcessError as e:
-        print(f"PyInstaller failed: {e}")
+        print(f"PyInstaller failed with exit code {e.returncode}")
+        if e.stdout:
+            print(f"STDOUT: {e.stdout}")
+        if e.stderr:
+            print(f"STDERR: {e.stderr}")
+        return False
+    except FileNotFoundError:
+        print("PyInstaller not found. Please install PyInstaller: pip install pyinstaller")
         return False
     
     return True
@@ -318,7 +325,13 @@ FunctionEnd
     
     # Run NSIS
     try:
-        subprocess.run(["makensis", str(nsis_file)], check=True)
+        # Validate nsis_file path to prevent command injection
+        nsis_file_path = nsis_file.resolve()
+        if not nsis_file_path.exists() or nsis_file_path.suffix != '.nsi':
+            print("Invalid NSIS file path")
+            return False
+            
+        subprocess.run(["makensis", str(nsis_file_path)], check=True)
         print("NSIS installer created successfully")
         return True
     except subprocess.CalledProcessError as e:

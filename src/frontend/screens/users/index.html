@@ -1,0 +1,39 @@
+<!-- src/frontend/screens/users/index.html -->
+<div class="screen-header">
+  <h1>Users Management</h1>
+  <div class="header-actions">
+    <button class="btn btn-primary" onclick="app.screens.users.showAddUserModal()">Add User</button>
+  </div>
+</div>
+
+<div class="screen-content">
+  <table class="data-table">
+    <thead>
+      <tr><th>Username</th><th>Full Name</th><th>Role</th><th>Status</th><th>Actions</th></tr>
+    </thead>
+    <tbody id="users-table">
+      <tr><td colspan="5" class="loading">Loading...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Add/Edit User Modal -->
+<div id="user-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="user-modal-title">Add User</h2>
+      <button class="close-btn" onclick="document.getElementById('user-modal').style.display='none'">&times;</button>
+    </div>
+    <form onsubmit="app.screens.users.saveUser(event)">
+      <input type="hidden" id="user-id">
+      <div class="form-group"><label>Username</label><input id="user-username" required></div>
+      <div class="form-group"><label>Full Name</label><input id="user-fullname"></div>
+      <div class="form-group"><label>Role</label><select id="user-role"><option value="shop_boy">Shop Boy</option><option value="munshi">Munshi</option><option value="malik">Malik</option></select></div>
+      <div class="form-group"><label>Status</label><select id="user-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('user-modal').style.display='none'">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>

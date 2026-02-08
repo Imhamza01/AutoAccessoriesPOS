@@ -5,10 +5,26 @@
 
 class APIClient {
     constructor() {
-        // Use the same origin as the current page (allows running on any port)
-        this.baseURL = window.location.origin;
+        // Point to the backend server. Prefer same-origin so SPA works when
+        // served from the backend. Fall back to explicit localhost for dev.
+        const fallback = 'http://127.0.0.1:8000';
+        try {
+            // Use global override if provided (useful for tests / packaged builds)
+            // Some browsers return the string "null" for file:// origins — treat that as missing.
+            let origin = null;
+            try {
+                origin = window.location && window.location.origin && window.location.origin !== 'null' ? window.location.origin : null;
+            } catch (e) {
+                origin = null;
+            }
+
+            this.baseURL = window.__API_BASE__ || origin || fallback;
+        } catch (e) {
+            this.baseURL = fallback;
+        }
         this.token = localStorage.getItem('access_token');
         this.sessionToken = localStorage.getItem('session_token');
+        console.log('[APIClient] baseURL =', this.baseURL);
     }
 
     setToken(token) {
@@ -27,6 +43,8 @@ class APIClient {
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         };
+
+        console.log('[APIClient] Request:', method, url, data ? { body: data } : {});
 
         // Add authorization header if token exists
         if (this.token) {
@@ -51,15 +69,10 @@ class APIClient {
         try {
             const response = await fetch(url, config);
 
+            console.log('[APIClient] Response status:', response.status, response.statusText);
             // Handle 401 Unauthorized (token expired)
             if (response.status === 401) {
                 // If running in a local preview mode, don't redirect to login
-                // (helps with development when backend auth isn't available).
-                // Preview mode should only be enabled explicitly via `?preview=1`.
-                // Treating localhost/127.0.0.1 as implicit preview caused the
-                // app to swallow 401 responses during local development and
-                // continue with stale user data (showing the change-password
-                // modal while the API actually rejected the request).
                 let previewMode = false;
                 try {
                     const urlParams = new URLSearchParams(window.location.search);
@@ -70,7 +83,7 @@ class APIClient {
 
                 if (previewMode) {
                     console.warn('Received 401 from API but running in preview mode — skipping redirect.');
-                    return {}; // return empty object so callers can fall back to defaults
+                    return { success: false, error: 'Authentication failed', data: [] };
                 }
 
                 // Try to refresh token
@@ -114,39 +127,52 @@ class APIClient {
                 }
             }
 
-            const responseData = await response.json();
-
+            let responseData = null;
+            try {
+                responseData = await response.json();
+            } catch (e) {
+                console.warn('[APIClient] Failed to parse JSON response', e);
+                responseData = null;
+            }
             if (!response.ok) {
-                throw new Error(responseData.detail || 'Request failed');
+                console.error('[APIClient] API Error Response:', responseData);
+                return { success: false, error: (responseData && responseData.detail) || 'Request failed', data: [] };
             }
 
-            // Handle different response formats from backend
+            // Normalize response format - always return consistent structure
             if (responseData && typeof responseData === 'object') {
-                // If response has a success field and data, return the data
-                if (responseData.success !== undefined && responseData.data !== undefined) {
-                    return responseData.data;
-                }
-                // If response has a specific data field, return that
-                if (responseData.data !== undefined) {
-                    return responseData.data;
-                }
-                // If response has specific fields like products, customers, sales, etc., return as is
-                if (responseData.products || responseData.customers || responseData.sales || responseData.expenses || responseData.users) {
+                // If already has success field, return as is
+                if (responseData.success !== undefined) {
                     return responseData;
                 }
+                // If it's an array, wrap it
+                if (Array.isArray(responseData)) {
+                    return { success: true, data: responseData };
+                }
+                // If it has specific data fields, normalize them
+                if (responseData.products !== undefined || 
+                    responseData.customers !== undefined || 
+                    responseData.sales !== undefined || 
+                    responseData.expenses !== undefined || 
+                    responseData.users !== undefined ||
+                    responseData.settings !== undefined) {
+                    return { success: true, ...responseData };
+                }
+                // Default: assume it's successful data
+                return { success: true, data: responseData };
             }
 
-            return responseData;
+            return { success: true, data: responseData };
 
         } catch (error) {
             console.error('API Error:', error);
             
             // Handle network errors
             if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-                throw new Error('Cannot connect to server. Please check if the application is running.');
+                return { success: false, error: 'Cannot connect to server. Please check if the application is running.', data: [] };
             }
             
-            throw error;
+            return { success: false, error: error.message, data: [] };
         }
     }
 
@@ -177,6 +203,41 @@ class APIClient {
 
     async delete(endpoint) {
         return this.request('DELETE', endpoint);
+    }
+
+    // Download binary (PDF) from backend and prompt save
+    async download(endpoint, filename) {
+        const url = `${this.baseURL}${endpoint}`;
+        const headers = {};
+        if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+        if (this.sessionToken) headers['X-Session-Token'] = this.sessionToken;
+
+        try {
+            const res = await fetch(url, { method: 'GET', headers, credentials: 'include' });
+            if (!res.ok) {
+                // try to parse json error
+                try {
+                    const err = await res.json();
+                    return { success: false, error: err.detail || 'Download failed' };
+                } catch (_) {
+                    return { success: false, error: 'Download failed' };
+                }
+            }
+
+            const blob = await res.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = filename || 'report.pdf';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(blobUrl);
+            return { success: true };
+        } catch (e) {
+            console.error('Download error:', e);
+            return { success: false, error: e.message };
+        }
     }
 
     // Convenience methods for common endpoints

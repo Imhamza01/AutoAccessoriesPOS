@@ -53,6 +53,10 @@
         <div class="modal-body">
             <form id="add-expense-form" onsubmit="window.app.screens.expenses.handleSaveExpense(event)">
                 <div class="form-group">
+                    <label>Date</label>
+                    <input type="date" name="date" required>
+                </div>
+                <div class="form-group">
                     <label>Category</label>
                     <select name="category" required>
                         <option value="utility">Utilities</option>
@@ -69,6 +73,19 @@
                 <div class="form-group">
                     <label>Description</label>
                     <textarea name="description" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Payment Method</label>
+                    <select name="payment_method">
+                        <option value="cash">Cash</option>
+                        <option value="card">Card</option>
+                        <option value="bank_transfer">Bank Transfer</option>
+                        <option value="cheque">Cheque</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Paid To</label>
+                    <input type="text" name="paid_to" placeholder="Vendor/Payee name">
                 </div>
                 <div class="form-group">
                     <label>Reference / Ref #</label>
