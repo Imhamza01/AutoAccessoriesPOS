@@ -794,6 +794,57 @@ class AuthenticationManager:
         
         return False
 
+    def create_authorization_middleware(self, allowed_roles: List[str]):
+        """
+        Create FastAPI dependency for role-based authorization.
+        
+        Args:
+            allowed_roles: List of roles allowed to access endpoint
+            
+        Returns:
+            Dependency function
+        """
+        async def role_authorization_dependency(current_user: Dict[str, Any] = Depends(get_current_user)):
+            if current_user["role"] not in allowed_roles:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Access denied. Required roles: {allowed_roles}"
+                )
+            return current_user
+        
+        return role_authorization_dependency
+
+    def create_sales_filter_middleware(self):
+        """
+        Create middleware for filtering sales by user role.
+        Cashiers only see their own sales.
+        
+        Returns:
+            Dependency function that modifies query based on role
+        """
+        async def sales_filter_dependency(
+            current_user: Dict[str, Any] = Depends(get_current_user),
+            skip: int = Query(0),
+            limit: int = Query(50),
+            start_date: Optional[str] = Query(None),
+            end_date: Optional[str] = Query(None),
+            customer_id: Optional[int] = Query(None),
+            status: Optional[str] = Query(None)
+        ):
+            # Return filter parameters with role-based restrictions
+            filters = {
+                "skip": skip,
+                "limit": limit,
+                "start_date": start_date,
+                "end_date": end_date,
+                "customer_id": customer_id,
+                "status": status,
+                "user_id": current_user["id"] if current_user["role"] == "shop_boy" else None
+            }
+            return filters
+        
+        return sales_filter_dependency
+
 # ==================== DEPENDENCY INJECTION ====================
 
 auth_manager = AuthenticationManager()

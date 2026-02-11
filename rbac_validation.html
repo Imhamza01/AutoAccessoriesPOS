@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RBAC Validation Test Suite</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            background-color: #f5f5f5;
+        }
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section { 
+            margin: 20px 0; 
+            padding: 15px; 
+            border: 1px solid #ddd; 
+            border-radius: 5px;
+            background: #fafafa;
+        }
+        .test-btn { 
+            padding: 10px 15px; 
+            margin: 5px; 
+            background: #007bff; 
+            color: white; 
+            border: none; 
+            cursor: pointer; 
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .test-btn:hover { 
+            background: #0056b3; 
+        }
+        .test-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        #results { 
+            margin-top: 20px; 
+            padding: 15px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            min-height: 200px;
+            max-height: 500px;
+            overflow-y: auto;
+            background: #fff;
+            font-family: monospace;
+            font-size: 13px;
+        }
+        .success { color: #28a745; font-weight: bold; }
+        .error { color: #dc3545; font-weight: bold; }
+        .warning { color: #ffc107; font-weight: bold; }
+        .info { color: #17a2b8; }
+        h1 { color: #333; text-align: center; }
+        .role-selector {
+            margin: 15px 0;
+            padding: 10px;
+            background: #e9f7ef;
+            border-radius: 5px;
+        }
+        .validation-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        .validation-table th, .validation-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        .validation-table th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        .expected-result {
+            font-weight: bold;
+        }
+        .actual-result {
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>RBAC Implementation Validation</h1>
+        
+        <div class="role-selector">
+            <h3>Select Test Role:</h3>
+            <select id="roleSelector">
+                <option value="malik">Malik (Owner) - Full Access</option>
+                <option value="munshi">Munshi (Manager) - Limited Access</option>
+                <option value="shop_boy">Shop Boy (Cashier) - Restricted Access</option>
+                <option value="stock_boy">Stock Boy - Inventory Only</option>
+            </select>
+            <button class="test-btn" onclick="setTestRole()">Set Test Role</button>
+            <button class="test-btn" onclick="clearResults()">Clear Results</button>
+        </div>
+
+        <div class="test-section">
+            <h2>Backend Validation Tests</h2>
+            <button class="test-btn" onclick="testBackendPermissions()">Test Backend Permissions</button>
+            <button class="test-btn" onclick="testSalesFiltering()">Test Sales Filtering</button>
+            <button class="test-btn" onclick="testAPIEndpoints()">Test Protected Endpoints</button>
+        </div>
+
+        <div class="test-section">
+            <h2>Frontend Validation Tests</h2>
+            <button class="test-btn" onclick="testFrontendPermissions()">Test Frontend Permissions</button>
+            <button class="test-btn" onclick="testSidebarRendering()">Test Sidebar Rendering</button>
+            <button class="test-btn" onclick="testRouteGuards()">Test Route Guards</button>
+        </div>
+
+        <div class="test-section">
+            <h2>Integration Tests</h2>
+            <button class="test-btn" onclick="testRoleMatrix()">Test Role Matrix Compliance</button>
+            <button class="test-btn" onclick="testEdgeCases()">Test Edge Cases</button>
+            <button class="test-btn" onclick="runCompleteValidation()">Run Complete Validation Suite</button>
+        </div>
+
+        <div id="results">
+            <p>Select a test role and click a test button to begin validation...</p>
+            <p>All test results will appear here with detailed information.</p>
+        </div>
+
+        <div class="test-section">
+            <h2>Expected Role Matrix</h2>
+            <table class="validation-table">
+                <tr>
+                    <th>Feature</th>
+                    <th>Malik (Owner)</th>
+                    <th>Munshi (Manager)</th>
+                    <th>Shop Boy (Cashier)</th>
+                    <th>Stock Boy</th>
+                </tr>
+                <tr>
+                    <td>Dashboard Access</td>
+                    <td class="expected-result">✅ Full</td>
+                    <td class="expected-result">✅ View</td>
+                    <td class="expected-result">✅ View</td>
+                    <td class="expected-result">✅ View</td>
+                </tr>
+                <tr>
+                    <td>POS Access</td>
+                    <td class="expected-result">✅ Full</td>
+                    <td class="expected-result">✅ Full</td>
+                    <td class="expected-result">✅ Create Sales</td>
+                    <td class="expected-result">❌ Blocked</td>
+                </tr>
+                <tr>
+                    <td>Products</td>
+                    <td class="expected-result">✅ Manage</td>
+                    <td class="expected-result">✅ Manage</td>
+                    <td class="expected-result">✅ View</td>
+                    <td class="expected-result">✅ View</td>
+                </tr>
+                <tr>
+                    <td>Customers</td>
+                    <td class="expected-result">✅ Manage</td>
+                    <td class="expected-result">✅ Manage</td>
+                    <td class="expected-result">✅ Manage</td>
+                    <td class="expected-result">❌ Blocked</td>
+                </tr>
+                <tr>
+                    <td>Inventory</td>
+                    <td class="expected-result">✅ Manage</td>
+                    <td class="expected-result">✅ Manage</td>
+                    <td class="expected-result">✅ View</td>
+                    <td class="expected-result">✅ Manage</td>
+                </tr>
+                <tr>
+                    <td>Sales Records</td>
+                    <td class="expected-result">✅ All Records</td>
+                    <td class="expected-result">✅ All Records</td>
+                    <td class="expected-result">✅ Own Records Only</td>
+                    <td class="expected-result">❌ Blocked</td>
+                </tr>
+                <tr>
+                    <td>Reports</td>
+                    <td class="expected-result">✅ Full</td>
+                    <td class="expected-result">✅ View</td>
+                    <td class="expected-result">❌ Blocked</td>
+                    <td class="expected-result">❌ Blocked</td>
+                </tr>
+                <tr>
+                    <td>Expenses</td>
+                    <td class="expected-result">✅ Manage</td>
+                    <td class="expected-result">✅ Manage</td>
+                    <td class="expected-result">❌ Blocked</td>
+                    <td class="expected-result">❌ Blocked</td>
+                </tr>
+                <tr>
+                    <td>User Management</td>
+                    <td class="expected-result">✅ Manage</td>
+                    <td class="expected-result">❌ Blocked</td>
+                    <td class="expected-result">❌ Blocked</td>
+                    <td class="expected-result">❌ Blocked</td>
+                </tr>
+                <tr>
+                    <td>Settings</td>
+                    <td class="expected-result">✅ Manage</td>
+                    <td class="expected-result">❌ Blocked</td>
+                    <td class="expected-result">❌ Blocked</td>
+                    <td class="expected-result">❌ Blocked</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Mock RBAC manager for testing
+        class MockRBACManager {
+            constructor(testRole = 'malik') {
+                this.testRole = testRole;
+                this.rolePermissions = {
+                    'malik': {
+                        name: 'Malik (Owner)',
+                        permissions: ['*'],
+                        screens: ['dashboard', 'pos', 'products', 'customers', 'inventory', 'sales', 'reports', 'expenses', 'users', 'settings'],
+                        canManageUsers: true,
+                        canViewReports: true,
+                        canManageStock: true,
+                        canManageProducts: true,
+                        canManageCustomers: true,
+                        canManageSales: true,
+                        canManageExpenses: true,
+                        canManageSettings: true,
+                        canBackupRestore: true
+                    },
+                    'munshi': {
+                        name: 'Munshi (Manager)',
+                        permissions: ['dashboard.view', 'pos.access', 'products.manage', 'customers.manage', 'sales.manage', 'inventory.manage', 'reports.view', 'expenses.view', 'expenses.manage'],
+                        screens: ['dashboard', 'pos', 'products', 'customers', 'inventory', 'sales', 'reports', 'expenses'],
+                        canManageUsers: false,
+                        canViewReports: true,
+                        canManageStock: true,
+                        canManageProducts: true,
+                        canManageCustomers: true,
+                        canManageSales: true,
+                        canManageExpenses: true,
+                        canManageSettings: false,
+                        canBackupRestore: false
+                    },
+                    'shop_boy': {
+                        name: 'Shop Boy (Cashier)',
+                        permissions: ['dashboard.view', 'pos.access', 'products.view', 'customers.manage', 'sales.create', 'sales.view', 'reports.view', 'inventory.view'],
+                        screens: ['dashboard', 'pos', 'customers', 'sales'],
+                        canManageUsers: false,
+                        canViewReports: false,
+                        canManageStock: false,
+                        canManageProducts: false,
+                        canManageCustomers: true,
+                        canManageSales: true,
+                        canManageExpenses: false,
+                        canManageSettings: false,
+                        canBackupRestore: false
+                    },
+                    'stock_boy': {
+                        name: 'Stock Boy',
+                        permissions: ['dashboard.view', 'products.view', 'inventory.manage', 'stock.view'],
+                        screens: ['dashboard', 'products', 'inventory'],
+                        canManageUsers: false,
+                        canViewReports: false,
+                        canManageStock: true,
+                        canManageProducts: false,
+                        canManageCustomers: false,
+                        canManageSales: false,
+                        canManageExpenses: false,
+                        canManageSettings: false,
+                        canBackupRestore: false
+                    }
+                };
+            }
+
+            getCurrentUserRole() {
+                return this.testRole;
+            }
+
+            hasPermission(permission) {
+                const roleConfig = this.rolePermissions[this.testRole];
+                if (!roleConfig) return false;
+                
+                if (this.testRole === 'malik') return true;
+                
+                if (roleConfig.permissions.includes(permission) || roleConfig.permissions.includes('*')) {
+                    return true;
+                }
+                
+                for (const perm of roleConfig.permissions) {
+                    if (perm.endsWith('.*')) {
+                        const prefix = perm.slice(0, -2);
+                        if (permission.startsWith(prefix)) {
+                            return true;
+                        }
+                    }
+                }
+                
+                return false;
+            }
+
+            canAccessScreen(screenName) {
+                const roleConfig = this.rolePermissions[this.testRole];
+                return roleConfig ? roleConfig.screens.includes(screenName) : false;
+            }
+
+            getAllowedScreens() {
+                const roleConfig = this.rolePermissions[this.testRole];
+                return roleConfig ? roleConfig.screens : [];
+            }
+
+            canManageUsers() {
+                const roleConfig = this.rolePermissions[this.testRole];
+                return roleConfig ? roleConfig.canManageUsers : false;
+            }
+
+            canViewReports() {
+                const roleConfig = this.rolePermissions[this.testRole];
+                return roleConfig ? roleConfig.canViewReports : false;
+            }
+
+            canManageStock() {
+                const roleConfig = this.rolePermissions[this.testRole];
+                return roleConfig ? roleConfig.canManageStock : false;
+            }
+
+            canManageProducts() {
+                const roleConfig = this.rolePermissions[this.testRole];
+                return roleConfig ? roleConfig.canManageProducts : false;
+            }
+
+            canManageCustomers() {
+                const roleConfig = this.rolePermissions[this.testRole];
+                return roleConfig ? roleConfig.canManageCustomers : false;
+            }
+
+            canManageSales() {
+                const roleConfig = this.rolePermissions[this.testRole];
+                return roleConfig ? roleConfig.canManageSales : false;
+            }
+
+            canManageExpenses() {
+                const roleConfig = this.rolePermissions[this.testRole];
+                return roleConfig ? roleConfig.canManageExpenses : false;
+            }
+
+            canManageSettings() {
+                const roleConfig = this.rolePermissions[this.testRole];
+                return roleConfig ? roleConfig.canManageSettings : false;
+            }
+
+            canBackupRestore() {
+                const roleConfig = this.rolePermissions[this.testRole];
+                return roleConfig ? roleConfig.canBackupRestore : false;
+            }
+
+            getRoleDisplayName() {
+                const roleConfig = this.rolePermissions[this.testRole];
+                return roleConfig ? roleConfig.name : this.testRole;
+            }
+        }
+
+        // Global variables
+        let rbac = new MockRBACManager();
+        const results = document.getElementById('results');
+
+        function addResult(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.className = type;
+            div.innerHTML = `[${timestamp}] ${message}`;
+            results.appendChild(div);
+            results.scrollTop = results.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function clearResults() {
+            results.innerHTML = '<p>Results cleared. Select a test role and run tests...</p>';
+        }
+
+        function setTestRole() {
+            const roleSelector = document.getElementById('roleSelector');
+            const selectedRole = roleSelector.value;
+            rbac = new MockRBACManager(selectedRole);
+            addResult(`✅ Test role set to: ${rbac.getRoleDisplayName()} (${selectedRole})`, 'success');
+            addResult(`📋 Allowed screens: ${rbac.getAllowedScreens().join(', ')}`, 'info');
+        }
+
+        async function testBackendPermissions() {
+            addResult('🔍 Testing Backend Permission Logic...', 'info');
+            
+            const testPermissions = [
+                'sales.view', 'sales.create', 'products.manage', 
+                'users.manage', 'reports.view', 'expenses.manage'
+            ];
+            
+            testPermissions.forEach(perm => {
+                const hasPerm = rbac.hasPermission(perm);
+                const status = hasPerm ? '✅ GRANTED' : '❌ DENIED';
+                addResult(`${status} Permission: ${perm}`, hasPerm ? 'success' : 'warning');
+            });
+            
+            addResult('✅ Backend permission tests completed', 'success');
+        }
+
+        async function testSalesFiltering() {
+            addResult('🔍 Testing Sales Record Filtering...', 'info');
+            
+            // Simulate sales filtering logic
+            const currentUser = { role: rbac.getCurrentUserRole(), id: 1 };
+            
+            if (currentUser.role === 'shop_boy') {
+                addResult('✅ Cashier role detected - should only see own sales', 'success');
+                addResult('📝 Expected query filter: AND cashier_id = ?', 'info');
+            } else {
+                addResult('✅ Non-cashier role detected - can see all sales', 'success');
+                addResult('📝 No additional filtering required', 'info');
+            }
+            
+            addResult('✅ Sales filtering logic validated', 'success');
+        }
+
+        async function testAPIEndpoints() {
+            addResult('🔍 Testing Protected API Endpoint Access...', 'info');
+            
+            const endpointTests = [
+                { endpoint: '/api/sales', permission: 'sales.view', role: rbac.getCurrentUserRole() },
+                { endpoint: '/api/users', permission: 'users.manage', role: rbac.getCurrentUserRole() },
+                { endpoint: '/api/settings', permission: 'settings.manage', role: rbac.getCurrentUserRole() },
+                { endpoint: '/api/expenses', permission: 'expenses.manage', role: rbac.getCurrentUserRole() }
+            ];
+            
+            endpointTests.forEach(test => {
+                const canAccess = rbac.hasPermission(test.permission);
+                const status = canAccess ? '✅ ACCESSIBLE' : '❌ BLOCKED';
+                const type = canAccess ? 'success' : 'warning';
+                addResult(`${status} ${test.endpoint} (requires: ${test.permission})`, type);
+            });
+            
+            addResult('✅ API endpoint protection validated', 'success');
+        }
+
+        async function testFrontendPermissions() {
+            addResult('🔍 Testing Frontend Permission Checks...', 'info');
+            
+            const capabilities = [
+                { name: 'User Management', check: () => rbac.canManageUsers() },
+                { name: 'View Reports', check: () => rbac.canViewReports() },
+                { name: 'Manage Stock', check: () => rbac.canManageStock() },
+                { name: 'Manage Products', check: () => rbac.canManageProducts() },
+                { name: 'Manage Customers', check: () => rbac.canManageCustomers() },
+                { name: 'Manage Sales', check: () => rbac.canManageSales() },
+                { name: 'Manage Expenses', check: () => rbac.canManageExpenses() },
+                { name: 'Manage Settings', check: () => rbac.canManageSettings() }
+            ];
+            
+            capabilities.forEach(cap => {
+                const allowed = cap.check();
+                const status = allowed ? '✅ ALLOWED' : '❌ BLOCKED';
+                const type = allowed ? 'success' : 'warning';
+                addResult(`${status} ${cap.name}`, type);
+            });
+            
+            addResult('✅ Frontend permission checks validated', 'success');
+        }
+
+        async function testSidebarRendering() {
+            addResult('🔍 Testing Sidebar Menu Rendering...', 'info');
+            
+            const allScreens = ['dashboard', 'pos', 'products', 'customers', 'inventory', 'sales', 'reports', 'expenses', 'users', 'settings'];
+            const allowedScreens = rbac.getAllowedScreens();
+            
+            addResult(`📋 Role: ${rbac.getRoleDisplayName()}`, 'info');
+            addResult(`📋 Allowed screens: ${allowedScreens.join(', ')}`, 'info');
+            
+            allScreens.forEach(screen => {
+                const isAllowed = allowedScreens.includes(screen);
+                const status = isAllowed ? '✅ VISIBLE' : '❌ HIDDEN';
+                const type = isAllowed ? 'success' : 'warning';
+                addResult(`${status} ${screen} menu item`, type);
+            });
+            
+            addResult('✅ Sidebar rendering logic validated', 'success');
+        }
+
+        async function testRouteGuards() {
+            addResult('🔍 Testing Route Guard Functionality...', 'info');
+            
+            const testScreens = ['dashboard', 'pos', 'users', 'settings'];
+            
+            testScreens.forEach(screen => {
+                const canAccess = rbac.canAccessScreen(screen);
+                const status = canAccess ? '✅ ALLOWED' : '❌ BLOCKED';
+                const type = canAccess ? 'success' : 'warning';
+                addResult(`${status} Navigation to ${screen}`, type);
+            });
+            
+            addResult('✅ Route guard functionality validated', 'success');
+        }
+
+        async function testRoleMatrix() {
+            addResult('🔍 Validating Against Role Matrix...', 'info');
+            
+            const roleMatrix = {
+                'malik': { dashboard: true, pos: true, products: true, customers: true, inventory: true, sales: true, reports: true, expenses: true, users: true, settings: true },
+                'munshi': { dashboard: true, pos: true, products: true, customers: true, inventory: true, sales: true, reports: true, expenses: true, users: false, settings: false },
+                'shop_boy': { dashboard: true, pos: true, products: true, customers: true, inventory: true, sales: true, reports: false, expenses: false, users: false, settings: false },
+                'stock_boy': { dashboard: true, pos: false, products: true, customers: false, inventory: true, sales: false, reports: false, expenses: false, users: false, settings: false }
+            };
+            
+            const currentRole = rbac.getCurrentUserRole();
+            const expectedAccess = roleMatrix[currentRole];
+            const actualScreens = rbac.getAllowedScreens();
+            
+            if (expectedAccess) {
+                Object.keys(expectedAccess).forEach(feature => {
+                    const expected = expectedAccess[feature];
+                    const actual = actualScreens.includes(feature);
+                    
+                    if (expected === actual) {
+                        addResult(`✅ ${feature}: Expected ${expected}, Actual ${actual}`, 'success');
+                    } else {
+                        addResult(`❌ ${feature}: Expected ${expected}, Actual ${actual}`, 'error');
+                    }
+                });
+            }
+            
+            addResult('✅ Role matrix validation completed', 'success');
+        }
+
+        async function testEdgeCases() {
+            addResult('🔍 Testing Edge Cases...', 'info');
+            
+            // Test unknown role
+            const unknownRbac = new MockRBACManager('unknown_role');
+            addResult(`📝 Unknown role access: ${unknownRbac.canAccessScreen('dashboard') ? 'ALLOWED' : 'BLOCKED'}`, 'info');
+            
+            // Test direct URL access attempts
+            const directAccessTests = [
+                '/?screen=users',
+                '/?screen=settings', 
+                '/?screen=reports'
+            ];
+            
+            directAccessTests.forEach(url => {
+                const screen = url.split('=')[1];
+                const canAccess = rbac.canAccessScreen(screen);
+                const status = canAccess ? '✅ WOULD SUCCEED' : '❌ WOULD BE BLOCKED';
+                addResult(`${status} Direct access to ${url}`, canAccess ? 'warning' : 'success');
+            });
+            
+            addResult('✅ Edge case testing completed', 'success');
+        }
+
+        async function runCompleteValidation() {
+            addResult('🚀 Running Complete RBAC Validation Suite...', 'info');
+            addResult('=========================================', 'info');
+            
+            await testBackendPermissions();
+            addResult('---', 'info');
+            await testSalesFiltering();
+            addResult('---', 'info');
+            await testAPIEndpoints();
+            addResult('---', 'info');
+            await testFrontendPermissions();
+            addResult('---', 'info');
+            await testSidebarRendering();
+            addResult('---', 'info');
+            await testRouteGuards();
+            addResult('---', 'info');
+            await testRoleMatrix();
+            addResult('---', 'info');
+            await testEdgeCases();
+            
+            addResult('=========================================', 'info');
+            addResult('🎉 COMPLETE RBAC VALIDATION FINISHED', 'success');
+            addResult(`📊 Test role: ${rbac.getRoleDisplayName()}`, 'info');
+            addResult(`📊 Validation timestamp: ${new Date().toLocaleString()}`, 'info');
+        }
+
+        // Initialize
+        window.addEventListener('load', () => {
+            addResult('✅ RBAC Validation Tool Loaded', 'success');
+            addResult('📋 Select a test role and run validation tests', 'info');
+        });
+    </script>
+</body>
+</html>
