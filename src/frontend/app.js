@@ -19,27 +19,20 @@ class AutoAccessoriesPOS {
     }
 
     async init() {
-        // Show loading screen
         this.showLoading('Initializing application...');
 
         try {
-            // Check authentication
             await this.checkAuthentication();
-
-            // Initialize application
             await this.initializeApp();
-
-            // Hide loading screen
             this.hideLoading();
 
-            // Show welcome notification
             if (this.currentUser) {
                 this.showNotification(`Welcome back, ${this.currentUser.full_name}!`, 'success', 3000);
             }
 
         } catch (error) {
             console.error('Initialization error:', error);
-            this.hideLoading(); // ENSURE loading screen is hidden even on error
+            this.hideLoading();
             this.showError('Failed to initialize application: ' + error.message);
         }
     }
@@ -51,10 +44,6 @@ class AutoAccessoriesPOS {
         const userData = localStorage.getItem('user_data');
 
         if (!accessToken || !userData) {
-            // Not logged in. Allow an explicit preview mode only when `?preview=1`
-            // is present in the URL. Previously localhost was treated as
-            // implicit preview which caused the app to continue with stale
-            // auth data and show modals that couldn't work (401 from API).
             try {
                 const urlParams = new URLSearchParams(window.location.search);
                 const previewFlag = urlParams.get('preview') === '1';
@@ -64,37 +53,31 @@ class AutoAccessoriesPOS {
                     return;
                 }
             } catch (e) {
-                // If any error occurs determining preview state, fall back to redirect.
                 console.warn('Error checking preview mode, redirecting to login', e);
             }
 
-            // Not running in preview/local mode — redirect to login.
             window.location.href = '/login.html';
             return;
         }
 
         try {
-            // Verify token is still valid
             await this.api.get('/auth/me');
             this.currentUser = JSON.parse(userData);
+            console.log('[App] User authenticated:', this.currentUser.username, 'Role:', this.currentUser.role);
 
         } catch (error) {
-            // Token invalid or expired
             console.warn('Authentication failed:', error);
 
-            // Try to refresh token
             const refreshToken = localStorage.getItem('refresh_token');
             if (refreshToken) {
                 try {
                     await this.refreshToken(refreshToken);
                 } catch (refreshError) {
-                    // Refresh failed, redirect to login
                     this.clearAuthData();
                     window.location.href = '/login.html';
                     return;
                 }
             } else {
-                // No refresh token, redirect to login
                 this.clearAuthData();
                 window.location.href = '/login.html';
                 return;
@@ -121,6 +104,12 @@ class AutoAccessoriesPOS {
             const userData = (userResponse && userResponse.data) || userResponse;
             this.currentUser = userData;
             localStorage.setItem('user_data', JSON.stringify(userData));
+            console.log('[App] Token refreshed, user data updated:', userData.username);
+            
+            if (window.refreshSidebarRBAC) {
+                console.log('[App] Triggering sidebar RBAC refresh after token refresh');
+                setTimeout(window.refreshSidebarRBAC, 100);
+            }
 
         } catch (error) {
             throw error;
@@ -138,27 +127,28 @@ class AutoAccessoriesPOS {
     async initializeApp() {
         this.updateLoadingMessage('Loading application...');
 
+        const initTimeout = setTimeout(() => {
+            console.error('[App] Initialization timeout - forcing loading screen to hide');
+            this.hideLoading();
+            this.showError('Application initialization timed out. Please refresh the page.');
+        }, 15000);
+
         try {
             console.log('[App] Initializing app...');
             
-            // Load main app structure FIRST
             console.log('[App] Step 1: Loading app structure (header, sidebar)...');
             await this.loadAppStructure();
             console.log('[App] ✓ App structure loaded');
 
-            // Initialize clock
             console.log('[App] Step 2: Initializing clock...');
             this.initClock();
 
-            // Initialize event listeners
             console.log('[App] Step 3: Setting up event listeners...');
             this.initEventListeners();
 
-            // Initialize keyboard shortcuts
             console.log('[App] Step 4: Setting up keyboard shortcuts...');
             this.initKeyboardShortcuts();
 
-            // Load screen from URL parameter or default to dashboard
             console.log('[App] Step 5: Loading initial screen...');
             const urlParams = new URLSearchParams(window.location.search);
             const screenParam = urlParams.get('screen');
@@ -167,17 +157,10 @@ class AutoAccessoriesPOS {
             await this.loadScreen(targetScreen);
             console.log('[App] ✓ Screen loaded successfully');
 
-            // Check if password needs to be changed
-            // NOTE: Previously this would show a blocking change-password
-            // modal during startup which can prevent usage if the API
-            // rejects requests. Replace with a non-blocking notification
-            // so users can continue working and change password from
-            // Settings when convenient.
             if (this.currentUser && this.currentUser.password_expired) {
                 console.warn('User password expired - notifying user instead of showing modal.');
                 this.showNotification('Your password has expired. Please change it from Settings.', 'warning', 10000);
                 
-                // Additional check: if there are existing modals open, close them to prevent stacking
                 if (document.querySelectorAll('.modal-overlay[style*="flex"]').length > 0) {
                     document.querySelectorAll('.modal-overlay').forEach(modal => {
                         modal.style.display = 'none';
@@ -186,8 +169,10 @@ class AutoAccessoriesPOS {
                 }
             }
             
+            clearTimeout(initTimeout);
             console.log('[App] ✓ Application initialization complete!');
         } catch (error) {
+            clearTimeout(initTimeout);
             console.error('[App] Initialization error:', error);
             this.showError('Failed to initialize application: ' + error.message);
         }
@@ -258,6 +243,17 @@ class AutoAccessoriesPOS {
             if (window.updateSidebarStatus) try { window.updateSidebarStatus(); } catch (e) { console.warn('updateSidebarStatus error', e); }
             if (window.checkUserManagementPermission) try { window.checkUserManagementPermission(); } catch (e) { console.warn('checkUserManagementPermission error', e); }
             if (window.updateSidebarStatus) setInterval(() => { try { window.updateSidebarStatus(); } catch (e) {/*ignore*/ } }, 5000);
+
+            if (window.refreshSidebarRBAC) {
+                try { 
+                    console.log('[App] Triggering initial RBAC filtering');
+                    window.refreshSidebarRBAC(); 
+                } catch (e) { 
+                    console.warn('refreshSidebarRBAC error', e); 
+                }
+            } else {
+                console.warn('[App] refreshSidebarRBAC not available yet');
+            }
 
             // Load modals component - LOAD JS FIRST to ensure functions are available
             console.log('[App] Step 3: Loading modals JavaScript...');
@@ -561,19 +557,14 @@ class AutoAccessoriesPOS {
         if (confirm('Are you sure you want to logout?')) {
             try {
                 await this.api.post('/auth/logout');
-                this.clearAuthData();
-                this.showNotification('Logged out successfully', 'success', 2000);
-
-                // Redirect after short delay
-                setTimeout(() => {
-                    window.location.href = '/login.html';
-                }, 500);
-
             } catch (error) {
                 console.error('Logout error:', error);
-                // Still redirect even if logout fails
+            } finally {
                 this.clearAuthData();
-                window.location.href = '/login.html';
+                this.showNotification('Logged out successfully', 'success', 1000);
+                setTimeout(() => {
+                    window.location.replace('/login.html');
+                }, 100);
             }
         }
     }
@@ -620,6 +611,15 @@ class AutoAccessoriesPOS {
             }
 
             // Load screen content
+            // RBAC Route Guard - Check permissions before loading
+            if (window.rbac && !window.rbac.routeGuard(screenName)) {
+                // Access denied - redirect to dashboard
+                if (screenName !== 'dashboard') {
+                    console.log(`[App] Redirecting to dashboard due to RBAC restriction`);
+                    this.loadScreen('dashboard');
+                    return;
+                }
+            }
             if (!this.screens[screenName]) {
                 console.log(`[App] Screen ${screenName} not in cache, fetching from server...`);
                 const response = await fetch(`screens/${screenName}/index.html`);
@@ -1255,14 +1255,12 @@ function showNotification(a, b, c) {
 
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
-    // Prevent multiple initializations
     if (window.app) return;
 
     console.log('Initializing Auto Accessories POS...');
     window.app = new AutoAccessoriesPOS();
-    window.POS = window.app; // Legacy support
+    window.POS = window.app;
 
-    // Handle browser back/forward buttons
     window.onpopstate = (event) => {
         if (event.state && event.state.screen) {
             window.app.loadScreen(event.state.screen);
@@ -1271,3 +1269,4 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 });
+

@@ -7,14 +7,18 @@ from fastapi import APIRouter, HTTPException, Depends, Query, Body
 from typing import List, Dict, Any, Optional
 import logging
 
-from core.auth import get_current_user, require_permission
+from core.auth import get_current_user, require_permission, auth_manager
 from core.database import get_database_manager
+from fastapi import Query
+
+# Create role-based authorization middleware
+sales_auth = auth_manager.create_authorization_middleware(["malik", "munshi", "shop_boy"])
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 logger = logging.getLogger(__name__)
 
 
-@router.get("/", dependencies=[Depends(require_permission("sales.view"))])
+@router.get("/", dependencies=[Depends(require_permission("sales.view")), Depends(sales_auth)])
 async def list_sales(
     skip: int = Query(0),
     limit: int = Query(50),
@@ -24,58 +28,74 @@ async def list_sales(
     status: Optional[str] = Query(None),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Get all sales transactions with filtering."""
+    """Get sales transactions with role-based filtering."""
     try:
         db = get_database_manager()
         with db.get_cursor() as cur:
+            # Base query
             query = "SELECT * FROM sales WHERE sale_status != 'cancelled'"
             params = []
+            count_params = []
             
+            # Role-based filtering - cashiers only see their own sales
+            if current_user["role"] == "shop_boy":
+                query += " AND cashier_id = ?"
+                params.append(current_user["id"])
+                count_params.append(current_user["id"])
+            
+            # Date filtering
             if start_date:
                 query += " AND DATE(created_at) >= ?"
                 params.append(start_date)
+                count_params.append(start_date)
             
             if end_date:
                 query += " AND DATE(created_at) <= ?"
                 params.append(end_date)
+                count_params.append(end_date)
             
+            # Other filters
             if customer_id:
                 query += " AND customer_id = ?"
                 params.append(customer_id)
+                count_params.append(customer_id)
             
             if status:
                 query += " AND sale_status = ?"
                 params.append(status)
+                count_params.append(status)
             
+            # Add ordering and pagination
             query += f" ORDER BY created_at DESC LIMIT ? OFFSET ?"
             params.extend([limit, skip])
             
             cur.execute(query, params)
-            # Fetch all results safely
             raw_sales = cur.fetchall()
-            # Convert to list of dictionaries to avoid unpacking issues
+            
+            # Convert to list of dictionaries
             sales = []
             for row in raw_sales:
-                if hasattr(row, 'keys'):  # sqlite3.Row object
+                if hasattr(row, 'keys'):
                     sales.append(dict(row))
                 else:
                     sales.append(row)
             
-            # Get total
+            # Get total count with same filters
             count_query = "SELECT COUNT(*) FROM sales WHERE sale_status != 'cancelled'"
-            count_params = []
+            
+            # Apply same role-based filtering to count query
+            if current_user["role"] == "shop_boy":
+                count_query += " AND cashier_id = ?"
+            
+            # Apply other filters to count query
             if start_date:
                 count_query += " AND DATE(created_at) >= ?"
-                count_params.append(start_date)
             if end_date:
                 count_query += " AND DATE(created_at) <= ?"
-                count_params.append(end_date)
             if customer_id:
                 count_query += " AND customer_id = ?"
-                count_params.append(customer_id)
             if status:
                 count_query += " AND sale_status = ?"
-                count_params.append(status)
             
             cur.execute(count_query, count_params)
             total_result = cur.fetchone()
@@ -83,31 +103,22 @@ async def list_sales(
             # Handle Row object properly
             if total_result:
                 if hasattr(total_result, 'keys'):
-                    # It's a Row object, access by key
-                    # The column name for COUNT(*) might be different depending on SQLite version
-                    total_dict = dict(total_result)
-                    # Try different possible column names for COUNT(*)
-                    total = (total_dict.get('COUNT(*)') or 
-                            total_dict.get('COUNT(*) AS "COUNT(*)"') or 
-                            total_dict.get('count(*)') or 
-                            total_dict.get('total') or 
-                            total_dict.get('0') or  # fallback to index if converted
-                            0)
+                    total = dict(total_result)['COUNT(*)']
                 else:
-                    # It's a tuple, access by index
-                    total = total_result[0] if len(total_result) > 0 else 0
+                    total = total_result[0] if isinstance(total_result, (list, tuple)) else total_result
             else:
                 total = 0
-        
-        return {
-            "success": True,
-            "sales": sales,
-            "total": total,
-            "skip": skip,
-            "limit": limit
-        }
+            
+            return {
+                "success": True,
+                "sales": sales,
+                "total": total,
+                "page": skip // limit + 1,
+                "pages": (total + limit - 1) // limit
+            }
+            
     except Exception as e:
-        logger.error(f"Failed to list sales: {e}")
+        logger.error(f"Error listing sales: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -116,345 +127,174 @@ async def get_sale(
     sale_id: int,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Get sale details with items and GST breakdown."""
+    """Get specific sale by ID with role-based access."""
     try:
         db = get_database_manager()
         with db.get_cursor() as cur:
-            # Get sale
-            cur.execute(
-                "SELECT * FROM sales WHERE id = ?",
-                (sale_id,)
-            )
-            raw_sale = cur.fetchone()
+            # For cashiers, verify they created this sale
+            if current_user["role"] == "shop_boy":
+                cur.execute(
+                    "SELECT * FROM sales WHERE id = ? AND cashier_id = ? AND sale_status != 'cancelled'",
+                    (sale_id, current_user["id"])
+                )
+            else:
+                cur.execute(
+                    "SELECT * FROM sales WHERE id = ? AND sale_status != 'cancelled'",
+                    (sale_id,)
+                )
             
-            if not raw_sale:
+            sale = cur.fetchone()
+            if not sale:
                 raise HTTPException(status_code=404, detail="Sale not found")
             
-            # Convert to dict to avoid unpacking issues
-            sale = dict(raw_sale) if hasattr(raw_sale, 'keys') else raw_sale
+            # Convert to dictionary
+            if hasattr(sale, 'keys'):
+                sale_dict = dict(sale)
+            else:
+                # Handle tuple result - need column names
+                columns = [desc[0] for desc in cur.description]
+                sale_dict = dict(zip(columns, sale))
             
-            # Get items
+            # Get sale items
             cur.execute(
-                "SELECT * FROM sale_items WHERE sale_id = ?",
+                "SELECT * FROM sale_items WHERE sale_id = ? ORDER BY id",
                 (sale_id,)
             )
-            raw_items = cur.fetchall()
-            items = []
-            for item in raw_items:
+            items = cur.fetchall()
+            
+            # Convert items to dictionaries
+            sale_items = []
+            for item in items:
                 if hasattr(item, 'keys'):
-                    items.append(dict(item))
+                    sale_items.append(dict(item))
                 else:
-                    items.append(item)
+                    sale_items.append(item)
             
-            # Get GST info
-            cur.execute(
-                "SELECT * FROM gst_invoices WHERE sale_id = ?",
-                (sale_id,)
-            )
-            raw_gst_invoice = cur.fetchone()
-            gst_invoice = dict(raw_gst_invoice) if raw_gst_invoice and hasattr(raw_gst_invoice, 'keys') else raw_gst_invoice
+            sale_dict["items"] = sale_items
             
-            # Get payments
-            cur.execute(
-                "SELECT * FROM sale_payments WHERE sale_id = ?",
-                (sale_id,)
-            )
-            raw_payments = cur.fetchall()
-            payments = []
-            for payment in raw_payments:
-                if hasattr(payment, 'keys'):
-                    payments.append(dict(payment))
-                else:
-                    payments.append(payment)
-        
-        return {
-            "success": True,
-            "sale": sale,
-            "items": items or [],
-            "gst_invoice": gst_invoice,
-            "payments": payments or []
-        }
+            return {"success": True, "sale": sale_dict}
+            
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get sale: {e}")
+        logger.error(f"Error getting sale: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/", dependencies=[Depends(require_permission("sales.manage"))])
+@router.post("/", dependencies=[Depends(require_permission("sales.create"))])
 async def create_sale(
     sale_data: Dict[str, Any] = Body(...),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Create new sale transaction."""
     try:
-        db = get_database_manager()
+        # Validate required fields
+        if not sale_data.get("items"):
+            raise HTTPException(status_code=400, detail="Sale items required")
         
-        with db.get_cursor() as cur:
-            # Generate invoice number based on current timestamp to ensure uniqueness
-            invoice_number = f"SAL-{datetime.datetime.now().strftime('%Y%m%d')}{int(datetime.datetime.now().timestamp() * 1000) % 100000}"
+        db = get_database_manager()
+        with db.get_transaction() as conn:
+            cur = conn.cursor()
             
-            # Get cashier name from current user
-            cashier_name = current_user.get("name") or current_user.get("username") or f"User {current_user['id']}"
-            
-            # Determine payment status based on payment method
-            payment_method = sale_data.get("payment_type", "cash")
-            # If payment_status is not provided, determine it based on payment method
-            if "payment_status" in sale_data:
-                payment_status = sale_data.get("payment_status", "paid")
-            else:
-                payment_status = "pending" if payment_method.lower() in ["credit", "credit_sale"] else "paid"
-            
-            # Create sale
-            cur.execute("""
+            # Insert sale record
+            cur.execute('''
                 INSERT INTO sales (
-                    invoice_number, customer_id, grand_total, subtotal, discount_amount, 
-                    gst_amount, payment_method, payment_status, notes,
-                    cashier_id, cashier_name, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                invoice_number,
+                    invoice_number, invoice_date, customer_id,
+                    subtotal, discount_amount, tax_amount, shipping_charge,
+                    round_off, grand_total, amount_paid, balance_due,
+                    payment_method, payment_status, sale_type, sale_status,
+                    cashier_id, cashier_name, notes, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                sale_data.get("invoice_number") or f"POS-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}",
+                sale_data.get("invoice_date") or datetime.datetime.now().isoformat(),
                 sale_data.get("customer_id"),
-                sale_data.get("total_amount", 0),
                 sale_data.get("subtotal", 0),
                 sale_data.get("discount_amount", 0),
-                sale_data.get("gst_amount", 0),
-                payment_method,
-                payment_status,
-                sale_data.get("notes"),
+                sale_data.get("tax_amount", 0),
+                sale_data.get("shipping_charge", 0),
+                sale_data.get("round_off", 0),
+                sale_data.get("grand_total", 0),
+                sale_data.get("amount_paid", 0),
+                sale_data.get("balance_due", 0),
+                sale_data.get("payment_method", "cash"),
+                sale_data.get("payment_status", "paid"),
+                sale_data.get("sale_type", "retail"),
+                sale_data.get("sale_status", "completed"),
                 current_user["id"],
-                cashier_name,
-                datetime.datetime.now().isoformat(),
+                current_user["full_name"],
+                sale_data.get("notes", ""),
                 datetime.datetime.now().isoformat()
             ))
             
             sale_id = cur.lastrowid
             
-            # Update customer credit if this is a credit sale
-            if sale_data.get("payment_status") == "pending" and sale_data.get("customer_id"):
-                cur.execute("""
-                    UPDATE customers 
-                    SET current_balance = current_balance + ?
-                    WHERE id = ?
-                """, (
-                    sale_data.get("total_amount", 0),
-                    sale_data.get("customer_id")
-                ))
-            
-            # Add items
-            for item in sale_data.get("items", []):
-                cur.execute("""
+            # Insert sale items
+            for item in sale_data["items"]:
+                cur.execute('''
                     INSERT INTO sale_items (
-                        sale_id, product_id, quantity, unit_price, 
-                        total_price, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (
+                        sale_id, product_id, variant_id, product_code,
+                        product_name, barcode, quantity, unit_price,
+                        cost_price, discount_amount, tax_rate, tax_amount,
+                        total_amount, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
                     sale_id,
                     item.get("product_id"),
-                    item.get("quantity"),
-                    item.get("unit_price"),
-                    item.get("total_price"),
-                    datetime.datetime.now().isoformat(),
+                    item.get("variant_id"),
+                    item.get("product_code"),
+                    item.get("product_name"),
+                    item.get("barcode"),
+                    item.get("quantity", 1),
+                    item.get("unit_price", 0),
+                    item.get("cost_price", 0),
+                    item.get("discount_amount", 0),
+                    item.get("tax_rate", 0),
+                    item.get("tax_amount", 0),
+                    item.get("total_amount", 0),
                     datetime.datetime.now().isoformat()
                 ))
-        
-        return {
-            "success": True,
-            "message": "Sale created successfully",
-            "sale_id": sale_id
-        }
-    except Exception as e:
-        logger.error(f"Failed to create sale: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/{sale_id}/return", dependencies=[Depends(require_permission("sales.manage"))])
-async def return_sale(
-    sale_id: int,
-    return_data: Dict[str, Any] = Body(...),
-    current_user: Dict[str, Any] = Depends(get_current_user)
-):
-    """Process sale return (credit memo)."""
-    try:
-        db = get_database_manager()
-        with db.get_cursor() as cur:
-            # Get original sale
-            cur.execute("SELECT * FROM sales WHERE id = ?", (sale_id,))
-            original_sale = cur.fetchone()
-            
-            if not original_sale:
-                raise HTTPException(status_code=404, detail="Sale not found")
-            
-            # Handle Row object properly
-            if hasattr(original_sale, 'keys'):
-                original_sale_dict = dict(original_sale)
-                customer_id = original_sale_dict.get('customer_id')
-            else:
-                customer_id = original_sale[1] if len(original_sale) > 1 else None
-            
-            # Create return sale
-            cur.execute("""
-                INSERT INTO sales (
-                    customer_id, total_amount, subtotal, discount_amount,
-                    gst_amount, payment_type, payment_status, notes,
-                    created_by, created_at, updated_at, is_return, return_of_sale_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                customer_id,  # customer_id
-                -return_data.get("total_amount", 0),
-                -return_data.get("subtotal", 0),
-                -return_data.get("discount_amount", 0),
-                -return_data.get("gst_amount", 0),
-                "return",
-                "completed",
-                return_data.get("reason"),
-                current_user["id"],
-                datetime.datetime.now().isoformat(sep=' '),
-                datetime.datetime.now().isoformat(sep=' '),
-                True,
-                sale_id
-            ))
-        
-        return {
-            "success": True,
-            "message": "Return processed successfully"
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to process return: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/{sale_id}/reprint", dependencies=[Depends(require_permission("sales.view"))])
-async def reprint_receipt(
-    sale_id: int,
-    current_user: Dict[str, Any] = Depends(get_current_user)
-):
-    """Get sale data for receipt reprint."""
-    try:
-        db = get_database_manager()
-        with db.get_cursor() as cur:
-            cur.execute("SELECT * FROM sales WHERE id = ?", (sale_id,))
-            raw_sale = cur.fetchone()
-            
-            if not raw_sale:
-                raise HTTPException(status_code=404, detail="Sale not found")
-            
-            # Handle Row object properly
-            if hasattr(raw_sale, 'keys'):
-                sale = dict(raw_sale)
-            else:
-                sale = raw_sale
-            
-            cur.execute("SELECT * FROM sale_items WHERE sale_id = ?", (sale_id,))
-            raw_items = cur.fetchall()
-            # Convert items to dictionaries to avoid Row object issues
-            items = []
-            for item in raw_items:
-                if hasattr(item, 'keys'):  # sqlite3.Row object
-                    items.append(dict(item))
-                else:
-                    items.append(item)
-        
-        return {
-            "success": True,
-            "receipt_data": {
-                "sale": sale,
-                "items": items
-            }
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get reprint data: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/analytics/daily-summary", dependencies=[Depends(require_permission("sales.view"))])
-async def daily_summary(
-    date: Optional[str] = Query(None),
-    current_user: Dict[str, Any] = Depends(get_current_user)
-):
-    """Get daily sales summary and metrics."""
-    try:
-        db = get_database_manager()
-        if not db:
-            raise HTTPException(status_code=500, detail="Database connection failed")
-            
-        with db.get_cursor() as cur:
-            if not cur:
-                raise HTTPException(status_code=500, detail="Database cursor failed")
                 
-            target_date = date or datetime.datetime.now().strftime("%Y-%m-%d")
+                # Update product stock
+                if item.get("product_id"):
+                    cur.execute('''
+                        UPDATE products 
+                        SET current_stock = current_stock - ?,
+                            last_stock_update = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    ''', (item.get("quantity", 1), item.get("product_id")))
             
-            # Daily totals
-            cur.execute("""
-                SELECT 
-                    COUNT(*) as total_sales,
-                    COALESCE(SUM(grand_total), 0) as total_revenue,
-                    COALESCE(SUM(gst_amount), 0) as total_gst,
-                    COALESCE(AVG(grand_total), 0) as avg_transaction
-                FROM sales
-                WHERE sale_status != 'cancelled' AND DATE(created_at) = ?
-            """, (target_date,))
-            result = cur.fetchone()
+            # Update customer balance if credit sale
+            if sale_data.get("payment_status") == "pending" and sale_data.get("customer_id"):
+                cur.execute('''
+                    UPDATE customers 
+                    SET current_balance = current_balance + ?,
+                        last_purchase_date = DATE('now')
+                    WHERE id = ?
+                ''', (sale_data.get("balance_due", 0), sale_data.get("customer_id")))
             
-            # Handle potential unpacking issues
-            if result and hasattr(result, '__getitem__'):
-                # If it's a Row object, convert to dictionary
-                if hasattr(result, 'keys'):
-                    result_dict = dict(result)
-                    summary = (
-                        result_dict.get('total_sales', 0) or 0,
-                        result_dict.get('total_revenue', 0) or 0,
-                        result_dict.get('total_gst', 0) or 0,
-                        result_dict.get('avg_transaction', 0) or 0
-                    )
-                else:
-                    # Handle tuple format
-                    summary = tuple([
-                        (val if val is not None else 0) for val in result
-                    ])
-            else:
-                summary = (0, 0, 0, 0)
+            conn.commit()
             
-            # Sales by payment type
-            cur.execute("""
-                SELECT payment_type, COUNT(*), SUM(grand_total)
-                FROM sales
-                WHERE sale_status != 'cancelled' AND DATE(created_at) = ?
-                GROUP BY payment_type
-            """, (target_date,))
-            raw_by_payment = cur.fetchall()
-            by_payment = []
-            for row in raw_by_payment:
-                if hasattr(row, 'keys'):  # Row object
-                    by_payment.append(tuple(dict(row).values()))
-                else:
-                    by_payment.append(row)
-            # Ensure we have proper data structure even if no results
-            if not by_payment:
-                by_payment = []
-        
-        return {
-            "success": True,
-            "date": target_date,
-            "summary": {
-                "total_sales": summary[0] if summary and len(summary) > 0 else 0,
-                "total_revenue": summary[1] if summary and len(summary) > 1 else 0,
-                "total_gst": summary[2] if summary and len(summary) > 2 else 0,
-                "avg_transaction": summary[3] if summary and len(summary) > 3 else 0
-            },
-            "by_payment_type": [
-                {
-                    "payment_type": p[0] if len(p) > 0 else None,
-                    "count": p[1] if len(p) > 1 else 0,
-                    "amount": p[2] if len(p) > 2 else 0
-                }
-                for p in by_payment
-            ]
-        }
+            return {
+                "success": True,
+                "message": "Sale created successfully",
+                "sale_id": sale_id,
+                "invoice_number": sale_data.get("invoice_number") or f"POS-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+            }
+            
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to get daily summary: {e}")
+        logger.error(f"Error creating sale: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Health check endpoint
+@router.get("/health")
+async def health_check():
+    """Health check for sales service."""
+    return {
+        "status": "healthy",
+        "service": "sales",
+        "timestamp": datetime.datetime.now().isoformat()
+    }

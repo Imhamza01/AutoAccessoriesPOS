@@ -103,6 +103,38 @@
   border: 1px solid #e0e0e0;
   border-radius: 8px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 320px);
+  /* Adjust based on header and filters height */
+}
+
+/* Table wrapper to enable scrolling */
+.table-container>table {
+  display: block;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.table-container>table thead {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #f8f9fa;
+}
+
+.table-container>table tbody {
+  display: block;
+  overflow-y: auto;
+}
+
+.table-container>table tbody tr {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
 }
 
 .table-header {

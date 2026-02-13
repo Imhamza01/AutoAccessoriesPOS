@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RBAC Test Verification</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; }
+        h2 { color: #666; border-bottom: 2px solid #4CAF50; padding-bottom: 10px; }
+        .test-item {
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #2196F3;
+            background: #f9f9f9;
+        }
+        .pass { border-left-color: #4CAF50; background: #e8f5e9; }
+        .fail { border-left-color: #f44336; background: #ffebee; }
+        .warning { border-left-color: #ff9800; background: #fff3e0; }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover { background: #45a049; }
+        .info { background: #e3f2fd; padding: 15px; border-radius: 4px; margin: 10px 0; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background: #4CAF50; color: white; }
+        tr:hover { background: #f5f5f5; }
+        .check { color: #4CAF50; font-weight: bold; }
+        .cross { color: #f44336; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>🔐 RBAC Implementation Test Verification</h1>
+    
+    <div class="info">
+        <strong>Instructions:</strong> Open browser console (F12) and run these tests after logging in with different roles.
+    </div>
+
+    <div class="test-section">
+        <h2>1. Quick RBAC Status Check</h2>
+        <button onclick="checkRBACStatus()">Check RBAC Status</button>
+        <button onclick="checkCurrentUser()">Check Current User</button>
+        <button onclick="checkAllowedScreens()">Check Allowed Screens</button>
+        <div id="status-output" style="margin-top: 15px;"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. Role-Based Screen Access Matrix</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Screen</th>
+                    <th>Malik (Owner)</th>
+                    <th>Munshi (Manager)</th>
+                    <th>Shop Boy (Cashier)</th>
+                    <th>Stock Boy</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Dashboard</td>
+                    <td class="check">✓</td>
+                    <td class="check">✓</td>
+                    <td class="check">✓</td>
+                    <td class="check">✓</td>
+                </tr>
+                <tr>
+                    <td>POS</td>
+                    <td class="check">✓</td>
+                    <td class="check">✓</td>
+                    <td class="check">✓</td>
+                    <td class="cross">✗</td>
+                </tr>
+                <tr>
+                    <td>Products</td>
+                    <td class="check">✓</td>
+                    <td class="check">✓</td>
+                    <td class="cross">✗</td>
+                    <td class="check">✓ (view)</td>
+                </tr>
+                <tr>
+                    <td>Customers</td>
+                    <td class="check">✓</td>
+                    <td class="check">✓</td>
+                    <td class="check">✓</td>
+                    <td class="cross">✗</td>
+                </tr>
+                <tr>
+                    <td>Inventory</td>
+                    <td class="check">✓</td>
+                    <td class="check">✓</td>
+                    <td class="cross">✗</td>
+                    <td class="check">✓</td>
+                </tr>
+                <tr>
+                    <td>Sales</td>
+                    <td class="check">✓</td>
+                    <td class="check">✓</td>
+                    <td class="check">✓</td>
+                    <td class="cross">✗</td>
+                </tr>
+                <tr>
+                    <td>Reports</td>
+                    <td class="check">✓</td>
+                    <td class="check">✓</td>
+                    <td class="cross">✗</td>
+                    <td class="cross">✗</td>
+                </tr>
+                <tr>
+                    <td>Credit Management</td>
+                    <td class="check">✓</td>
+                    <td class="check">✓</td>
+                    <td class="cross">✗</td>
+                    <td class="cross">✗</td>
+                </tr>
+                <tr>
+                    <td>Expenses</td>
+                    <td class="check">✓</td>
+                    <td class="check">✓</td>
+                    <td class="cross">✗</td>
+                    <td class="cross">✗</td>
+                </tr>
+                <tr>
+                    <td>Users</td>
+                    <td class="check">✓</td>
+                    <td class="cross">✗</td>
+                    <td class="cross">✗</td>
+                    <td class="cross">✗</td>
+                </tr>
+                <tr>
+                    <td>Settings</td>
+                    <td class="check">✓</td>
+                    <td class="cross">✗</td>
+                    <td class="cross">✗</td>
+                    <td class="cross">✗</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="test-section">
+        <h2>3. Sidebar Button Visibility Test</h2>
+        <button onclick="testSidebarButtons()">Test Sidebar Buttons</button>
+        <div id="sidebar-output" style="margin-top: 15px;"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>4. Manual Test Checklist</h2>
+        <div class="test-item">
+            <input type="checkbox" id="test1"> 
+            <label for="test1">Login as <strong>malik</strong> - verify all buttons visible</label>
+        </div>
+        <div class="test-item">
+            <input type="checkbox" id="test2"> 
+            <label for="test2">Login as <strong>munshi</strong> - verify Users and Settings hidden</label>
+        </div>
+        <div class="test-item">
+            <input type="checkbox" id="test3"> 
+            <label for="test3">Login as <strong>shop_boy</strong> - verify only Dashboard, POS, Customers, Sales visible</label>
+        </div>
+        <div class="test-item">
+            <input type="checkbox" id="test4"> 
+            <label for="test4">Login as <strong>stock_boy</strong> - verify only Dashboard, Products, Inventory visible</label>
+        </div>
+        <div class="test-item">
+            <input type="checkbox" id="test5"> 
+            <label for="test5">Try accessing unauthorized screen via URL (e.g., ?screen=users as shop_boy)</label>
+        </div>
+        <div class="test-item">
+            <input type="checkbox" id="test6"> 
+            <label for="test6">Refresh page multiple times - verify no loading screen stuck</label>
+        </div>
+        <div class="test-item">
+            <input type="checkbox" id="test7"> 
+            <label for="test7">Clear cache and localStorage - verify proper re-authentication</label>
+        </div>
+    </div>
+
+    <script>
+        function checkRBACStatus() {
+            const output = document.getElementById('status-output');
+            let html = '<div class="test-item">';
+            
+            if (typeof window.rbac !== 'undefined') {
+                html += '<div class="pass">✓ RBAC Manager is initialized</div>';
+                console.log('RBAC Manager:', window.rbac);
+            } else {
+                html += '<div class="fail">✗ RBAC Manager is NOT initialized</div>';
+            }
+            
+            if (typeof window.app !== 'undefined') {
+                html += '<div class="pass">✓ App instance is available</div>';
+            } else {
+                html += '<div class="fail">✗ App instance is NOT available</div>';
+            }
+            
+            if (typeof window.refreshSidebarRBAC !== 'undefined') {
+                html += '<div class="pass">✓ refreshSidebarRBAC function is available</div>';
+            } else {
+                html += '<div class="fail">✗ refreshSidebarRBAC function is NOT available</div>';
+            }
+            
+            html += '</div>';
+            output.innerHTML = html;
+        }
+
+        function checkCurrentUser() {
+            const output = document.getElementById('status-output');
+            let html = '<div class="test-item">';
+            
+            if (window.app && window.app.currentUser) {
+                const user = window.app.currentUser;
+                html += '<div class="pass">✓ User is authenticated</div>';
+                html += `<div><strong>Username:</strong> ${user.username}</div>`;
+                html += `<div><strong>Role:</strong> ${user.role} (${user.role_name})</div>`;
+                html += `<div><strong>Permissions:</strong> ${JSON.stringify(user.permissions)}</div>`;
+                console.log('Current User:', user);
+            } else {
+                html += '<div class="fail">✗ No user authenticated</div>';
+            }
+            
+            html += '</div>';
+            output.innerHTML = html;
+        }
+
+        function checkAllowedScreens() {
+            const output = document.getElementById('status-output');
+            let html = '<div class="test-item">';
+            
+            if (window.rbac) {
+                const screens = window.rbac.getAllowedScreens();
+                const role = window.rbac.getCurrentUserRole();
+                
+                html += `<div class="pass">✓ Current Role: ${role}</div>`;
+                html += `<div><strong>Allowed Screens:</strong></div>`;
+                html += '<ul>';
+                screens.forEach(screen => {
+                    html += `<li>${screen}</li>`;
+                });
+                html += '</ul>';
+                
+                console.log('Allowed Screens:', screens);
+            } else {
+                html += '<div class="fail">✗ RBAC not initialized</div>';
+            }
+            
+            html += '</div>';
+            output.innerHTML = html;
+        }
+
+        function testSidebarButtons() {
+            const output = document.getElementById('sidebar-output');
+            let html = '<div class="test-item">';
+            
+            const buttons = document.querySelectorAll('.sidebar-btn[data-screen]');
+            
+            if (buttons.length === 0) {
+                html += '<div class="fail">✗ No sidebar buttons found</div>';
+            } else {
+                html += `<div class="pass">✓ Found ${buttons.length} sidebar buttons</div>`;
+                html += '<table style="width: 100%; margin-top: 10px;">';
+                html += '<tr><th>Screen</th><th>Visible</th><th>Should Be Visible</th><th>Status</th></tr>';
+                
+                const allowedScreens = window.rbac ? window.rbac.getAllowedScreens() : [];
+                
+                buttons.forEach(btn => {
+                    const screen = btn.getAttribute('data-screen');
+                    const isVisible = btn.style.display !== 'none';
+                    const shouldBeVisible = allowedScreens.includes(screen);
+                    const status = isVisible === shouldBeVisible ? '✓ PASS' : '✗ FAIL';
+                    const statusClass = isVisible === shouldBeVisible ? 'pass' : 'fail';
+                    
+                    html += `<tr class="${statusClass}">`;
+                    html += `<td>${screen}</td>`;
+                    html += `<td>${isVisible ? 'Yes' : 'No'}</td>`;
+                    html += `<td>${shouldBeVisible ? 'Yes' : 'No'}</td>`;
+                    html += `<td>${status}</td>`;
+                    html += '</tr>';
+                });
+                
+                html += '</table>';
+            }
+            
+            html += '</div>';
+            output.innerHTML = html;
+        }
+
+        // Auto-run status check on load
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                checkRBACStatus();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>
