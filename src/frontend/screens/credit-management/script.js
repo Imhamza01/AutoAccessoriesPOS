@@ -16,28 +16,7 @@ class CreditManagementScreen {
 
     init() {
         console.log('[CreditManagement] Initializing Credit Management Screen');
-        // Initialize on-screen debug panel for easier troubleshooting
-        try {
-            this._initDebugPanel();
-        } catch (e) {
-            console.warn('[CreditManagement] Failed to init debug panel', e);
-        }
 
-        // Mirror console logs into the debug panel for visibility
-        try {
-            const origLog = console.log.bind(console);
-            const origError = console.error.bind(console);
-            console.log = (...args) => {
-                try { this._debugWrite(args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')); } catch (e) {}
-                origLog(...args);
-            };
-            console.error = (...args) => {
-                try { this._debugWrite(args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '), true); } catch (e) {}
-                origError(...args);
-            };
-        } catch (e) {
-            // ignore
-        }
 
         try {
             this.setupEventListeners();
@@ -47,43 +26,7 @@ class CreditManagementScreen {
         }
     }
 
-    _initDebugPanel() {
-        // Create a small collapsible debug panel inside the credit management screen
-        const container = document.querySelector('#credit-management-screen') || document.querySelector('.credit-management-screen');
-        if (!container) return;
-        let panel = container.querySelector('#cm-debug');
-        if (panel) return;
-        panel = document.createElement('div');
-        panel.id = 'cm-debug';
-        panel.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:99999;max-width:420px;max-height:300px;overflow:auto;background:rgba(0,0,0,0.75);color:#fff;padding:8px;border-radius:6px;font-size:12px;box-shadow:0 2px 10px rgba(0,0,0,0.2);';
-        const header = document.createElement('div');
-        header.style.cssText = 'font-weight:bold;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center';
-        header.innerHTML = '<span>CreditMgmt Debug</span>';
-        const clearBtn = document.createElement('button');
-        clearBtn.textContent = 'Clear';
-        clearBtn.style.cssText = 'background:#eee;color:#000;border:none;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:11px';
-        clearBtn.addEventListener('click', () => { body.innerHTML = ''; });
-        header.appendChild(clearBtn);
-        const body = document.createElement('div');
-        body.id = 'cm-debug-body';
-        body.style.cssText = 'max-height:240px;overflow:auto;white-space:pre-wrap';
-        panel.appendChild(header);
-        panel.appendChild(body);
-        document.body.appendChild(panel);
-        this._debugBody = body;
-    }
 
-    _debugWrite(text, isError = false) {
-        try {
-            if (!this._debugBody) return;
-            const el = document.createElement('div');
-            el.textContent = `${new Date().toLocaleTimeString()} - ${text}`;
-            el.style.cssText = isError ? 'color:#ff8888;margin-bottom:6px' : 'color:#ccc;margin-bottom:6px';
-            this._debugBody.appendChild(el);
-            // keep scroll at bottom
-            this._debugBody.scrollTop = this._debugBody.scrollHeight;
-        } catch (e) {}
-    }
 
     setupEventListeners() {
         // Tab switching
@@ -238,7 +181,7 @@ class CreditManagementScreen {
             console.log('[CreditManagement] Requesting dashboard stats');
             const response = await this.api.get('/credit-management/credit-dashboard-stats');
             console.log('[CreditManagement] dashboard stats response:', response);
-            
+
             if (response && response.success && response.stats) {
                 document.getElementById('total-outstanding').textContent = this.app.formatCurrency(response.stats.total_outstanding_credit);
                 document.getElementById('todays-credit').textContent = this.app.formatCurrency(response.stats.todays_pending_credit);
@@ -255,7 +198,7 @@ class CreditManagementScreen {
             console.log('[CreditManagement] Requesting customers-with-credit for filters');
             const response = await this.api.get('/credit-management/customers-with-credit');
             console.log('[CreditManagement] customers-with-credit response:', response);
-            
+
             if (response && response.success) {
                 const customerFilter = document.getElementById('customer-filter');
                 const historyCustomerSelect = document.getElementById('history-customer-select');
@@ -343,7 +286,7 @@ class CreditManagementScreen {
             console.log('[CreditManagement] Requesting credit-sales URL:', url);
             const response = await this.api.get(url);
             console.log('[CreditManagement] credit-sales response:', response);
-            
+
             if (response && response.success) {
                 this.creditSales = response.credit_sales;
                 this.renderCreditSalesTable();
@@ -434,7 +377,7 @@ class CreditManagementScreen {
             console.log('[CreditManagement] Requesting customers-with-credit (credit-customers tab)');
             const response = await this.api.get('/credit-management/customers-with-credit');
             console.log('[CreditManagement] credit-customers response:', response);
-            
+
             if (response && response.success) {
                 this.creditCustomers = response.customers;
                 this.renderCreditCustomersTable();
@@ -528,7 +471,7 @@ class CreditManagementScreen {
             console.log('[CreditManagement] Requesting credit-payments URL:', url);
             const response = await this.api.get(url);
             console.log('[CreditManagement] credit-payments response:', response);
-            
+
             if (response && response.success) {
                 this.creditPayments = response.payments;
                 this.renderCreditPaymentsTable();
@@ -543,7 +486,7 @@ class CreditManagementScreen {
         // Load payments from customer payments endpoint
         try {
             const response = await this.api.get('/reports/pending-credit'); // Using pending-credit for now
-            
+
             // For now, we'll use a general payment history endpoint
             this.renderCreditPaymentsTable();
         } catch (error) {
@@ -796,7 +739,7 @@ class CreditManagementScreen {
             customerId: sale.customer_id,
             isSpecificSale: true
         });
-        
+
         document.body.appendChild(modal);
     }
 
@@ -809,7 +752,7 @@ class CreditManagementScreen {
             customerId: customer.id,
             isSpecificSale: false
         });
-        
+
         document.body.appendChild(modal);
     }
 
@@ -860,7 +803,7 @@ class CreditManagementScreen {
                 </div>
             </div>
         `;
-        
+
         // Store options for later use
         modal.dataset.options = JSON.stringify(options);
         // Make modal visible using the shared modal CSS
@@ -882,7 +825,7 @@ class CreditManagementScreen {
                     }
                 }
             }
-        } catch (e) {}
+        } catch (e) { }
 
         return modal;
     }
@@ -891,7 +834,7 @@ class CreditManagementScreen {
         try {
             const modal = document.getElementById('payment-modal');
             const options = JSON.parse(modal.dataset.options);
-            
+
             const amount = parseFloat(document.getElementById('payment-amount').value);
             const method = document.getElementById('payment-method').value;
             const notes = document.getElementById('payment-notes').value;
@@ -981,7 +924,7 @@ class CreditManagementScreen {
                 const contentEl = document.getElementById('sale-details-content');
                 if (titleEl) titleEl.textContent = sale.invoice_number || sale.invoiceNum || `#${id}`;
                 if (contentEl) contentEl.innerHTML = `<div style="padding:12px">Customer: ${sale.customer_name || 'N/A'}<br/>Total: ${this.app.formatCurrency(sale.grand_total || sale.total || 0)}</div>`;
-                try { if (typeof openModal === 'function') openModal('sale-details-modal'); else document.getElementById('sale-details-modal').style.display = 'flex'; } catch (e) {}
+                try { if (typeof openModal === 'function') openModal('sale-details-modal'); else document.getElementById('sale-details-modal').style.display = 'flex'; } catch (e) { }
 
             } catch (err) {
                 console.error('[CreditManagement] viewSaleDetails error:', err);
@@ -993,10 +936,10 @@ class CreditManagementScreen {
     viewCustomerCreditHistory(customerId) {
         // Switch to history tab and select the customer
         this.switchTab('credit-history');
-        
+
         const customerSelect = document.getElementById('history-customer-select');
         customerSelect.value = customerId;
-        
+
         // Trigger the change event to load history
         customerSelect.dispatchEvent(new Event('change'));
     }
@@ -1004,7 +947,7 @@ class CreditManagementScreen {
     async loadCustomerHistory(customerId) {
         try {
             this.app.showLoading('Loading customer history...');
-            
+
             const response = await this.api.get(`/credit-management/customer/${customerId}/credit-history`);
 
             if (response && response.success) {
@@ -1085,6 +1028,6 @@ try {
             if (btn.id === 'process-payment-btn' || btn.dataset && (btn.dataset.action || btn.dataset.saleId)) {
                 console.log('[CreditManagement][DEBUG] Button clicked:', { id: btn.id, action: btn.dataset && btn.dataset.action, saleId: btn.dataset && btn.dataset.saleId });
             }
-        } catch (err) {}
+        } catch (err) { }
     }, true);
-} catch (e) {}
+} catch (e) { }

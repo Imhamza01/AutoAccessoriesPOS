@@ -25,16 +25,24 @@ if (!window.ShopSettings) {
                 receiptMessage: 'Thank you for your business!',
                 gstRate: 0.17, // 17% GST
                 currency: 'PKR',
-                logoPath: null
+                logoPath: null,
+                logo_path: null // Add snake_case alias to match API/LocalStorage usage
             };
         }
 
         saveSettings(settings) {
-            this.settings = {...this.settings, ...settings};
+            this.settings = { ...this.settings, ...settings };
             localStorage.setItem('shop_settings', JSON.stringify(this.settings));
         }
 
         getSetting(key) {
+            // Handle logo path alias
+            if (key === 'logoPath' && !this.settings[key] && this.settings['logo_path']) {
+                return this.settings['logo_path'];
+            }
+            if (key === 'logo_path' && !this.settings[key] && this.settings['logoPath']) {
+                return this.settings['logoPath'];
+            }
             return this.settings[key];
         }
 

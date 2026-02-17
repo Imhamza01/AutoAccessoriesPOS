@@ -61,7 +61,7 @@ class PosScreen {
 
     async init() {
         console.log('Initializing POS Screen');
-        
+
         // Load shop settings module first
         try {
             await loadShopSettingsModule();
@@ -70,7 +70,7 @@ class PosScreen {
             console.error('Failed to load shop settings module:', error);
             // Continue initialization even if shop settings module fails to load
         }
-        
+
         try {
             await this.loadCategories();
             await this.loadProducts();
@@ -185,7 +185,7 @@ class PosScreen {
                 if (newBtn) {
                     newBtn.addEventListener('click', fn.bind(this));
                     // mark as bound so other binding helpers don't add duplicate listeners
-                    try { newBtn._posBound = true; } catch (e) {}
+                    try { newBtn._posBound = true; } catch (e) { }
                 }
             } else {
                 console.warn('POS Button not found:', id);
@@ -318,14 +318,14 @@ class PosScreen {
             if (categoryId) url += `?category_id=${categoryId}`;
 
             const response = await this.api.get(url);
-            
+
             if (response && response.success) {
                 this.products = response.products || response.data || [];
             } else {
                 console.error('Failed to load products:', response);
                 this.products = [];
             }
-            
+
             this.renderProducts();
         } catch (error) {
             console.error('Failed to load products:', error);
@@ -356,11 +356,11 @@ class PosScreen {
         container.innerHTML = productsToShow.map(product => `
             <div class="product-card" data-product-id="${product.id || product[0]}">
                 <div class="product-image">
-                    ${(product.image || product.image_path) ? 
-                        `<img src="${product.image || product.image_path}" 
+                    ${(product.image || product.image_path) ?
+                `<img src="${product.image || product.image_path}" 
                              alt="${product.name || product[1]}" 
-                             onerror="this.onerror=null; this.parentElement.innerHTML='📦'; this.style.display='none';">` : 
-                        '📦'}
+                             onerror="this.onerror=null; this.parentElement.innerHTML='📦'; this.style.display='none';">` :
+                '📦'}
                 </div>
                 <div class="product-name" title="${product.name || product[1]}">
                     ${product.name || product[1] || 'N/A'}
@@ -554,11 +554,11 @@ class PosScreen {
             cartItems.innerHTML = this.cart.map(item => `
                 <div class="cart-item">
                     <div class="cart-item-image">
-                       ${(item.product.image || item.product.image_path) ? 
-                           `<img src="${item.product.image || item.product.image_path}" 
+                       ${(item.product.image || item.product.image_path) ?
+                    `<img src="${item.product.image || item.product.image_path}" 
                                 width="40" 
-                                onerror="this.onerror=null; this.parentElement.innerHTML='📦'; this.style.display='none';">` : 
-                           '📦'}
+                                onerror="this.onerror=null; this.parentElement.innerHTML='📦'; this.style.display='none';">` :
+                    '📦'}
                     </div>
                     <div class="cart-item-details">
                         <div class="cart-item-name">${item.product.name || item.product[1]}</div>
@@ -604,7 +604,7 @@ class PosScreen {
             processBtn.disabled = this.cart.length === 0;
             processBtn.textContent = `Pay ${this.app.formatCurrency(total)}`;
         }
-        
+
         const checkoutBtn = document.getElementById('checkout-btn');
         if (checkoutBtn) {
             checkoutBtn.disabled = this.cart.length === 0;
@@ -615,10 +615,10 @@ class PosScreen {
     async loadCustomers() {
         try {
             const response = await this.api.get('/customers?limit=1000');
-            
+
             if (response && response.success) {
                 const customers = response.customers || response.data || [];
-                
+
                 // Ensure all customers have proper structure
                 return customers.map(customer => {
                     if (typeof customer === 'object' && customer !== null) {
@@ -647,15 +647,15 @@ class PosScreen {
         try {
             // Load customers
             const customers = await this.loadCustomers();
-            
+
             // Create modal elements
             const modalOverlay = document.createElement('div');
             modalOverlay.className = 'modal-overlay';
             modalOverlay.id = 'credit-payment-modal-overlay';
-            
+
             const modal = document.createElement('div');
             modal.className = 'modal';
-            
+
             // Header
             const header = document.createElement('div');
             header.className = 'modal-header';
@@ -667,11 +667,11 @@ class PosScreen {
             closeBtn.onclick = () => window.app.screens.pos.closeCreditPaymentModal();
             header.appendChild(title);
             header.appendChild(closeBtn);
-            
+
             // Body
             const body = document.createElement('div');
             body.className = 'modal-body';
-            
+
             // Create customer selection with search
             body.innerHTML = `
                 <div class="form-group">
@@ -722,7 +722,7 @@ class PosScreen {
                     <label for="credit-payment-notes">Notes:</label>
                     <textarea id="credit-payment-notes" class="input-field" placeholder="Enter payment notes" rows="3"></textarea>
                 </div>`;
-                                
+
             // Now populate customer select with options
             const customerSelectElement = body.querySelector('#credit-customer-select');
             if (customerSelectElement && customers.length > 0) {
@@ -734,22 +734,22 @@ class PosScreen {
                     customerSelectElement.appendChild(option);
                 });
             }
-                                
+
             // Add search functionality
             const searchInput = body.querySelector('#credit-customer-search');
             if (searchInput) {
                 searchInput.addEventListener('input', (e) => {
                     const searchTerm = e.target.value.toLowerCase();
                     const select = body.querySelector('#credit-customer-select');
-                                
+
                     // Clear current options except default
                     select.innerHTML = '<option value="">Select Customer</option>';
-                                
+
                     // Filter and add matching customers
                     customers.forEach(customer => {
                         const customerName = (customer.name || '').toLowerCase();
                         const customerPhone = (customer.phone || '').toLowerCase();
-                                    
+
                         if (customerName.includes(searchTerm) || customerPhone.includes(searchTerm)) {
                             const option = document.createElement('option');
                             option.value = customer.id;
@@ -760,7 +760,7 @@ class PosScreen {
                     });
                 });
             }
-                        
+
             // Footer
             const footer = document.createElement('div');
             footer.className = 'modal-footer';
@@ -774,16 +774,16 @@ class PosScreen {
             payBtn.onclick = () => window.app.screens.pos.processCreditPayment();
             footer.appendChild(cancelBtn);
             footer.appendChild(payBtn);
-            
+
             modal.appendChild(header);
             modal.appendChild(body);
             modal.appendChild(footer);
             modalOverlay.appendChild(modal);
-            
+
             // Add modal to document
             document.body.appendChild(modalOverlay);
             modalOverlay.style.display = 'flex';
-            
+
             // Add customer selection change handler to show current credit
             const customerSelect = body.querySelector('#credit-customer-select');
             if (customerSelect) {
@@ -794,14 +794,14 @@ class PosScreen {
                         this.app.showNotification(preselectedCustomer.name + "'s current credit: " + this.app.formatCurrency(preselectedCustomer.credit_used || 0), 'info');
                     }
                 }
-                
+
                 customerSelect.addEventListener('change', async () => {
                     const selectedCustomerId = parseInt(customerSelect.value);
                     if (selectedCustomerId) {
                         const selectedCustomer = customers.find(c => c.id == selectedCustomerId);
                         if (selectedCustomer) {
                             this.app.showNotification(selectedCustomer.name + "'s current credit: " + this.app.formatCurrency(selectedCustomer.credit_used || 0), 'info');
-                            
+
                             // Load pending credit sales for this customer
                             await this.loadPendingCreditSales(selectedCustomerId);
                         }
@@ -834,30 +834,30 @@ class PosScreen {
             this.app.showNotification('Error loading credit payment modal', 'error');
         }
     }
-    
+
     closeCreditPaymentModal() {
         const modal = document.getElementById('credit-payment-modal-overlay');
         if (modal) {
             modal.remove();
         }
     }
-    
+
     async processCreditPayment() {
         try {
             const customerId = parseInt(document.getElementById('credit-customer-select').value);
             const amount = parseFloat(document.getElementById('credit-payment-amount').value);
             const paymentMethod = document.getElementById('credit-payment-method').value;
             const notes = document.getElementById('credit-payment-notes').value;
-            
+
             if (!customerId) {
                 this.app.showNotification('Please select a customer', 'error');
                 return;
             }
-            
+
             // Check if specific sales are selected
             const specificSalesCheckbox = document.getElementById('pay-specific-sales-checkbox');
             let paymentData = {};
-            
+
             if (specificSalesCheckbox && specificSalesCheckbox.checked) {
                 // Process specific sales payment
                 const selectedSales = [];
@@ -867,12 +867,12 @@ class PosScreen {
                     const amt = parseFloat(checkbox.getAttribute('data-amount')) || 0;
                     totalSelectedAmount += amt;
                 });
-                
+
                 if (selectedSales.length === 0) {
                     this.app.showNotification('Please select at least one sale to pay', 'error');
                     return;
                 }
-                
+
                 paymentData = {
                     sale_ids: selectedSales,
                     amount: parseFloat(totalSelectedAmount.toFixed(2)),
@@ -885,7 +885,7 @@ class PosScreen {
                     this.app.showNotification('Please enter a valid payment amount', 'error');
                     return;
                 }
-                
+
                 paymentData = {
                     amount: amount,
                     payment_method: paymentMethod,
@@ -893,15 +893,15 @@ class PosScreen {
                     notes: notes || 'Credit payment received'
                 };
             }
-            
+
             this.app.showLoading('Processing credit payment...');
-            
+
             const response = await this.api.post('/customer-payments/' + customerId + '/payments', paymentData);
-            
+
             if (response.success) {
                 this.app.showNotification('Credit payment processed successfully', 'success');
                 this.closeCreditPaymentModal();
-                
+
                 // Update all relevant screens
                 if (window.app.screens.dashboard) {
                     window.app.screens.dashboard.refresh();
@@ -912,7 +912,7 @@ class PosScreen {
                 if (window.app.screens['credit-management']) {
                     window.app.screens['credit-management'].refresh();
                 }
-                
+
                 // Also refresh the current screen if it's showing credit sales
                 if (window.app.currentScreen === 'sales' || window.app.currentScreen === 'credit-management') {
                     // Force a data reload
@@ -958,10 +958,10 @@ class PosScreen {
         const modalOverlay = document.createElement('div');
         modalOverlay.className = 'modal-overlay';
         modalOverlay.id = 'payment-modal-overlay';
-        
+
         const modal = document.createElement('div');
         modal.className = 'payment-modal';
-        
+
         // Header
         const header = document.createElement('div');
         header.className = 'modal-header';
@@ -973,18 +973,18 @@ class PosScreen {
         closeBtn.onclick = () => window.app.screens.pos.closePaymentModal();
         header.appendChild(title);
         header.appendChild(closeBtn);
-        
+
         // Body with payment summary and inputs
         const body = document.createElement('div');
         body.className = 'modal-body';
-        
+
         // Customer selection
         const customerSelect = document.createElement('div');
         customerSelect.className = 'customer-selection';
-        
+
         // Load customers
         const customers = await this.loadCustomers();
-        
+
         let customerOptions = '<option value="">Walk-in Customer (No Account)</option>';
         customers.forEach(customer => {
             const selected = (this.selectedCustomerId && this.selectedCustomerId == customer.id) ? 'selected' : '';
@@ -992,7 +992,7 @@ class PosScreen {
             const customerPhone = customer.phone || customer.mobile || customer.contact || 'No Phone';
             customerOptions += '<option value="' + customer.id + '" ' + selected + '>' + customerName + ' (' + customerPhone + ')</option>';
         });
-        
+
         customerSelect.innerHTML = `
             <div class="input-group">
                 <label for="customer-search">Search Customer:</label>
@@ -1005,22 +1005,22 @@ class PosScreen {
                 </select>
             </div>
         `;
-        
+
         // Add search functionality to customer selection
         const searchInput = document.getElementById('customer-search');
         const selectElement = document.getElementById('customer-select');
-        
+
         if (searchInput && selectElement) {
             searchInput.addEventListener('input', (e) => {
                 const searchTerm = e.target.value.toLowerCase();
-                
+
                 // Recreate all options based on search term
                 selectElement.innerHTML = '<option value="">Walk-in Customer (No Account)</option>';
-                
+
                 customers.forEach(customer => {
                     const customerName = (customer.name || '').toLowerCase();
                     const customerPhone = (customer.phone || '').toLowerCase();
-                    
+
                     if (customerName.includes(searchTerm) || customerPhone.includes(searchTerm)) {
                         const option = document.createElement('option');
                         option.value = customer.id;
@@ -1031,17 +1031,17 @@ class PosScreen {
                 });
             });
         }
-        
+
         // Payment summary
         const summary = document.createElement('div');
         summary.className = 'payment-summary';
-        
+
         const summaryRows = [
             ['Subtotal:', this.app.formatCurrency(subtotal)],
             ['GST (' + (gstRate * 100).toFixed(0) + '%):', this.app.formatCurrency(tax)],
             ['Total:', this.app.formatCurrency(total)]
         ];
-        
+
         summaryRows.forEach(([label, value], index) => {
             const row = document.createElement('div');
             row.className = index === 2 ? 'summary-row total' : 'summary-row';
@@ -1053,17 +1053,17 @@ class PosScreen {
             row.appendChild(valueSpan);
             summary.appendChild(row);
         });
-        
+
         // Payment methods
         const methods = document.createElement('div');
         methods.className = 'payment-methods';
-        
+
         const paymentMethods = [
             { id: 'cash', label: 'Cash', checked: true },
             { id: 'card', label: 'Card', checked: false },
             { id: 'credit', label: 'Credit', checked: false }
         ];
-        
+
         paymentMethods.forEach(method => {
             const methodDiv = document.createElement('div');
             methodDiv.className = 'payment-method';
@@ -1080,11 +1080,11 @@ class PosScreen {
             methodDiv.appendChild(label);
             methods.appendChild(methodDiv);
         });
-        
+
         // Payment inputs
         const inputs = document.createElement('div');
         inputs.className = 'payment-inputs';
-        
+
         const amountGroup = document.createElement('div');
         amountGroup.className = 'input-group';
         const amountLabel = document.createElement('label');
@@ -1099,7 +1099,7 @@ class PosScreen {
         amountInput.placeholder = 'Enter amount';
         amountGroup.appendChild(amountLabel);
         amountGroup.appendChild(amountInput);
-        
+
         const changeGroup = document.createElement('div');
         changeGroup.className = 'input-group';
         const changeLabel = document.createElement('label');
@@ -1112,15 +1112,15 @@ class PosScreen {
         changeInput.readOnly = true;
         changeGroup.appendChild(changeLabel);
         changeGroup.appendChild(changeInput);
-        
+
         inputs.appendChild(amountGroup);
         inputs.appendChild(changeGroup);
-        
+
         body.appendChild(customerSelect);
         body.appendChild(summary);
         body.appendChild(methods);
         body.appendChild(inputs);
-        
+
         // Footer
         const footer = document.createElement('div');
         footer.className = 'modal-footer';
@@ -1134,23 +1134,23 @@ class PosScreen {
         completeBtn.onclick = () => window.app.screens.pos.completePayment();
         footer.appendChild(cancelBtn);
         footer.appendChild(completeBtn);
-        
+
         modal.appendChild(header);
         modal.appendChild(body);
         modal.appendChild(footer);
         modalOverlay.appendChild(modal);
-        
+
         // Add modal to document
         document.body.appendChild(modalOverlay);
         modalOverlay.style.display = 'flex';
-        
+
         // Add event listeners
         amountInput.addEventListener('input', () => {
             const amountTendered = parseFloat(amountInput.value) || 0;
             const change = amountTendered - total;
             changeInput.value = change >= 0 ? this.app.formatCurrency(change) : '0.00';
         });
-        
+
         // Trigger initial calculation
         amountInput.dispatchEvent(new Event('input'));
     }
@@ -1166,35 +1166,35 @@ class PosScreen {
         try {
             const paymentMethod = document.querySelector('input[name="payment-method"]:checked').value;
             const amountTendered = parseFloat(document.getElementById('amount-tendered').value) || 0;
-            
+
             // Validate payment
             const subtotal = this.cart.reduce((sum, item) => sum + item.total, 0);
             const gstRate = window.shopSettings ? window.shopSettings.getSetting('gstRate') || 0.17 : 0.17;
             const tax = subtotal * gstRate;
             const total = subtotal + tax;
-            
+
             if (amountTendered < total) {
                 this.app.showNotification('Amount tendered is less than total', 'error');
                 return;
             }
 
             this.app.showLoading('Processing Payment...');
-            
+
             // Calculate total discount amount from cart
             const totalOriginalSubtotal = this.cart.reduce((sum, item) => sum + (item.original_total || (item.price * item.quantity)), 0);
             const totalDiscount = Math.max(0, totalOriginalSubtotal - subtotal); // Ensure positive discount
-            
+
             // Get selected customer from the dropdown
             const customerSelect = document.getElementById('customer-select');
             const selectedCustomerId = customerSelect ? parseInt(customerSelect.value) || null : null;
-            
+
             // Validate credit sales for walk-in customers
             if (paymentMethod === 'credit' && !selectedCustomerId) {
                 this.app.showNotification('Walk-in customers cannot get items on credit. Customer must be registered first.', 'error');
                 this.app.hideLoading();
                 return;
             }
-            
+
             // Prepare payload matching backend expectations
             const saleData = {
                 customer_id: selectedCustomerId, // Use selected customer
@@ -1222,16 +1222,16 @@ class PosScreen {
                     payment_method: paymentMethod,
                     timestamp: new Date()
                 };
-                
+
                 this.app.showNotification('Sale completed!', 'success');
                 this.cart = [];
                 this.updateCartDisplay();
                 this.closePaymentModal();
                 this.refresh();
-                
+
                 // Print receipt
                 this.printReceipt();
-                
+
                 // Update all relevant screens
                 if (window.app.screens.dashboard) {
                     window.app.screens.dashboard.refresh();
@@ -1242,7 +1242,7 @@ class PosScreen {
                 if (window.app.screens['credit-management']) {
                     window.app.screens['credit-management'].refresh();
                 }
-                
+
                 // Also refresh the current screen if it's showing credit sales
                 if (window.app.currentScreen === 'sales' || window.app.currentScreen === 'credit-management') {
                     // Force a data reload
@@ -1274,17 +1274,17 @@ class PosScreen {
             this.app.showNotification('Cannot hold an empty cart', 'error');
             return;
         }
-        
+
         try {
             // Calculate totals
             const subtotal = this.cart.reduce((sum, item) => sum + item.total, 0);
             const gstRate = window.shopSettings ? window.shopSettings.getSetting('gstRate') || 0.17 : 0.17;
             const tax = subtotal * gstRate;
             const total = subtotal + tax;
-            
+
             // Load customers to show in the selection modal
             const customers = await this.loadCustomers();
-            
+
             // Show customer selection modal for hold sale
             this.showHoldSaleCustomerSelection(customers, total, subtotal, tax);
         } catch (error) {
@@ -1292,17 +1292,17 @@ class PosScreen {
             this.app.showNotification('Failed to prepare hold sale: ' + error.message, 'error');
         }
     }
-    
+
     // Hold Sale Customer Selection Modal
     showHoldSaleCustomerSelection(customers, total, subtotal, tax) {
         // Create customer selection modal for hold sale
         const modalOverlay = document.createElement('div');
         modalOverlay.className = 'modal-overlay';
         modalOverlay.id = 'hold-sale-customer-modal';
-        
+
         const modal = document.createElement('div');
         modal.className = 'modal';
-        
+
         // Header
         const header = document.createElement('div');
         header.className = 'modal-header';
@@ -1314,11 +1314,11 @@ class PosScreen {
         closeBtn.onclick = () => this.closeHoldSaleCustomerModal();
         header.appendChild(title);
         header.appendChild(closeBtn);
-        
+
         // Body
         const body = document.createElement('div');
         body.className = 'modal-body';
-        
+
         // Add customer search and selection
         body.innerHTML = `
         <div class="form-group">
@@ -1337,7 +1337,7 @@ class PosScreen {
             <div class="summary-row total"><span>Total:</span><span></span></div>
         </div>
     `;
-        
+
         // Populate customer select with options
         const customerSelectElement = body.querySelector('#hold-customer-select');
         if (customers.length > 0) {
@@ -1350,7 +1350,7 @@ class PosScreen {
                 customerSelectElement.appendChild(option);
             });
         }
-        
+
         // Add search functionality
         const searchInput = body.querySelector('#hold-customer-search');
         if (searchInput) {
@@ -1358,12 +1358,12 @@ class PosScreen {
                 const searchTerm = e.target.value.toLowerCase();
                 // Clear current options except default
                 customerSelectElement.innerHTML = '<option value="">Walk-in Customer (Held Sale Only)</option>';
-                
+
                 // Filter and add matching customers
                 customers.forEach(customer => {
                     const customerName = (customer.name || '').toLowerCase();
                     const customerPhone = (customer.phone || '').toLowerCase();
-                    
+
                     if (customerName.includes(searchTerm) || customerPhone.includes(searchTerm)) {
                         const option = document.createElement('option');
                         const customerNameDisplay = customer.name || customer.customer_name || customer.full_name || 'Unknown Customer';
@@ -1375,7 +1375,7 @@ class PosScreen {
                 });
             });
         }
-        
+
         // Update payment summary with actual values
         const summaryRows = body.querySelectorAll('.summary-row');
         if (summaryRows.length >= 3) {
@@ -1383,7 +1383,7 @@ class PosScreen {
             summaryRows[1].querySelector('span:last-child').textContent = this.app.formatCurrency(tax);
             summaryRows[2].querySelector('span:last-child').textContent = this.app.formatCurrency(total);
         }
-        
+
         // Footer
         const footer = document.createElement('div');
         footer.className = 'modal-footer';
@@ -1397,12 +1397,12 @@ class PosScreen {
         holdBtn.onclick = () => this.processHoldSaleWithCustomer();
         footer.appendChild(cancelBtn);
         footer.appendChild(holdBtn);
-        
+
         modal.appendChild(header);
         modal.appendChild(body);
         modal.appendChild(footer);
         modalOverlay.appendChild(modal);
-        
+
         // Add modal to document
         document.body.appendChild(modalOverlay);
         modalOverlay.style.display = 'flex';
@@ -1418,16 +1418,16 @@ class PosScreen {
     async processHoldSaleWithCustomer() {
         try {
             const selectedCustomerId = parseInt(document.getElementById('hold-customer-select').value) || null;
-            
+
             // Calculate totals again (as they were passed as parameters earlier)
             const subtotal = this.cart.reduce((sum, item) => sum + item.total, 0);
             const gstRate = window.shopSettings ? window.shopSettings.getSetting('gstRate') || 0.17 : 0.17;
             const tax = subtotal * gstRate;
             const total = subtotal + tax;
-            
+
             // Prepare sale data
             const saleData = {
-                ...(selectedCustomerId && {customer_id: selectedCustomerId}), // Only include customer_id if a customer is selected
+                ...(selectedCustomerId && { customer_id: selectedCustomerId }), // Only include customer_id if a customer is selected
                 total_amount: total,
                 subtotal: subtotal,
                 discount_amount: 0, // No discount applied in this flow
@@ -1443,20 +1443,20 @@ class PosScreen {
                     total_price: i.quantity * i.price
                 }))
             };
-            
+
             // Call the API to hold the sale
             const response = await this.api.post('/pos/hold-sale', saleData);
-            
+
             if (response.success) {
                 this.app.showNotification('Sale held successfully - Invoice: ' + response.invoice_number, 'success');
-                
+
                 // Clear the cart after holding the sale
                 this.cart = [];
                 this.updateCartDisplay();
             } else {
                 throw new Error(response.message || 'Failed to hold sale');
             }
-            
+
             this.closeHoldSaleCustomerModal();
         } catch (error) {
             console.error('Error processing hold sale:', error);
@@ -1467,10 +1467,10 @@ class PosScreen {
     async showShopSettings() {
         // First try to get settings from API (database)
         let settings = null;
-        
+
         try {
             const response = await this.app.api.get('/settings/shop');
-            
+
             if (response.success && response.settings) {
                 // Map API response fields to localStorage format
                 settings = {
@@ -1484,7 +1484,7 @@ class PosScreen {
                     // Try to preserve existing GST rate from localStorage if available, otherwise default to 0.17
                     gstRate: (window.shopSettings && window.shopSettings.getSetting('gstRate')) || 0.17
                 };
-                
+
                 // Also update localStorage to keep them in sync
                 if (window.shopSettings) {
                     window.shopSettings.saveSettings(settings);
@@ -1493,12 +1493,12 @@ class PosScreen {
         } catch (error) {
             console.warn('Could not fetch settings from API, using localStorage:', error);
         }
-        
+
         // Fallback to localStorage if API fails
         if (!settings && window.shopSettings) {
             settings = window.shopSettings.getAllSettings();
         }
-        
+
         // Final fallback to defaults
         if (!settings) {
             settings = {
@@ -1512,15 +1512,15 @@ class PosScreen {
                 currency: 'PKR'
             };
         }
-        
+
         // Create modal elements safely
         const modalOverlay = document.createElement('div');
         modalOverlay.className = 'modal-overlay';
         modalOverlay.id = 'shop-settings-modal-overlay';
-        
+
         const modal = document.createElement('div');
         modal.className = 'settings-modal';
-        
+
         // Header
         const header = document.createElement('div');
         header.className = 'modal-header';
@@ -1532,14 +1532,14 @@ class PosScreen {
         closeBtn.onclick = () => window.app.screens.pos.closeShopSettings();
         header.appendChild(title);
         header.appendChild(closeBtn);
-        
+
         // Body
         const body = document.createElement('div');
         body.className = 'modal-body';
-        
+
         const form = document.createElement('div');
         form.className = 'settings-form';
-        
+
         // Form fields
         const fields = [
             { id: 'shop-name-input', label: 'Shop Name:', type: 'text', value: settings.shopName, placeholder: 'Enter shop name' },
@@ -1550,7 +1550,7 @@ class PosScreen {
             { id: 'receipt-message', label: 'Receipt Message:', type: 'text', value: settings.receiptMessage, placeholder: 'Enter receipt message' },
             { id: 'gst-rate', label: 'GST Rate (%):', type: 'number', value: settings.gstRate * 100, placeholder: 'Enter GST rate', step: '0.01', min: '0', max: '100' }
         ];
-        
+
         fields.forEach(field => {
             const group = document.createElement('div');
             group.className = 'form-group';
@@ -1569,7 +1569,7 @@ class PosScreen {
             group.appendChild(input);
             form.appendChild(group);
         });
-        
+
         // Currency select
         const currencyGroup = document.createElement('div');
         currencyGroup.className = 'form-group';
@@ -1578,14 +1578,14 @@ class PosScreen {
         currencyLabel.textContent = 'Currency:';
         const currencySelect = document.createElement('select');
         currencySelect.id = 'currency';
-        
+
         const currencies = [
             { value: 'PKR', label: 'PKR (Pakistani Rupee)' },
             { value: 'USD', label: 'USD (US Dollar)' },
             { value: 'EUR', label: 'EUR (Euro)' },
             { value: 'GBP', label: 'GBP (British Pound)' }
         ];
-        
+
         currencies.forEach(currency => {
             const option = document.createElement('option');
             option.value = currency.value;
@@ -1593,13 +1593,13 @@ class PosScreen {
             option.selected = settings.currency === currency.value;
             currencySelect.appendChild(option);
         });
-        
+
         currencyGroup.appendChild(currencyLabel);
         currencyGroup.appendChild(currencySelect);
         form.appendChild(currencyGroup);
-        
+
         body.appendChild(form);
-        
+
         // Footer
         const footer = document.createElement('div');
         footer.className = 'modal-footer';
@@ -1613,24 +1613,24 @@ class PosScreen {
         saveBtn.onclick = () => window.app.screens.pos.saveShopSettings();
         footer.appendChild(cancelBtn);
         footer.appendChild(saveBtn);
-        
+
         modal.appendChild(header);
         modal.appendChild(body);
         modal.appendChild(footer);
         modalOverlay.appendChild(modal);
-        
+
         // Add modal to document
         document.body.appendChild(modalOverlay);
         modalOverlay.style.display = 'flex';
     }
-    
+
     closeShopSettings() {
         const modal = document.getElementById('shop-settings-modal-overlay');
         if (modal) {
             modal.remove();
         }
     }
-    
+
     async saveShopSettings() {
         const settings = {
             shopName: document.getElementById('shop-name-input').value,
@@ -1642,14 +1642,14 @@ class PosScreen {
             gstRate: parseFloat(document.getElementById('gst-rate').value) / 100,
             currency: document.getElementById('currency').value
         };
-        
+
         console.log('Saving shop settings:', settings); // Debug log
-        
+
         // Save to localStorage first
         if (window.shopSettings) {
             window.shopSettings.saveSettings(settings);
         }
-        
+
         // Also save to database via API
         try {
             const apiSettings = {
@@ -1662,10 +1662,10 @@ class PosScreen {
                 currency_symbol: settings.currency,
                 // Note: GST Rate is not saved to DB, only used locally
             };
-            
+
             const response = await this.app.api.put('/settings/shop', apiSettings);
             console.log('Save response:', response); // Debug log
-            
+
             if (response.success) {
                 this.app.showNotification('Shop settings saved successfully to both local storage and database!', 'success');
             } else {
@@ -1676,15 +1676,15 @@ class PosScreen {
             console.error('Error details:', error);
             this.app.showNotification('Settings saved locally but database sync failed: ' + error.message, 'warning');
         }
-        
+
         this.closeShopSettings();
     }
-    
+
     async showHeldSales() {
         try {
             this.app.showLoading('Loading held sales...');
             const response = await this.api.get('/pos/held-sales');
-            
+
             if (response.success && response.sales && response.sales.length > 0) {
                 this.displayHeldSalesModal(response.sales);
             } else {
@@ -1697,16 +1697,16 @@ class PosScreen {
             this.app.hideLoading();
         }
     }
-    
+
     displayHeldSalesModal(heldSales) {
         // Create modal elements safely
         const modalOverlay = document.createElement('div');
         modalOverlay.className = 'modal-overlay';
         modalOverlay.id = 'held-sales-modal-overlay';
-        
+
         const modal = document.createElement('div');
         modal.className = 'held-sales-modal';
-        
+
         // Header
         const header = document.createElement('div');
         header.className = 'modal-header';
@@ -1718,65 +1718,65 @@ class PosScreen {
         closeBtn.onclick = () => window.app.screens.pos.closeHeldSalesModal();
         header.appendChild(title);
         header.appendChild(closeBtn);
-        
+
         // Body
         const body = document.createElement('div');
         body.className = 'modal-body';
-        
+
         const salesList = document.createElement('div');
         salesList.className = 'held-sales-list';
-        
+
         heldSales.forEach(sale => {
             const saleItem = document.createElement('div');
             saleItem.className = 'held-sale-item';
-            
+
             const saleInfo = document.createElement('div');
             saleInfo.className = 'sale-info';
-            
+
             const saleId = document.createElement('div');
             saleId.className = 'sale-id';
             saleId.textContent = 'Invoice: ' + (sale.invoice_number || 'N/A');
-            
+
             const saleDate = document.createElement('div');
             saleDate.className = 'sale-date';
             saleDate.textContent = new Date(sale.created_at).toLocaleString();
-            
+
             const saleTotal = document.createElement('div');
             saleTotal.className = 'sale-total';
             saleTotal.textContent = 'Total: ' + this.app.formatCurrency(sale.grand_total || 0);
-            
+
             const saleItems = document.createElement('div');
             saleItems.className = 'sale-items';
             saleItems.textContent = 'Items: ' + (sale.total_items || sale.items_count || 0);
-            
+
             saleInfo.appendChild(saleId);
             saleInfo.appendChild(saleDate);
             saleInfo.appendChild(saleTotal);
             saleInfo.appendChild(saleItems);
-            
+
             const saleActions = document.createElement('div');
             saleActions.className = 'sale-actions';
-            
+
             const resumeBtn = document.createElement('button');
             resumeBtn.className = 'btn btn-primary';
             resumeBtn.textContent = 'Resume';
             resumeBtn.onclick = () => window.app.screens.pos.resumeHeldSale(sale.id);
-            
+
             const deleteBtn = document.createElement('button');
             deleteBtn.className = 'btn btn-danger';
             deleteBtn.textContent = 'Delete';
             deleteBtn.onclick = () => window.app.screens.pos.deleteHeldSale(sale.id);
-            
+
             saleActions.appendChild(resumeBtn);
             saleActions.appendChild(deleteBtn);
-            
+
             saleItem.appendChild(saleInfo);
             saleItem.appendChild(saleActions);
             salesList.appendChild(saleItem);
         });
-        
+
         body.appendChild(salesList);
-        
+
         // Footer
         const footer = document.createElement('div');
         footer.className = 'modal-footer';
@@ -1785,26 +1785,26 @@ class PosScreen {
         closeFooterBtn.textContent = 'Close';
         closeFooterBtn.onclick = () => window.app.screens.pos.closeHeldSalesModal();
         footer.appendChild(closeFooterBtn);
-        
+
         modal.appendChild(header);
         modal.appendChild(body);
         modal.appendChild(footer);
         modalOverlay.appendChild(modal);
-        
+
         // Add modal to document
         document.body.appendChild(modalOverlay);
         modalOverlay.style.display = 'flex';
     }
-    
+
     async resumeHeldSale(saleId) {
         try {
             this.app.showLoading('Loading held sale...');
             const response = await this.api.post('/pos/resume-sale/' + saleId);
-            
+
             if (response.success) {
                 // Clear current cart
                 this.cart = [];
-                
+
                 // Add items from held sale to current cart
                 response.items.forEach(item => {
                     const product = {
@@ -1814,12 +1814,12 @@ class PosScreen {
                         price: item.unit_price,
                         retail_price: item.unit_price
                     };
-                    
+
                     // Add item to cart
-                    const existingItem = this.cart.find(cartItem => 
+                    const existingItem = this.cart.find(cartItem =>
                         cartItem.product.id == product.id
                     );
-                    
+
                     if (existingItem) {
                         existingItem.quantity += item.quantity;
                         existingItem.total = existingItem.quantity * existingItem.price;
@@ -1833,7 +1833,7 @@ class PosScreen {
                         });
                     }
                 });
-                
+
                 this.updateCartDisplay();
                 this.closeHeldSalesModal();
                 this.app.showNotification('Held sale resumed successfully', 'success');
@@ -1847,21 +1847,21 @@ class PosScreen {
             this.app.hideLoading();
         }
     }
-    
+
     closeHeldSalesModal() {
         const modal = document.getElementById('held-sales-modal-overlay');
         if (modal) {
             modal.remove();
         }
     }
-    
+
     async deleteHeldSale(saleId) {
         if (!confirm('Are you sure you want to delete this held sale?')) return;
-        
+
         try {
             this.app.showLoading('Deleting held sale...');
             const response = await this.api.delete('/pos/held-sale/' + saleId);
-            
+
             if (response.success) {
                 this.app.showNotification('Held sale cancelled successfully', 'success');
                 // Close the modal and refresh the held sales list
@@ -1880,12 +1880,12 @@ class PosScreen {
             this.app.hideLoading();
         }
     }
-    
-    applyDiscount() { 
+
+    applyDiscount() {
         // Show discount modal instead of just notification
         this.showDiscountModal();
     }
-    
+
     showDiscountModal() {
         // Create discount modal HTML
         const modalHtml = `
@@ -1927,27 +1927,27 @@ class PosScreen {
         const discountOverlay = document.getElementById('discount-modal-overlay');
         if (discountOverlay) discountOverlay.style.display = 'flex';
     }
-    
+
     closeDiscountModal() {
         const modal = document.getElementById('discount-modal-overlay');
         if (modal) {
             modal.remove();
         }
     }
-    
+
     applyDiscountToCart() {
         const discountType = document.getElementById('discount-type').value;
         const discountValue = parseFloat(document.getElementById('discount-value').value) || 0;
-        
+
         if (discountValue <= 0) {
             this.app.showNotification('Please enter a valid discount value', 'error');
             return;
         }
-        
+
         // Calculate discount
         const subtotal = this.cart.reduce((sum, item) => sum + item.total, 0);
         let discountAmount = 0;
-        
+
         if (discountType === 'percentage') {
             if (discountValue > 100) {
                 this.app.showNotification('Percentage discount cannot exceed 100%', 'error');
@@ -1957,21 +1957,21 @@ class PosScreen {
         } else { // fixed amount
             discountAmount = Math.min(discountValue, subtotal); // Can't discount more than the total
         }
-        
+
         // Apply discount to cart items proportionally
         const totalBeforeDiscount = subtotal;
         const discountRatio = (totalBeforeDiscount - discountAmount) / totalBeforeDiscount;
-        
+
         this.cart.forEach(item => {
             // Store original total before discount
             if (item.original_total === undefined) {
                 item.original_total = item.price * item.quantity;
             }
-            
+
             item.discount = item.price * item.quantity * (1 - discountRatio); // Store discount per item
             item.total = item.price * item.quantity * discountRatio;
         });
-        
+
         this.updateCartDisplay();
         this.app.showNotification('Discount of ' + this.app.formatCurrency(discountAmount) + ' applied', 'success');
         this.closeDiscountModal();
@@ -1981,10 +1981,10 @@ class PosScreen {
             this.app.showNotification('Cart is empty', 'error');
             return;
         }
-        
+
         // Create receipt content
         const receiptContent = this.generateReceiptContent();
-        
+
         // Create a new window for printing
         const printWindow = window.open('', '_blank');
         printWindow.document.write(`
@@ -2070,191 +2070,170 @@ class PosScreen {
         `);
         printWindow.document.close();
         printWindow.focus();
-        
-        // Wait for content to load then print
-        printWindow.onload = function() {
-            printWindow.print();
-            printWindow.close();
+
+        // Wait for content and images to load then print
+        printWindow.onload = function () {
+            const images = printWindow.document.getElementsByTagName('img');
+            if (images.length > 0) {
+                let loaded = 0;
+                const checkPrint = () => {
+                    loaded++;
+                    if (loaded >= images.length) {
+                        setTimeout(() => {
+                            printWindow.print();
+                            printWindow.close();
+                        }, 500); // Extra delay for rendering
+                    }
+                };
+
+                for (let i = 0; i < images.length; i++) {
+                    if (images[i].complete) {
+                        checkPrint();
+                    } else {
+                        images[i].onload = checkPrint;
+                        images[i].onerror = checkPrint;
+                    }
+                }
+            } else {
+                printWindow.print();
+                printWindow.close();
+            }
         };
     }
-    
+
     generateReceiptContent() {
         const subtotal = this.cart.reduce((sum, item) => sum + item.total, 0);
         const gstRate = window.shopSettings ? window.shopSettings.getSetting('gstRate') || 0.17 : 0.17;
-        const tax = subtotal * gstRate; // Using configurable GST rate
+        const tax = subtotal * gstRate;
         const total = subtotal + tax;
-        
+
         // Get shop information from settings
+        let logoPath = window.shopSettings ? window.shopSettings.getSetting('logo_path') : null;
+
+        // Ensure logo path is absolute if it's relative
+        if (logoPath && logoPath.startsWith('/') && this.api && this.api.baseURL) {
+            const baseUrl = this.api.baseURL.endsWith('/') ? this.api.baseURL.slice(0, -1) : this.api.baseURL;
+            logoPath = `${baseUrl}${logoPath}`;
+        }
+
+        console.log('[POS] Receipt Logo Path:', logoPath);
+
         const shopInfo = {
             name: window.shopSettings ? window.shopSettings.getSetting('shopName') : 'Auto Accessories Shop',
             address: window.shopSettings ? window.shopSettings.getSetting('shopAddress') : '123 Main Street, City',
             phone: window.shopSettings ? window.shopSettings.getSetting('shopPhone') : '+92-300-1234567',
             message: window.shopSettings ? window.shopSettings.getSetting('receiptMessage') : 'Thank you for your business!',
-            taxNumber: window.shopSettings ? window.shopSettings.getSetting('taxNumber') : 'Tax ID: 123456789'
+            taxNumber: window.shopSettings ? window.shopSettings.getSetting('taxNumber') : 'Tax ID: 123456789',
+            logo_path: logoPath
         };
-        
+
         // Get current date and time
         const now = new Date();
         const dateStr = now.toLocaleDateString();
         const timeStr = now.toLocaleTimeString();
-        
-        // Create receipt container
-        const receiptDiv = document.createElement('div');
-        
-        // Header
-        const header = document.createElement('div');
-        header.className = 'receipt-header';
-        
-        const title = document.createElement('div');
-        title.className = 'receipt-title';
-        title.textContent = shopInfo.name;
-        
-        const subtitle = document.createElement('div');
-        subtitle.className = 'receipt-subtitle';
-        subtitle.textContent = shopInfo.address;
-        
-        const phoneDiv = document.createElement('div');
-        phoneDiv.className = 'receipt-details';
-        phoneDiv.textContent = 'Phone: ' + shopInfo.phone;
-        
-        const taxDiv = document.createElement('div');
-        taxDiv.className = 'receipt-details';
-        taxDiv.textContent = shopInfo.taxNumber;
-        
-        header.appendChild(title);
-        header.appendChild(subtitle);
-        header.appendChild(phoneDiv);
-        header.appendChild(taxDiv);
-        
-        // Date and receipt info
-        const dateDiv = document.createElement('div');
-        dateDiv.className = 'receipt-details';
-        dateDiv.textContent = 'Date: ' + dateStr + ' | Time: ' + timeStr;
-        
-        const receiptNumDiv = document.createElement('div');
-        receiptNumDiv.className = 'receipt-details';
-        receiptNumDiv.textContent = 'Receipt #: ' + Math.floor(100000 + Math.random() * 900000);
-        
-        // Items
-        const itemsDiv = document.createElement('div');
-        itemsDiv.className = 'items';
-        
-        // Add items
-        this.cart.forEach(item => {
-            const itemDiv = document.createElement('div');
-            itemDiv.className = 'item';
-            
-            const nameSpan = document.createElement('span');
-            nameSpan.className = 'item-name';
-            nameSpan.textContent = item.product.name || item.product[1] || 'N/A';
-            
-            const qtySpan = document.createElement('span');
-            qtySpan.className = 'item-qty';
-            qtySpan.textContent = item.quantity + 'x';
-            
-            const priceSpan = document.createElement('span');
-            priceSpan.className = 'item-price';
-            priceSpan.textContent = this.app.formatCurrency(item.price);
-            
-            itemDiv.appendChild(nameSpan);
-            itemDiv.appendChild(qtySpan);
-            itemDiv.appendChild(priceSpan);
-            itemsDiv.appendChild(itemDiv);
-        });
-        
-        // Total section
-        const totalSection = document.createElement('div');
-        totalSection.className = 'total-section';
-        
-        const subtotalRow = document.createElement('div');
-        subtotalRow.className = 'total-row';
-        const subtotalLabel = document.createElement('span');
-        subtotalLabel.textContent = 'Subtotal:';
-        const subtotalValue = document.createElement('span');
-        subtotalValue.textContent = this.app.formatCurrency(subtotal);
-        subtotalRow.appendChild(subtotalLabel);
-        subtotalRow.appendChild(subtotalValue);
-        
-        const gstRow = document.createElement('div');
-        gstRow.className = 'total-row';
-        const gstLabel = document.createElement('span');
-        gstLabel.textContent = 'GST (' + (gstRate * 100).toFixed(0) + '%):';
-        const gstValue = document.createElement('span');
-        gstValue.textContent = this.app.formatCurrency(tax);
-        gstRow.appendChild(gstLabel);
-        gstRow.appendChild(gstValue);
-        
-        const totalRow = document.createElement('div');
-        totalRow.className = 'total-row';
-        const totalLabel = document.createElement('span');
-        totalLabel.textContent = 'Total:';
-        const totalValue = document.createElement('span');
-        totalValue.textContent = this.app.formatCurrency(total);
-        totalRow.appendChild(totalLabel);
-        totalRow.appendChild(totalValue);
-        
-        totalSection.appendChild(subtotalRow);
-        totalSection.appendChild(gstRow);
-        totalSection.appendChild(totalRow);
-        
-        // Add payment details if available
-        if (this.lastPaymentDetails) {
-            const paidRow = document.createElement('div');
-            paidRow.className = 'total-row';
-            const paidLabel = document.createElement('span');
-            paidLabel.textContent = 'Amount Paid:';
-            const paidValue = document.createElement('span');
-            paidValue.textContent = this.app.formatCurrency(this.lastPaymentDetails.amount_tendered);
-            paidRow.appendChild(paidLabel);
-            paidRow.appendChild(paidValue);
-            
-            const changeRow = document.createElement('div');
-            changeRow.className = 'total-row';
-            const changeLabel = document.createElement('span');
-            changeLabel.textContent = 'Change:';
-            const changeValue = document.createElement('span');
-            changeValue.textContent = this.app.formatCurrency(this.lastPaymentDetails.change_amount);
-            changeRow.appendChild(changeLabel);
-            changeRow.appendChild(changeValue);
-            
-            totalSection.appendChild(paidRow);
-            totalSection.appendChild(changeRow);
-        }
-        
-        // Thank you message
-        const thankYou = document.createElement('div');
-        thankYou.className = 'thank-you';
-        thankYou.textContent = shopInfo.message;
-        
-        // Footer
-        const footer = document.createElement('div');
-        footer.className = 'receipt-footer';
-        const footerLine1 = document.createElement('div');
-        footerLine1.textContent = 'This is a computer generated receipt';
-        const footerLine2 = document.createElement('div');
-        footerLine2.textContent = 'Valid for warranty claims';
-        footer.appendChild(footerLine1);
-        footer.appendChild(footerLine2);
-        
-        // Assemble receipt
-        receiptDiv.appendChild(header);
-        receiptDiv.appendChild(dateDiv);
-        receiptDiv.appendChild(receiptNumDiv);
-        receiptDiv.appendChild(itemsDiv);
-        receiptDiv.appendChild(totalSection);
-        receiptDiv.appendChild(thankYou);
-        receiptDiv.appendChild(footer);
-        
-        return receiptDiv.outerHTML;
+        const receiptId = Math.floor(100000 + Math.random() * 900000);
+
+        // Build receipt HTML
+        return `
+        <div class="receipt-container" style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 10px; max-width: 300px; margin: 0 auto; color: #000;">
+            <div class="header" style="text-align: center; margin-bottom: 20px; border-bottom: 2px dashed #000; padding-bottom: 15px;">
+                ${shopInfo.logo_path ? `<img src="${shopInfo.logo_path}" style="max-height: 60px; max-width: 80%; margin-bottom: 10px;">` : ''}
+                <h2 style="margin: 0; font-size: 22px; font-weight: 800; text-transform: uppercase;">${shopInfo.name}</h2>
+                <div class="info" style="font-size: 13px; margin: 5px 0;">${shopInfo.address}</div>
+                <div class="info" style="font-size: 13px; margin: 5px 0;">Phone: ${shopInfo.phone}</div>
+                <div class="info" style="font-size: 13px; margin: 5px 0; font-weight: bold;">${shopInfo.taxNumber}</div>
+            </div>
+
+            <div class="meta" style="margin-bottom: 15px; font-size: 13px; display: flex; justify-content: space-between;">
+                <div>
+                    <div><strong>Date:</strong> ${dateStr}</div>
+                    <div><strong>Receipt #:</strong> ${receiptId}</div>
+                    ${this.selectedCustomerId ? `<div><strong>Customer:</strong> #${this.selectedCustomerId}</div>` : ''}
+                </div>
+                <div style="text-align: right;">
+                    <div><strong>Time:</strong> ${timeStr}</div>
+                    <div><strong>Cashier:</strong> Admin</div>
+                </div>
+            </div>
+
+            <div class="items-header" style="display: flex; border-bottom: 1px solid #000; padding-bottom: 5px; margin-bottom: 5px; font-weight: bold; font-size: 12px; text-transform: uppercase;">
+                <div style="flex: 2;">Item</div>
+                <div style="flex: 1; text-align: center;">Qty</div>
+                <div style="flex: 1; text-align: right;">Price</div>
+                <div style="flex: 1; text-align: right;">Total</div>
+            </div>
+
+            <div class="items-list" style="margin-bottom: 15px;">
+                ${this.cart.map(item => `
+                <div class="item-row" style="display: flex; margin-bottom: 8px; font-size: 13px; align-items: flex-start;">
+                    <div style="flex: 2; padding-right: 5px; word-break: break-all;">
+                        <span style="display: block; font-weight: 500;">${item.product.name}</span>
+                        ${item.product.product_code ? `<span style="display: block; font-size: 11px; color: #555;">${item.product.product_code}</span>` : ''}
+                    </div>
+                    <div style="flex: 1; text-align: center;">${item.quantity}</div>
+                    <div style="flex: 1; text-align: right;">${this.formatCompactCurrency(item.price)}</div>
+                    <div style="flex: 1; text-align: right; font-weight: 500;">${this.formatCompactCurrency(item.total)}</div>
+                </div>
+                `).join('')}
+            </div>
+
+            <div class="totals" style="border-top: 2px dashed #000; padding-top: 10px; margin-bottom: 20px;">
+                <div class="row" style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px;">
+                    <span>Subtotal</span>
+                    <span>${this.app.formatCurrency(subtotal)}</span>
+                </div>
+                <div class="row" style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; color: #555;">
+                    <span>GST/Tax (${(gstRate * 100).toFixed(0)}%)</span>
+                    <span>${this.app.formatCurrency(tax)}</span>
+                </div>
+                <div class="row total" style="display: flex; justify-content: space-between; font-size: 18px; font-weight: 900; margin-top: 10px; border-top: 1px solid #000; padding-top: 10px;">
+                    <span>GRAND TOTAL</span>
+                    <span>${this.app.formatCurrency(total)}</span>
+                </div>
+            </div>
+
+            ${this.lastPaymentDetails ? `
+            <div class="payment-details" style="background: #f0f0f0; padding: 10px; border-radius: 4px; font-size: 13px; margin-bottom: 20px;">
+                <div class="row" style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                    <span>Payment Method:</span>
+                    <span style="text-transform: capitalize; font-weight: bold;">${this.lastPaymentDetails.payment_method}</span>
+                </div>
+                <div class="row" style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                    <span>Amount Tendered:</span>
+                    <span>${this.app.formatCurrency(this.lastPaymentDetails.amount_tendered)}</span>
+                </div>
+                <div class="row" style="display: flex; justify-content: space-between; font-weight: bold;">
+                    <span>Change Due:</span>
+                    <span>${this.app.formatCurrency(this.lastPaymentDetails.change_amount)}</span>
+                </div>
+            </div>
+            ` : ''}
+
+            <div class="footer" style="text-align: center; font-size: 12px; margin-top: 30px; border-top: 1px dashed #ccc; padding-top: 15px;">
+                <div style="margin-bottom: 10px; font-weight: bold; font-size: 14px;">${shopInfo.message}</div>
+                <div style="margin-bottom: 5px;">NO RETURNS WITHOUT RECEIPT</div>
+                <div style="margin-bottom: 5px;">NO RETURNS ON ELECTRONIC ITEMS</div>
+                
+                <div class="barcode" style="margin: 15px auto; height: 40px; background: repeating-linear-gradient(90deg, #000 0, #000 2px, #fff 2px, #fff 4px); width: 80%; opacity: 0.8;"></div>
+                
+                <div style="font-size: 10px; color: #888;">Powered by AutoAccessoriesPOS</div>
+            </div>
+        </div>
+        `;
+    }
+
+    formatCompactCurrency(amount) {
+        // Simplified currency formatter for tight receipt spaces
+        return Number(amount).toLocaleString('en-PK');
     }
     addSelectedProduct() {
         if (this.selectedProduct) this.addProductToCart(this.selectedProduct);
     }
-    
+
     async loadPendingCreditSales(customerId) {
         try {
             const response = await this.api.get(`/customer-payments/${customerId}/pending-credits`);
-            
+
             if (response.success && response.pending_credits && response.pending_credits.length > 0) {
                 const pendingSalesList = document.getElementById('pending-sales-list');
                 if (pendingSalesList) {
@@ -2270,7 +2249,7 @@ class PosScreen {
                         </div>
                     `).join('');
                 }
-                
+
                 // Show the specific sales section
                 const specificSalesSection = document.getElementById('specific-sales-section');
                 if (specificSalesSection) {
@@ -2282,7 +2261,7 @@ class PosScreen {
                 if (specificSalesSection) {
                     specificSalesSection.style.display = 'none';
                 }
-                
+
                 // Show message if there are no pending sales
                 const pendingSalesList = document.getElementById('pending-sales-list');
                 if (pendingSalesList) {
@@ -2297,16 +2276,16 @@ class PosScreen {
             }
         }
     }
-    
+
     updateSelectedSalesAmount() {
         const checkboxes = document.querySelectorAll('input[name="selected-sales"]:checked');
         let totalAmount = 0;
-        
+
         checkboxes.forEach(checkbox => {
             // In a real implementation, we would get the sale details to calculate the exact amount
             // For now, we'll just indicate that sales are selected
         });
-        
+
         // Update UI to show selected sales count
         const generalPaymentSection = document.getElementById('general-payment-section');
         if (generalPaymentSection) {

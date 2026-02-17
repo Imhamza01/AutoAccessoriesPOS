@@ -199,19 +199,27 @@ async def create_sale(
             # Insert sale record
             cur.execute('''
                 INSERT INTO sales (
-                    invoice_number, invoice_date, customer_id,
-                    subtotal, discount_amount, tax_amount, shipping_charge,
-                    round_off, grand_total, amount_paid, balance_due,
+                    invoice_number, invoice_date, customer_id, customer_name,
+                    total_items, total_quantity, subtotal, discount_amount, discount_percent,
+                    gst_amount, gst_rate, additional_tax, withholding_tax,
+                    shipping_charge, round_off, grand_total, amount_paid, balance_due,
                     payment_method, payment_status, sale_type, sale_status,
-                    cashier_id, cashier_name, notes, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    cashier_id, cashier_name, notes, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 sale_data.get("invoice_number") or f"POS-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}",
                 sale_data.get("invoice_date") or datetime.datetime.now().isoformat(),
                 sale_data.get("customer_id"),
+                sale_data.get("customer_name"),
+                len(sale_data.get("items", [])),
+                sum(float(item.get("quantity", 0)) for item in sale_data.get("items", [])),
                 sale_data.get("subtotal", 0),
                 sale_data.get("discount_amount", 0),
-                sale_data.get("tax_amount", 0),
+                sale_data.get("discount_percent", 0),
+                sale_data.get("tax_amount", 0), # gst_amount
+                sale_data.get("tax_rate", 17.0), # gst_rate
+                sale_data.get("additional_tax", 0),
+                sale_data.get("withholding_tax", 0),
                 sale_data.get("shipping_charge", 0),
                 sale_data.get("round_off", 0),
                 sale_data.get("grand_total", 0),
@@ -224,6 +232,7 @@ async def create_sale(
                 current_user["id"],
                 current_user["full_name"],
                 sale_data.get("notes", ""),
+                datetime.datetime.now().isoformat(),
                 datetime.datetime.now().isoformat()
             ))
             
@@ -231,27 +240,37 @@ async def create_sale(
             
             # Insert sale items
             for item in sale_data["items"]:
+                # Calculate line profit (simplified as unit_price - cost_price * quantity)
+                cost = float(item.get("cost_price", 0))
+                price = float(item.get("unit_price", 0))
+                qty = float(item.get("quantity", 1))
+                line_total = float(item.get("total_amount", 0))
+                line_profit = (price - cost) * qty
+
                 cur.execute('''
                     INSERT INTO sale_items (
                         sale_id, product_id, variant_id, product_code,
                         product_name, barcode, quantity, unit_price,
-                        cost_price, discount_amount, tax_rate, tax_amount,
-                        total_amount, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        cost_price, discount_amount, discount_percent,
+                        gst_rate, gst_amount, line_total, line_profit,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     sale_id,
                     item.get("product_id"),
                     item.get("variant_id"),
-                    item.get("product_code"),
-                    item.get("product_name"),
+                    item.get("product_code", "N/A"),
+                    item.get("product_name", "Unknown Product"),
                     item.get("barcode"),
-                    item.get("quantity", 1),
-                    item.get("unit_price", 0),
-                    item.get("cost_price", 0),
+                    qty,
+                    price,
+                    cost,
                     item.get("discount_amount", 0),
+                    item.get("discount_percent", 0),
                     item.get("tax_rate", 0),
                     item.get("tax_amount", 0),
-                    item.get("total_amount", 0),
+                    line_total,
+                    line_profit,
                     datetime.datetime.now().isoformat()
                 ))
                 
@@ -262,7 +281,7 @@ async def create_sale(
                         SET current_stock = current_stock - ?,
                             last_stock_update = CURRENT_TIMESTAMP
                         WHERE id = ?
-                    ''', (item.get("quantity", 1), item.get("product_id")))
+                    ''', (qty, item.get("product_id")))
             
             # Update customer balance if credit sale
             if sale_data.get("payment_status") == "pending" and sale_data.get("customer_id"):

@@ -105,7 +105,7 @@ class AutoAccessoriesPOS {
             this.currentUser = userData;
             localStorage.setItem('user_data', JSON.stringify(userData));
             console.log('[App] Token refreshed, user data updated:', userData.username);
-            
+
             if (window.refreshSidebarRBAC) {
                 console.log('[App] Triggering sidebar RBAC refresh after token refresh');
                 setTimeout(window.refreshSidebarRBAC, 100);
@@ -135,7 +135,7 @@ class AutoAccessoriesPOS {
 
         try {
             console.log('[App] Initializing app...');
-            
+
             console.log('[App] Step 1: Loading app structure (header, sidebar)...');
             await this.loadAppStructure();
             console.log('[App] ✓ App structure loaded');
@@ -153,14 +153,14 @@ class AutoAccessoriesPOS {
             const urlParams = new URLSearchParams(window.location.search);
             const screenParam = urlParams.get('screen');
             const targetScreen = screenParam && this.isValidScreen(screenParam) ? screenParam : 'dashboard';
-            
+
             await this.loadScreen(targetScreen);
             console.log('[App] ✓ Screen loaded successfully');
 
             if (this.currentUser && this.currentUser.password_expired) {
                 console.warn('User password expired - notifying user instead of showing modal.');
                 this.showNotification('Your password has expired. Please change it from Settings.', 'warning', 10000);
-                
+
                 if (document.querySelectorAll('.modal-overlay[style*="flex"]').length > 0) {
                     document.querySelectorAll('.modal-overlay').forEach(modal => {
                         modal.style.display = 'none';
@@ -168,7 +168,7 @@ class AutoAccessoriesPOS {
                     console.warn('Closed existing modals to prevent stacking');
                 }
             }
-            
+
             clearTimeout(initTimeout);
             console.log('[App] ✓ Application initialization complete!');
         } catch (error) {
@@ -181,12 +181,12 @@ class AutoAccessoriesPOS {
     async loadAppStructure() {
         try {
             console.log('[App] ===== LOADING APP STRUCTURE =====');
-            
+
             // Load header component
             console.log('[App] Step 1A: Fetching header HTML...');
             const headerHtml = await this.loadTemplate('components/header/header.html');
             console.log('[App] Step 1B: Got header HTML, finding element...');
-            
+
             const headerEl = document.getElementById('app-header');
             if (!headerEl) {
                 throw new Error('CRITICAL: Header element #app-header not found in DOM!');
@@ -212,7 +212,7 @@ class AutoAccessoriesPOS {
             console.log('[App] Step 2B: Got sidebar HTML, finding element...');
             console.log('[App] Sidebar HTML length:', sidebarHtml.length);
             console.log('[App] Sidebar HTML preview:', sidebarHtml.substring(0, 200));
-            
+
             const sidebarEl = document.getElementById('app-sidebar');
             if (!sidebarEl) {
                 throw new Error('CRITICAL: Sidebar element #app-sidebar not found in DOM!');
@@ -220,7 +220,7 @@ class AutoAccessoriesPOS {
             console.log('[App] Step 2C: Setting sidebar innerHTML...');
             sidebarEl.innerHTML = sidebarHtml;
             console.log('[App] ✓ Sidebar loaded and inserted into DOM');
-            
+
             // Debug: Check if credit-management button is in the DOM after insertion
             const creditBtnAfterInsert = document.querySelector('[data-screen="credit-management"]');
             if (creditBtnAfterInsert) {
@@ -245,11 +245,11 @@ class AutoAccessoriesPOS {
             if (window.updateSidebarStatus) setInterval(() => { try { window.updateSidebarStatus(); } catch (e) {/*ignore*/ } }, 5000);
 
             if (window.refreshSidebarRBAC) {
-                try { 
+                try {
                     console.log('[App] Triggering initial RBAC filtering');
-                    window.refreshSidebarRBAC(); 
-                } catch (e) { 
-                    console.warn('refreshSidebarRBAC error', e); 
+                    window.refreshSidebarRBAC();
+                } catch (e) {
+                    console.warn('refreshSidebarRBAC error', e);
                 }
             } else {
                 console.warn('[App] refreshSidebarRBAC not available yet');
@@ -258,7 +258,7 @@ class AutoAccessoriesPOS {
             // Load modals component - LOAD JS FIRST to ensure functions are available
             console.log('[App] Step 3: Loading modals JavaScript...');
             await this.loadComponentScript('modals');
-            
+
             console.log('[App] Step 4: Loading modals HTML...');
             const modalsHtml = await this.loadTemplate('components/modals/modals.html');
             const modalContainer = document.getElementById('modal-container');
@@ -295,6 +295,10 @@ class AutoAccessoriesPOS {
             console.log('[App] Updating user info...');
             this.updateUserInfo();
 
+            // Update shop info
+            console.log('[App] Updating shop info...');
+            this.updateShopInfo();
+
             // Show main app
             console.log('[App] Step 3A: Finding main-app element...');
             const mainAppEl = document.getElementById('main-app');
@@ -309,7 +313,7 @@ class AutoAccessoriesPOS {
             console.error('[App] ===== FATAL ERROR IN loadAppStructure =====');
             console.error('[App] Error message:', error.message);
             console.error('[App] Stack:', error.stack);
-            
+
             // Make main app visible anyway and show error
             const mainAppEl = document.getElementById('main-app');
             if (mainAppEl) {
@@ -331,7 +335,7 @@ class AutoAccessoriesPOS {
                     `;
                 }
             }
-            
+
             throw error;
         }
     }
@@ -386,33 +390,111 @@ class AutoAccessoriesPOS {
         }
     }
 
-    updateUserInfo() {
-        if (!this.currentUser) return;
+    async updateUserInfo() {
+        if (this.currentUser) {
+            // Update header profile
+            const userNameEl = document.getElementById('logged-user');
+            const userRoleEl = document.getElementById('user-role');
+            const userInitialsEl = document.getElementById('user-initials');
 
-        // Update username in header
-        const userElement = document.getElementById('logged-user');
-        if (userElement) {
-            userElement.textContent = this.currentUser.full_name;
+            if (userNameEl) userNameEl.textContent = this.currentUser.full_name;
+            if (userRoleEl) userRoleEl.textContent = this.currentUser.role_name || this.currentUser.role;
+            if (userInitialsEl) {
+                const initials = this.currentUser.full_name
+                    .split(' ')
+                    .map(n => n[0])
+                    .join('')
+                    .toUpperCase()
+                    .slice(0, 2);
+                userInitialsEl.textContent = initials;
+            }
+
+            // Update dropdown
+            const dropdownName = document.getElementById('dropdown-user-name');
+            const dropdownRole = document.getElementById('dropdown-user-role');
+            if (dropdownName) dropdownName.textContent = this.currentUser.full_name;
+            if (dropdownRole) dropdownRole.textContent = this.currentUser.role_name || this.currentUser.role;
         }
-
-        // Update user role
-        const roleElement = document.getElementById('user-role');
-        if (roleElement) {
-            roleElement.textContent = this.currentUser.role_name || this.currentUser.role;
-        }
-
-        // Update shop name
-        this.updateShopInfo();
     }
 
     async updateShopInfo() {
         try {
-            // This would come from settings API
-            // For now, use default
-            const shopName = 'Auto Accessories Shop';
-            const shopElement = document.getElementById('shop-name');
-            if (shopElement) {
-                shopElement.textContent = shopName;
+            const response = await this.api.get('/settings/shop');
+            const settings = (response && response.settings) ? response.settings : response;
+
+            if (settings) {
+                // Update Shop Name in Header
+                const shopNameEl = document.getElementById('shop-name');
+                if (shopNameEl) shopNameEl.textContent = settings.shop_name || 'Auto Accessories POS';
+
+                // Update Logo in Header
+                const logoEl = document.getElementById('header-logo');
+                let fullLogoPath = settings.logo_path;
+
+                console.log('[App] Shop Name:', settings.shop_name);
+                console.log('[App] Raw logo path:', settings.logo_path);
+
+                if (settings.logo_path && settings.logo_path.startsWith('/') && this.api && this.api.baseURL) {
+                    // Remove trailing slash from baseURL if present to avoid double slash
+                    const baseUrl = this.api.baseURL.endsWith('/') ? this.api.baseURL.slice(0, -1) : this.api.baseURL;
+                    fullLogoPath = `${baseUrl}${settings.logo_path}`;
+                    console.log('[App] Resolved full logo path:', fullLogoPath);
+                }
+
+                if (logoEl) {
+                    if (fullLogoPath) {
+                        logoEl.src = fullLogoPath;
+                        logoEl.style.display = 'inline-block';
+                        console.log('[App] Set header logo src');
+                    } else {
+                        logoEl.style.display = 'none';
+                        console.log('[App] Hiding header logo (no path)');
+                    }
+                }
+
+                // Update global settings module for POS receipt
+                if (window.shopSettings && window.shopSettings.saveSettings) {
+                    const mappedSettings = {
+                        shopName: settings.shop_name,
+                        shopAddress: settings.shop_address,
+                        shopPhone: settings.shop_phone,
+                        shopEmail: settings.shop_email,
+                        taxNumber: settings.shop_tax_id, // shop_tax_id from API -> taxNumber in ShopSettings
+                        receiptMessage: settings.receipt_footer, // receipt_footer from API -> receiptMessage in ShopSettings
+                        currency: settings.currency,
+                        logo_path: fullLogoPath, // Use the full path we calculated
+                        gstRate: 0.17 // Default/Hardcoded for now as it might not be in settings table yet
+                    };
+                    window.shopSettings.saveSettings(mappedSettings);
+                    console.log('[App] Shop settings updated globally');
+                } else {
+                    // Fallback: Manually update localStorage so POS can pick it up
+                    try {
+                        let currentSettings = {};
+                        try {
+                            const saved = localStorage.getItem('shop_settings');
+                            if (saved) currentSettings = JSON.parse(saved);
+                        } catch (e) { /* ignore */ }
+
+                        const newSettings = {
+                            ...currentSettings,
+                            shopName: settings.shop_name,
+                            shopAddress: settings.shop_address,
+                            shopPhone: settings.shop_phone,
+                            shopEmail: settings.shop_email,
+                            taxNumber: settings.shop_tax_id,
+                            receiptMessage: settings.receipt_footer,
+                            currency: settings.currency,
+                            logo_path: fullLogoPath,
+                            // Preserve existing if not set above, or default
+                            gstRate: currentSettings.gstRate || 0.17
+                        };
+                        localStorage.setItem('shop_settings', JSON.stringify(newSettings));
+                        console.log('[App] Shop settings updated via localStorage fallback');
+                    } catch (e) {
+                        console.warn('Failed to save shop settings to localStorage', e);
+                    }
+                }
             }
         } catch (error) {
             console.error('Failed to load shop info:', error);
@@ -624,7 +706,7 @@ class AutoAccessoriesPOS {
                 console.log(`[App] Screen ${screenName} not in cache, fetching from server...`);
                 const response = await fetch(`screens/${screenName}/index.html`);
                 console.log(`[App] Fetch response status: ${response.status}`);
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: Failed to load screen HTML: screens/${screenName}/index.html`);
                 }
@@ -664,6 +746,11 @@ class AutoAccessoriesPOS {
             // Update browser title
             document.title = `${this.getScreenDisplayName(screenName)} - Auto Accessories POS`;
 
+            // Sync sidebar active state
+            if (window.setSidebarActiveScreen) {
+                window.setSidebarActiveScreen(screenName);
+            }
+
         } catch (error) {
             console.error(`[App] ===== FATAL ERROR LOADING SCREEN: ${screenName} =====`);
             console.error(`[App] Error:`, error.message);
@@ -699,24 +786,24 @@ class AutoAccessoriesPOS {
 
                     if (window[className]) {
                         try {
-                                const instance = new window[className](this);
-                                this.screens[screenName] = instance;
-                                // Also register under a camelCase short name so older inline
-                                // handlers (e.g. window.app.screens.creditManagement) continue
-                                // to work. Example: 'credit-management' -> 'creditManagement'
-                                try {
-                                    const short = className.replace(/Screen$/, '');
-                                    const shortCamel = short.charAt(0).toLowerCase() + short.slice(1);
-                                    this.screens[shortCamel] = instance;
-                                    // also expose on global window.app.screens for inline onclicks
-                                    try { if (window.app && window.app.screens) window.app.screens[shortCamel] = instance; } catch(e){}
-                                } catch (regErr) {
-                                    console.warn('Failed to register short screen name:', regErr);
-                                }
+                            const instance = new window[className](this);
+                            this.screens[screenName] = instance;
+                            // Also register under a camelCase short name so older inline
+                            // handlers (e.g. window.app.screens.creditManagement) continue
+                            // to work. Example: 'credit-management' -> 'creditManagement'
+                            try {
+                                const short = className.replace(/Screen$/, '');
+                                const shortCamel = short.charAt(0).toLowerCase() + short.slice(1);
+                                this.screens[shortCamel] = instance;
+                                // also expose on global window.app.screens for inline onclicks
+                                try { if (window.app && window.app.screens) window.app.screens[shortCamel] = instance; } catch (e) { }
+                            } catch (regErr) {
+                                console.warn('Failed to register short screen name:', regErr);
+                            }
 
-                                if (typeof instance.init === 'function') {
-                                    instance.init();
-                                }
+                            if (typeof instance.init === 'function') {
+                                instance.init();
+                            }
                         } catch (e) {
                             console.warn(`Screen ${screenName} initialization error:`, e);
                         }
@@ -789,7 +876,7 @@ class AutoAccessoriesPOS {
             'pos': 'PosScreen',
             'credit-management': 'CreditManagementScreen'
         };
-        
+
         if (specialCases[screenName]) {
             return specialCases[screenName];
         }
@@ -861,20 +948,20 @@ class AutoAccessoriesPOS {
         const notification = document.createElement('div');
         notification.id = id;
         notification.className = `notification ${type}`;
-        
+
         // Create elements safely to prevent XSS
         const iconSpan = document.createElement('span');
         iconSpan.className = 'notification-icon';
         iconSpan.textContent = type === 'success' ? '✓' : type === 'error' ? '✗' : type === 'warning' ? '⚠' : 'ℹ';
-        
+
         const messageSpan = document.createElement('span');
         messageSpan.textContent = message; // Safe text content
-        
+
         const closeBtn = document.createElement('button');
         closeBtn.className = 'notification-close';
         closeBtn.textContent = '×';
         closeBtn.onclick = () => window.POS.removeNotification(id);
-        
+
         notification.appendChild(iconSpan);
         notification.appendChild(messageSpan);
         notification.appendChild(closeBtn);
@@ -1249,7 +1336,7 @@ function showNotification(a, b, c) {
     }
 }
 
- 
+
 
 // ==================== INITIALIZATION ====================
 

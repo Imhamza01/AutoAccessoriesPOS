@@ -3,10 +3,14 @@ SHOP SETTINGS & CONFIGURATION API ENDPOINTS
 """
 
 import datetime
-from fastapi import APIRouter, HTTPException, Depends, Body
+from fastapi import APIRouter, HTTPException, Depends, Body, File, UploadFile
 from typing import Dict, Any, List
+import os
+import shutil
 import logging
 import sqlite3
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from core.auth import get_current_user, require_permission
 from core.database import get_database_manager
@@ -246,28 +250,225 @@ async def create_backup(
     """Create database backup."""
     try:
         db = get_database_manager()
+        backup_path = db.backup_database()
         
-        # This would use the DatabaseManager's backup method
-        # For now, just record in history
-        with db.get_cursor() as cur:
-            cur.execute("""
-                INSERT INTO backup_history (
-                    file_path, file_size, backup_type, status, created_at
-                ) VALUES (?, ?, ?, ?, ?)
-            """, (
-                f"backups/pos_main_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.db",
-                0,
-                "manual",
-                "completed",
-                datetime.datetime.now().isoformat()
-            ))
+        # Copy to local backups folder for user visibility
+        try:
+            local_backups = Path.cwd() / "backups"
+            local_backups.mkdir(exist_ok=True)
+            if backup_path and os.path.exists(backup_path):
+                 shutil.copy2(backup_path, local_backups / os.path.basename(backup_path))
+        except Exception as e:
+            logger.warning(f"Failed to copy backup to local folder: {e}")
         
         return {
             "success": True,
-            "message": "Backup created successfully"
+            "message": "Backup created successfully",
+            "file_path": backup_path
         }
     except Exception as e:
         logger.error(f"Failed to create backup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/backup/{backup_id}/restore", dependencies=[Depends(require_permission("settings.manage"))])
+async def restore_backup(
+    backup_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Restore database from backup ID."""
+    try:
+        db = get_database_manager()
+        
+        # Get backup path
+        with db.get_cursor() as cur:
+            cur.execute("SELECT file_path FROM backup_history WHERE id = ?", (backup_id,))
+            row = cur.fetchone()
+            
+        if not row:
+            raise HTTPException(status_code=404, detail="Backup not found")
+            
+        file_path = row[0]
+        
+        # Verify file exists
+        if not os.path.exists(file_path):
+             raise HTTPException(status_code=404, detail="Backup file not found on disk")
+             
+        # Perform restore
+        if db.restore_database(file_path):
+            return {
+                "success": True,
+                "message": "Database restored successfully. Please restart the application."
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Restore failed")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to restore backup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/backup/restore-from-file", dependencies=[Depends(require_permission("settings.manage"))])
+async def restore_from_file(
+    file_payload: Dict[str, str] = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Restore from a specific file path."""
+    try:
+        file_path = file_payload.get("file_path")
+        if not file_path:
+             raise HTTPException(status_code=400, detail="File path required")
+
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Backup file not found")
+            
+        db = get_database_manager()
+        if db.restore_database(file_path):
+             return {"success": True, "message": "Database restored successfully. Please restart the application."}
+        else:
+             raise HTTPException(status_code=500, detail="Restore failed")
+    except Exception as e:
+        logger.error(f"Restore failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/upload-logo", dependencies=[Depends(require_permission("settings.manage"))])
+async def upload_logo(
+    file_payload: Dict[str, str] = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Upload logo from local path (desktop) to app uploads."""
+    try:
+        file_path = file_payload.get("file_path")
+        if not file_path:
+            raise HTTPException(status_code=400, detail="File path required")
+            
+        source_path = Path(file_path)
+        if not source_path.exists():
+             raise HTTPException(status_code=404, detail="File not found")
+
+        db = get_database_manager()
+        destination_dir = db.app_data_path / "uploads"
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Determine target name
+        extension = source_path.suffix
+        if not extension:
+            extension = ".png" # Default
+            
+        target_name = f"shop_logo{extension}"
+        destination_path = destination_dir / target_name
+        
+        shutil.copy2(source_path, destination_path)
+        
+        # Update settings with relative path for frontend
+        logo_url = f"/uploads/{target_name}"
+        
+        with db.get_cursor() as cur:
+            # Check if exists to update or insert (though update_shop_settings handles insert, this is specific)
+            cur.execute("UPDATE shop_settings SET logo_path = ?, updated_at = ? WHERE id = (SELECT id FROM shop_settings LIMIT 1)", 
+                        (logo_url, datetime.datetime.now().isoformat()))
+            
+        return {"success": True, "logo_path": logo_url}
+    except Exception as e:
+        logger.error(f"Failed to upload logo: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/upload-logo-file", dependencies=[Depends(require_permission("settings.manage"))])
+async def upload_logo_file(
+    file: UploadFile = File(...),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Upload logo via multipart form data (Browser fallback)."""
+    try:
+        db = get_database_manager()
+        destination_dir = db.app_data_path / "uploads"
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Determine target name
+        filename = file.filename or "logo.png"
+        extension = Path(filename).suffix or ".png"
+        target_name = f"shop_logo{extension}"
+        destination_path = destination_dir / target_name
+        
+        # Save uploaded file
+        with open(destination_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Update settings
+        logo_url = f"/uploads/{target_name}"
+        
+        with db.get_cursor() as cur:
+            cur.execute("UPDATE shop_settings SET logo_path = ?, updated_at = ? WHERE id = (SELECT id FROM shop_settings LIMIT 1)", 
+                        (logo_url, datetime.datetime.now().isoformat()))
+            
+        return {"success": True, "logo_path": logo_url}
+    except Exception as e:
+        logger.error(f"Failed to upload logo file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/backup/restore-upload", dependencies=[Depends(require_permission("settings.manage"))])
+async def restore_backup_upload(
+    file: UploadFile = File(...),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Restore database from uploaded file (Browser fallback)."""
+    try:
+        # Save to temp file first
+        suffix = Path(file.filename).suffix if file.filename else ".db"
+        with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            shutil.copyfileobj(file.file, tmp)
+            tmp_path = tmp.name
+            
+        try:
+            db = get_database_manager()
+            if db.restore_database(tmp_path):
+                 return {"success": True, "message": "Database restored successfully. Please restart the application."}
+            else:
+                 raise HTTPException(status_code=500, detail="Restore failed")
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
+                    
+    except Exception as e:
+        logger.error(f"Restore upload failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/backup/factory-reset", dependencies=[Depends(require_permission("settings.manage"))])
+async def factory_reset(
+    confirmation: Dict[str, str] = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Perform Factory Reset.
+    Requires 'RESET' confirmation string.
+    """
+    try:
+        if confirmation.get("confirm", "").upper() != "RESET":
+            raise HTTPException(status_code=400, detail="Invalid confirmation code")
+            
+        db = get_database_manager()
+        
+        if db.factory_reset():
+            return {
+                "success": True,
+                "message": "Factory reset completed successfully. Application will now restart."
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Factory reset failed")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to perform factory reset: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
