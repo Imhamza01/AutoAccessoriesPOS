@@ -60,9 +60,6 @@ import sys
 import os
 from pathlib import Path
 
-# Add current directory to path
-sys.path.append(os.path.dirname(__file__))
-
 a = Analysis(
     ['src/desktop/main.py'],
     pathex=[],
@@ -77,14 +74,66 @@ a = Analysis(
         ('LICENSE', '.'),
     ],
     hiddenimports=[
+        # Core dependencies
         'fastapi',
+        'fastapi.routing',
+        'fastapi.middleware',
+        'fastapi.middleware.cors',
+        'fastapi.staticfiles',
         'uvicorn',
+        'uvicorn.logging',
+        'uvicorn.loops',
+        'uvicorn.loops.auto',
+        'uvicorn.protocols',
+        'uvicorn.protocols.http',
+        'uvicorn.protocols.http.auto',
+        'uvicorn.protocols.websockets',
+        'uvicorn.protocols.websockets.auto',
+        'uvicorn.lifespan',
+        'uvicorn.lifespan.on',
         'pywebview',
         'sqlite3',
+        
+        # Pydantic and validation
         'pydantic',
+        'pydantic.fields',
+        'pydantic.main',
+        'pydantic.types',
+        'pydantic_core',
         'typing_extensions',
-        'backends',
-        'backends.crypto',
+        
+        # SQLAlchemy
+        'sqlalchemy',
+        'sqlalchemy.ext',
+        'sqlalchemy.ext.declarative',
+        'sqlalchemy.orm',
+        'sqlalchemy.sql',
+        
+        # Starlette (FastAPI dependency)
+        'starlette',
+        'starlette.applications',
+        'starlette.middleware',
+        'starlette.middleware.cors',
+        'starlette.responses',
+        'starlette.routing',
+        'starlette.staticfiles',
+        
+        # Other required packages
+        'multipart',
+        'python_multipart',
+        'jose',
+        'passlib',
+        'passlib.handlers',
+        'passlib.handlers.bcrypt',
+        'bcrypt',
+        'cryptography',
+        'reportlab',
+        'PIL',
+        'openpyxl',
+        'qrcode',
+        'serial',
+        'pytz',
+        'dateutil',
     ],
     hookspath=[],
     hooksconfig={},
@@ -133,7 +182,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='assets/logo/icon.ico',
 )
 
 # For Windows, create single executable

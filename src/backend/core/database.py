@@ -1407,6 +1407,55 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Restore failed: {e}")
             return False
+
+    def factory_reset(self) -> bool:
+        """
+        Perform a factory reset of the database.
+        WARNING: This deletes all data and recreates the database with default values.
+        """
+        try:
+            logger.warning("INITIATING FACTORY RESET")
+            
+            # 1. Create a safety backup
+            self.backup_database(f"pre_reset_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+            
+            # 2. Close all connections
+            self.close_all_connections()
+            
+            # 3. Delete database file
+            if self.db_path.exists():
+                os.remove(self.db_path)
+                logger.info(f"Deleted database file: {self.db_path}")
+                
+            # 4. Reset initialization flag
+            self.initialized = False
+            
+            # 5. Re-initialize database (creates tables and default admin/settings)
+            self.initialize_database()
+            
+            # 6. Log the reset (in the new DB)
+            with self.get_cursor() as cursor:
+                cursor.execute('''
+                    INSERT INTO backup_history (backup_type, file_path, status, notes)
+                    VALUES (?, ?, ?, ?)
+                ''', (
+                    'system',
+                    'N/A',
+                    'success',
+                    'Factory Reset performed'
+                ))
+                
+            logger.info("Factory reset completed successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Factory reset failed: {e}")
+            # Try to recover if possible, or at least ensure we can start up
+            try:
+                self.initialize_database()
+            except:
+                pass
+            return False
     
     def get_database_info(self) -> Dict[str, Any]:
         """

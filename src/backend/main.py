@@ -116,6 +116,18 @@ async def health_check():
     }
 
 # Mount static files (mounted after routes so API endpoints like /health take precedence)
+# Initialize DatabaseManager to get paths
+from core.database import get_database_manager
+db_manager = get_database_manager()
+
+# Mount uploads directory for user content (logos, etc)
+# MUST be mounted before "/" catch-all to ensure it's matched first
+uploads_path = db_manager.app_data_path / "uploads"
+uploads_path.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(uploads_path)), name="uploads")
+logger.info(f"Mounted /uploads to {uploads_path}")
+
+# Mount static files (mounted after routes so API endpoints like /health take precedence)
 frontend_path = Path(__file__).parent.parent / "frontend"
 if frontend_path.exists():
     app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
@@ -128,12 +140,48 @@ async def startup_event():
     """Initialize database and other startup tasks."""
     try:
         # Initialize database
-        from core.database import get_database_manager
-        
-        # Use default path (roaming AppData) to access original data
-        db_manager = get_database_manager()
-        
         db_manager.initialize_database()
+        
+        # Ensure local backups directory exists (for user visibility)
+        local_backups = Path.cwd() / "backups"
+        local_backups.mkdir(exist_ok=True)
+        
+        # Perform Auto-Backup if not done today
+        try:
+            today_str = datetime.now().strftime("%Y%m%d")
+            backup_name = f"auto_startup_{today_str}"
+            
+            # Check if auto backup already exists in history for today
+            with db_manager.get_cursor() as cur:
+                cur.execute("""
+                    SELECT id FROM backup_history 
+                    WHERE backup_type = 'auto' 
+                    AND created_at LIKE ?
+                """, (f"{datetime.now().strftime('%Y-%m-%d')}%",))
+                exists = cur.fetchone()
+                
+            if not exists:
+                logger.info("Performing daily auto-backup...")
+                try:
+                    # Backup to internal appdata first
+                    internal_path_str = db_manager.backup_database(backup_name)
+                    
+                    # Also copy to local backups folder for user visibility
+                    if internal_path_str:
+                        import shutil
+                        internal_path = Path(internal_path_str)
+                        if internal_path.exists():
+                            shutil.copy2(internal_path, local_backups / f"{backup_name}.db")
+                            logger.info(f"Copied auto-backup to {local_backups}")
+                except Exception as e:
+                     logger.error(f"Backup copy failed: {e}")
+
+                logger.info("Daily auto-backup completed")
+                
+        except Exception as e:
+            logger.error(f"Auto-backup failed: {e}")
+            # Don't fail startup just because backup failed
+            
         logger.info("Application startup complete")
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")

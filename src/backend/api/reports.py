@@ -145,7 +145,8 @@ async def sales_summary(
                 query += " AND created_at <= ?"
                 params.append(end_date)
             
-            query += " GROUP BY DATE(created_at) ORDER BY date DESC"
+            # Use DATE(created_at) for grouping
+            query += " GROUP BY DATE(created_at) ORDER BY MAX(created_at) DESC"
             
             cur.execute(query, params)
             daily_sales = cur.fetchall()
@@ -250,7 +251,7 @@ async def customer_sales(
         db = get_database_manager()
         with db.get_cursor() as cur:
             query = """
-                SELECT c.id, c.name, COUNT(*) as transactions,
+                SELECT c.id, c.full_name, COUNT(*) as transactions,
                        SUM(s.grand_total) as total_spent
                 FROM sales s
                 LEFT JOIN customers c ON s.customer_id = c.id
@@ -410,117 +411,177 @@ async def sales_pdf(
     end_date: Optional[str] = Query(None),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Generate sales report PDF (per-sale rows)."""
+    """Generate professional sales report PDF."""
     if SimpleDocTemplate is None:
         raise HTTPException(status_code=500, detail="ReportLab is not installed on the server")
 
     try:
         db = get_database_manager()
         with db.get_cursor() as cur:
-            # omit invoice_number; join customers to show name
             query = """
                 SELECT s.created_at,
                        COALESCE(c.full_name, s.customer_id) as customer,
-                       s.grand_total, s.gst_amount, s.payment_method, s.payment_status, s.cashier_name
+                       s.grand_total, s.gst_amount, s.payment_method, s.payment_status, s.cashier_name, s.invoice_number
                 FROM sales s
                 LEFT JOIN customers c ON s.customer_id = c.id
                 WHERE s.sale_status != 'cancelled'
             """
             params = []
             if start_date:
-                query += " AND DATE(created_at) >= ?"
+                query += " AND DATE(s.created_at) >= ?"
                 params.append(start_date)
             if end_date:
-                query += " AND DATE(created_at) <= ?"
+                query += " AND DATE(s.created_at) <= ?"
                 params.append(end_date)
-            query += " ORDER BY created_at DESC"
+            query += " ORDER BY s.created_at DESC"
             cur.execute(query, params)
             rows = cur.fetchall()
 
         buffer = io.BytesIO()
-        # Leave extra top margin for header
-        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=80, bottomMargin=40)
+        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=30)
         elements = []
         styles = getSampleStyleSheet()
-        title = 'Sales Report'
+        
+        # Professional Colors
+        PRIMARY_COLOR = colors.HexColor("#2C3E50")  # Dark Blue/Grey
+        ACCENT_COLOR = colors.HexColor("#34495E")   # Slightly lighter
+        HEADER_BG = colors.HexColor("#ECF0F1")      # Light Grey for headers
+        
         shop_name, logo_path = _get_shop_info()
-        range_text = f"From: {start_date or 'Beginning'} To: {end_date or 'Now'}"
+        title = "SALES REPORT"
+        date_range = f"Period: {start_date or 'Start'} to {end_date or 'Present'}"
 
-        # Summary header inside body (header/footer will also show shop/title)
-        elements.append(Paragraph(title, styles['Heading2']))
-        elements.append(Paragraph(range_text, styles['Normal']))
-        elements.append(Spacer(1, 12))
+        # --- Professional Header ---
+        # We will use a Table for the header to align things perfectly
+        header_data = [
+            [shop_name, title],
+            ["Auto Parts & Accessories", date_range],
+            [datetime.datetime.now().strftime("Generated: %Y-%m-%d %H:%M"), f"Total Records: {len(rows)}"]
+        ]
+        
+        header_table = Table(header_data, colWidths=[doc.width/2.0, doc.width/2.0])
+        header_table.setStyle(TableStyle([
+            ('FONTNAME', (0,0), (0,0), 'Helvetica-Bold'), # Shop Name
+            ('FONTSIZE', (0,0), (0,0), 18),
+            ('TEXTCOLOR', (0,0), (0,0), PRIMARY_COLOR),
+            
+            ('FONTNAME', (1,0), (1,0), 'Helvetica-Bold'), # Report Title
+            ('FONTSIZE', (1,0), (1,0), 16),
+            ('ALIGN', (1,0), (1,-1), 'RIGHT'),
+            ('TEXTCOLOR', (1,0), (1,0), colors.grey),
+            
+            ('FONTSIZE', (0,1), (-1,-1), 10),
+            ('TEXTCOLOR', (0,1), (-1,-1), colors.darkgrey),
+            ('BOTTOMPADDING', (0,-1), (-1,-1), 10),
+            ('LINEBELOW', (0,-1), (-1,-1), 1, PRIMARY_COLOR),
+        ]))
+        elements.append(header_table)
+        elements.append(Spacer(1, 15))
 
-        # Build table data and compute totals (invoice number removed)
-        data = [["Date", "Customer", "Total", "GST", "Payment", "Status", "Cashier"]]
-        total_revenue = 0.0
-        total_gst = 0.0
-        # small paragraph style for table cells
-        small_style = ParagraphStyle('table_small', parent=styles['Normal'], fontSize=9, leading=11)
-        for r in rows:
+        # --- Summary Section ---
+        total_revenue = sum(float(r[2] or 0) for r in rows)
+        total_gst = sum(float(r[3] or 0) for r in rows)
+        avg_sale = total_revenue / len(rows) if rows else 0
+        
+        summary_data = [
+            ['Total Revenue', 'Total GST', 'Transactions', 'Avg. Sale Value'],
+            [_format_currency(total_revenue), _format_currency(total_gst), str(len(rows)), _format_currency(avg_sale)]
+        ]
+        
+        summary_table = Table(summary_data, colWidths=[doc.width/4.0]*4)
+        summary_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), ACCENT_COLOR),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,0), (-1,0), 10),
+            ('BOTTOMPADDING', (0,0), (-1,0), 8),
+            ('TOPPADDING', (0,0), (-1,0), 8),
+            
+            ('BACKGROUND', (0,1), (-1,1), HEADER_BG),
+            ('FONTNAME', (0,1), (-1,1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,1), (-1,1), 11),
+            ('TEXTCOLOR', (0,1), (-1,1), PRIMARY_COLOR),
+            ('BOTTOMPADDING', (0,1), (-1,1), 10),
+            ('TOPPADDING', (0,1), (-1,1), 10),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.white),
+        ]))
+        elements.append(summary_table)
+        elements.append(Spacer(1, 20))
+
+        # --- Data Table ---
+        # Headers: Date, Invoice #, Customer, Payment, Status, GST, Amount
+        data = [["Date", "Invoice", "Customer", "Payment", "Status", "GST", "Total"]]
+        
+        table_style = TableStyle([
+            # Header Row
+            ('BACKGROUND', (0,0), (-1,0), PRIMARY_COLOR),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('ALIGN', (0,0), (-1,0), 'CENTER'),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,0), (-1,0), 9),
+            ('BOTTOMPADDING', (0,0), (-1,0), 8),
+            ('TOPPADDING', (0,0), (-1,0), 8),
+            
+            # Data Rows
+            ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
+            ('FONTSIZE', (0,1), (-1,-1), 8),
+            ('ALIGN', (5,1), (6,-1), 'RIGHT'), # GST and Total align right
+            ('ALIGN', (0,1), (0,-1), 'CENTER'), # Date center
+            ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ])
+
+        # Prepare data rows
+        row_colors = [colors.white, colors.HexColor("#F8F9F9")] # Alternating colors
+        
+        for i, r in enumerate(rows):
             created_raw = r[0] or ''
-            created = _short_datetime(created_raw)
-            customer = r[1] or ''
+            created = _short_datetime(created_raw).split(' ')[0] # Just date
+            customer = r[1] or 'Guest'
             total = float(r[2] or 0)
             gst = float(r[3] or 0)
-            payment = r[4] or ''
-            status = r[5] or ''
-            cashier = r[6] or ''
-            total_revenue += total
-            total_gst += gst
+            payment = (r[4] or '').title()
+            status = (r[5] or '').title()
+            invoice = r[7] or '' # Added invoice number to query
+            
+            # Truncate customer name if too long
+            if len(customer) > 20:
+                customer = customer[:18] + ".."
+            
             data.append([
-                Paragraph(created, small_style),
-                Paragraph(str(customer), small_style),
-                Paragraph(_format_currency(total), small_style),
-                Paragraph(_format_currency(gst), small_style),
-                Paragraph(str(payment), small_style),
-                Paragraph(str(status), small_style),
-                Paragraph(str(cashier), small_style)
+                created,
+                invoice,
+                customer,
+                payment,
+                status,
+                f"{gst:,.0f}", # Simplified formatting for table
+                f"{total:,.0f}"
             ])
+            
+            # Row styling for alternating colors
+            bg_color = row_colors[i % 2]
+            table_style.add('BACKGROUND', (0, i+1), (-1, i+1), bg_color)
 
-        # Table styling
-        tbl = Table(data, repeatRows=1)
-        tbl.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#16a085')),
-            ('TEXTCOLOR',(0,0),(-1,0),colors.white),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0,0), (-1, -1), 9),
-            ('LEFTPADDING', (0,0), (-1,-1), 6),
-            ('RIGHTPADDING', (0,0), (-1,-1), 6),
-            ('TOPPADDING', (0,0), (-1,-1), 4),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-            ('ALIGN', (2,1), (3,-1), 'RIGHT'),
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ]))
+        # Columns: Date(12%), Invoice(15%), Customer(25%), Payment(10%), Status(10%), GST(10%), Total(18%)
+        col_widths = [
+            doc.width * 0.12,
+            doc.width * 0.18,
+            doc.width * 0.25,
+            doc.width * 0.10,
+            doc.width * 0.10,
+            doc.width * 0.10,
+            doc.width * 0.15
+        ]
+        
+        t = Table(data, colWidths=col_widths, repeatRows=1)
+        t.setStyle(table_style)
+        elements.append(t)
 
-        # set column widths to make table look balanced
-        try:
-            avail_width = A4[0] - doc.leftMargin - doc.rightMargin
-            # seven columns now (Date, Customer, Total, GST, Payment, Status, Cashier)
-            col_widths = [avail_width * w for w in (0.14, 0.22, 0.12, 0.08, 0.12, 0.12, 0.20)]
-            tbl = Table(data, colWidths=col_widths, repeatRows=1)
-        except Exception:
-            tbl = Table(data, repeatRows=1)
-
-        elements.append(tbl)
-        elements.append(Spacer(1, 12))
-
-        # Totals block
-        elements.append(Paragraph(f"Total Transactions: {len(rows)}", styles['Normal']))
-        elements.append(Paragraph(f"Total Revenue: {_format_currency(total_revenue)}", styles['Normal']))
-        elements.append(Paragraph(f"Total GST: {_format_currency(total_gst)}", styles['Normal']))
-
-        # Build PDF with header/footer
-        # attach logo path to doc so header renderer can draw it
-        try:
-            doc.logo_path = logo_path
-        except Exception:
-            doc.logo_path = None
-
-        doc.build(elements, onFirstPage=lambda c,d: _draw_header_footer(c, d, shop_name, title, range_text), onLaterPages=lambda c,d: _draw_header_footer(c, d, shop_name, title, range_text))
+        # Build
+        doc.build(elements)
         buffer.seek(0)
-        filename = f"sales_report_{start_date or 'all'}_{end_date or 'now'}.pdf"
+        filename = f"sales_report_{datetime.datetime.now().strftime('%Y%m%d')}.pdf"
         return StreamingResponse(buffer, media_type='application/pdf', headers={"Content-Disposition": f"attachment; filename={filename}"})
     except Exception as e:
         logger.error(f"Failed to generate sales PDF: {e}")

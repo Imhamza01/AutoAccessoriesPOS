@@ -20,6 +20,11 @@ sys.path.insert(0, str(backend_path))
 
 def check_requirements():
     """Check if all requirements are available."""
+    # When running as frozen executable, packages are embedded - skip check
+    if getattr(sys, 'frozen', False):
+        print("Running as frozen executable - packages embedded")
+        return True
+    
     try:
         import sqlite3
         import fastapi
@@ -84,6 +89,7 @@ def start_frontend():
             resizable=True,
             fullscreen=False,
             min_size=(1024, 768),
+            zoomable=True,
             js_api=js_api
         )
         
