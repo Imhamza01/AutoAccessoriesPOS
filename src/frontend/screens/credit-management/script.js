@@ -16,19 +16,65 @@ class CreditManagementScreen {
 
     init() {
         console.log('[CreditManagement] Initializing Credit Management Screen');
+        this._initRetries = 0;
+        this._tryInit();
+    }
 
+    _tryInit() {
+        const tabBtns = document.querySelectorAll(
+            '.credit-management-screen .tab-btn'
+        );
+        const container = document.querySelector('.credit-management-screen');
 
+        if ((!tabBtns || tabBtns.length === 0 || !container) && this._initRetries < 20) {
+            this._initRetries++;
+            console.log(`[CreditManagement] DOM not ready, retry ${this._initRetries}...`);
+            setTimeout(() => this._tryInit(), 50);
+            return;
+        }
+
+        if (!container) {
+            console.error('[CreditManagement] Screen container never found. Aborting.');
+            return;
+        }
+
+        console.log(`[CreditManagement] DOM ready after ${this._initRetries} retries.`);
         try {
             this.setupEventListeners();
-            this.loadInitialData();
+            // Ensure active tab is visually set
+            this.ensureActiveTab();
+            // Load data after a small delay to ensure DOM is fully rendered
+            setTimeout(() => {
+                this.loadInitialData();
+            }, 100);
         } catch (e) {
             console.error('[CreditManagement] Error initializing:', e);
         }
     }
 
+    ensureActiveTab() {
+        // Ensure the current tab button and pane are marked as active
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === this.currentTab);
+        });
+
+        document.querySelectorAll('.tab-pane').forEach(pane => {
+            pane.classList.toggle('active', pane.id === this.currentTab + '-tab');
+        });
+    }
+
 
 
     setupEventListeners() {
+        // Use document-level delegation for header buttons so they survive
+        // screen re-renders and cached screen revisits
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('#refresh-btn');
+            if (btn && document.querySelector('.credit-management-screen')) {
+                this.loadInitialData();
+            }
+        }, { capture: true });
+
         // Tab switching
         const tabButtons = document.querySelectorAll('.tab-btn');
         console.log('[CreditManagement] Attaching tab listeners to', tabButtons.length, 'buttons');
@@ -85,9 +131,6 @@ class CreditManagementScreen {
 
         const resetFiltersBtn = document.getElementById('reset-filters');
         if (resetFiltersBtn) resetFiltersBtn.addEventListener('click', () => this.resetFilters());
-
-        const refreshBtnEl = document.getElementById('refresh-btn');
-        if (refreshBtnEl) refreshBtnEl.addEventListener('click', () => this.loadInitialData());
 
         // Reconcile button
         const reconcileBtn = document.getElementById('reconcile-btn');
@@ -265,9 +308,37 @@ class CreditManagementScreen {
                 await this.loadCreditPayments();
                 break;
             case 'credit-history':
-                // History tab doesn't load data initially, waits for customer selection
+                // Populate history customer dropdown with credit customers
+                this._populateHistoryDropdown();
                 break;
         }
+    }
+
+    _populateHistoryDropdown() {
+        const select = document.getElementById('history-customer-select');
+        if (!select) return;
+
+        // Preserve current selection
+        const currentVal = select.value;
+
+        // Clear and rebuild options
+        select.innerHTML = '<option value="">-- Select a customer --</option>';
+
+        if (Array.isArray(this.creditCustomers) && this.creditCustomers.length > 0) {
+            this.creditCustomers.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = `${c.full_name} (Balance: ${this.app.formatCurrency(c.current_balance || 0)})`;
+                select.appendChild(opt);
+            });
+        } else {
+            // Try loading credit customers if not already loaded
+            this.loadCreditCustomers().then(() => this._populateHistoryDropdown());
+            return;
+        }
+
+        // Restore selection
+        if (currentVal) select.value = currentVal;
     }
 
     async loadCreditSales() {

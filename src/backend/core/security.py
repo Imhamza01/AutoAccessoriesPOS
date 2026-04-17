@@ -103,54 +103,58 @@ class SecurityMiddleware(BaseHTTPMiddleware):
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
-    Rate limiting middleware.
+    Rate limiting middleware for API endpoints.
     """
-    
-    def __init__(self, app, max_requests: int = 100, window_seconds: int = 60):
+    # API prefixes that should be rate limited
+    API_PREFIXES = [
+        '/auth', '/sales', '/products', '/customers',
+        '/credit-management', '/inventory', '/expenses',
+        '/pos', '/reports', '/users', '/settings',
+        '/customer-payments', '/printers'
+    ]
+
+    def __init__(self, app, max_requests: int = 1000, window_seconds: int = 60):
         super().__init__(app)
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self.requests = defaultdict(list)
         self.lock = threading.Lock()
-        
-        # Exclude these paths from rate limiting
-        self.excluded_paths = ["/health", "/auth/login"]
-    
+
     async def dispatch(self, request: Request, call_next):
-        try:
-            # Skip rate limiting for excluded paths
-            if any(request.url.path.startswith(path) for path in self.excluded_paths):
-                return await call_next(request)
-            
-            client_ip = request.client.host if request.client else "unknown"
-            
-            with self.lock:
-                now = time.time()
-                window_start = now - self.window_seconds
-                
-                # Clean old requests
-                self.requests[client_ip] = [
-                    req_time for req_time in self.requests[client_ip]
-                    if req_time > window_start
-                ]
-                
-                # Check rate limit
-                if len(self.requests[client_ip]) >= self.max_requests:
-                    logger.warning(f"Rate limit exceeded for IP: {client_ip}")
-                    raise HTTPException(
-                        status_code=429,
-                        detail="Too many requests. Please try again later."
-                    )
-                
-                # Add current request
-                self.requests[client_ip].append(now)
-            
+        path = request.url.path
+
+        # Only apply rate limiting to API endpoints
+        if not any(path.startswith(prefix) for prefix in self.API_PREFIXES):
             return await call_next(request)
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Rate limiting error: {e}")
+
+        # Exclude certain paths from rate limiting
+        excluded = ["/health", "/auth/login", "/auth/refresh", "/auth/logout"]
+        if any(path.startswith(p) for p in excluded):
             return await call_next(request)
+
+        client_ip = request.client.host if request.client else "unknown"
+
+        with self.lock:
+            now = time.time()
+            window_start = now - self.window_seconds
+
+            # Clean old requests
+            self.requests[client_ip] = [
+                t for t in self.requests[client_ip] if t > window_start
+            ]
+
+            # Check rate limit
+            if len(self.requests[client_ip]) >= self.max_requests:
+                logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+                raise HTTPException(
+                    status_code=429,
+                    detail="Too many requests. Please try again later."
+                )
+
+            # Add current request
+            self.requests[client_ip].append(now)
+
+        return await call_next(request)
 
 class CORSMiddleware(BaseHTTPMiddleware):
     """
@@ -187,6 +191,6 @@ middleware = {
     'security': SecurityMiddleware,
     'rate_limit': {
         'class': RateLimitMiddleware,
-        'config': {'max_requests': 200, 'window_seconds': 60}
+        'config': {'max_requests': 1000, 'window_seconds': 60}
     }
 }

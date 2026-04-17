@@ -1,203 +1,188 @@
 # src/desktop/main.py
 """
-MAIN DESKTOP LAUNCHER - Creates single executable with embedded Python
-No external dependencies required on user's machine
+Desktop launcher - bundles FastAPI backend + PyWebView frontend into one .exe
 """
 
 import os
 import sys
-import subprocess
 import threading
-import webbrowser
-from pathlib import Path
-import tkinter as tk
-from tkinter import messagebox
 import time
+import socket
+import traceback
+from pathlib import Path
 
-# Add backend to path
-backend_path = Path(__file__).parent.parent / "backend"
-sys.path.insert(0, str(backend_path))
+# ── Path resolution ──────────────────────────────────────────────────────────
+if getattr(sys, "frozen", False):
+    _BUNDLE = Path(sys._MEIPASS)
+    # In --windowed mode stdout/stderr are None; redirect to devnull to prevent
+    # any library from crashing on stream.write() or stream.isatty()
+    import io
+    if sys.stdout is None:
+        sys.stdout = io.StringIO()
+    if sys.stderr is None:
+        sys.stderr = io.StringIO()
+else:
+    _BUNDLE = Path(__file__).parent.parent
 
-def check_requirements():
-    """Check if all requirements are available."""
-    # When running as frozen executable, packages are embedded - skip check
-    if getattr(sys, 'frozen', False):
-        print("Running as frozen executable - packages embedded")
-        return True
-    
+BACKEND_PATH = _BUNDLE / "src" / "backend"
+FRONTEND_PATH = _BUNDLE / "src" / "frontend"
+
+# Put src/ on path so "backend.main" is importable as a package
+_SRC = str(_BUNDLE / "src")
+if _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
+
+# Also put backend/ on path for intra-backend relative imports (core, api, etc.)
+_BACK = str(BACKEND_PATH)
+if _BACK not in sys.path:
+    sys.path.insert(0, _BACK)
+
+# Tell backend/main.py where the frontend lives
+os.environ["FRONTEND_PATH"] = str(FRONTEND_PATH)
+
+# ── Tkinter helpers ───────────────────────────────────────────────────────────
+try:
+    import tkinter as tk
+    import tkinter.messagebox as _mb
+    _TK = True
+except ImportError:
+    tk = None
+    _TK = False
+
+
+def _show_error(title, msg):
     try:
-        import sqlite3
-        import fastapi
-        import uvicorn
-        import pywebview
-        return True
-    except ImportError as e:
-        print(f"Missing requirement: {e}")
-        return False
+        log_path = (Path(sys.executable).parent if getattr(sys, "frozen", False)
+                    else Path(__file__).parent) / "startup_error.log"
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write(f"{title}\n\n{msg}\n")
+    except Exception:
+        pass
+    if _TK:
+        _mb.showerror(title, msg[:2000])
+    else:
+        print(f"ERROR: {title}\n{msg}", file=sys.stderr)
 
-def start_backend():
-    """Start FastAPI backend server."""
+
+def _splash():
+    if not _TK:
+        return None, None
+    root = tk.Tk()
+    root.title("Auto Accessories POS")
+    root.geometry("400x220")
+    root.configure(bg="#0F172A")
+    root.overrideredirect(True)
+    root.update_idletasks()
+    x = (root.winfo_screenwidth() - 400) // 2
+    y = (root.winfo_screenheight() - 220) // 2
+    root.geometry(f"400x220+{x}+{y}")
+    tk.Label(root, text="Auto Accessories POS", font=("Arial", 20, "bold"),
+             fg="white", bg="#0F172A").pack(pady=40)
+    lbl = tk.Label(root, text="Starting server...", font=("Arial", 11),
+                   fg="#94A3B8", bg="#0F172A")
+    lbl.pack()
+    root.update()
+    return root, lbl
+
+
+# ── Backend server ────────────────────────────────────────────────────────────
+_server_error = None
+
+
+def _start_server():
+    global _server_error
     try:
-        from backend.main import app
         import uvicorn
-        
-        # Start server
+
+        # Import backend.main as a package (src/ is on sys.path).
+        # This avoids any collision with the desktop 'main' entry point.
+        import importlib
+        backend_mod = importlib.import_module("backend.main")
+        app = backend_mod.app
+
         uvicorn.run(
             app,
             host="127.0.0.1",
             port=8000,
             log_level="warning",
-            access_log=False
+            access_log=False,
+            log_config=None,  # prevents crash when stdout is None (--windowed exe)
         )
-    except Exception as e:
-        print(f"Failed to start backend: {e}")
-        raise
+    except Exception:
+        _server_error = traceback.format_exc()
 
-def start_frontend():
-    """Start desktop application with PyWebView."""
-    try:
-        import webview
-        
-        class JsApi:
-            def select_file(self, file_types="All files (*.*)"):
-                """Open file dialog and return selected path."""
-                try:
-                    active_window = webview.windows[0]
-                    # Format file_types for pywebview if needed, or pass as is
-                    # user might pass "Image Files (*.png;*.jpg)"
-                    # pywebview expects tuple of strings like ("Image Files (*.png;*.jpg)", "All files (*.*)")
-                    
-                    # For simplicity, we just pass the raw types
-                    result = active_window.create_file_dialog(
-                        webview.OPEN_DIALOG, 
-                        allow_multiple=False, 
-                        file_types=(file_types, "All files (*.*)")
-                    )
-                    return result[0] if result else None
-                except Exception as e:
-                    print(f"Error in select_file: {e}")
-                    return None
 
-        js_api = JsApi()
-        
-        # Create window
-        window = webview.create_window(
-            title="Auto Accessories POS System",
-            url="http://127.0.0.1:8000",
-            width=1366,
-            height=768,
-            resizable=True,
-            fullscreen=False,
-            min_size=(1024, 768),
-            zoomable=True,
-            js_api=js_api
-        )
-        
-        # Start webview
-        webview.start()
-        
-    except Exception as e:
-        print(f"Failed to start frontend: {e}")
-        raise
+def _wait_for_server(timeout=40):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _server_error:
+            return False
+        try:
+            with socket.create_connection(("127.0.0.1", 8000), timeout=1):
+                return True
+        except OSError:
+            time.sleep(0.5)
+    return False
 
-def show_splash_screen():
-    """Show splash screen while loading."""
-    splash = tk.Tk()
-    splash.title("Auto Accessories POS")
-    splash.geometry("400x300")
-    splash.configure(bg="#0F172A")
-    
-    # Center window
-    splash.update_idletasks()
-    width = splash.winfo_width()
-    height = splash.winfo_height()
-    x = (splash.winfo_screenwidth() // 2) - (width // 2)
-    y = (splash.winfo_screenheight() // 2) - (height // 2)
-    splash.geometry(f"{width}x{height}+{x}+{y}")
-    
-    # Add content
-    tk.Label(
-        splash,
-        text="Auto Accessories POS",
-        font=("Arial", 24, "bold"),
-        fg="white",
-        bg="#0F172A"
-    ).pack(pady=50)
-    
-    tk.Label(
-        splash,
-        text="Loading...",
-        font=("Arial", 12),
-        fg="#E5E7EB",
-        bg="#0F172A"
-    ).pack()
-    
-    # Progress bar
-    progress = tk.Frame(splash, bg="#1E293B", height=5)
-    progress.pack(fill=tk.X, padx=50, pady=50)
-    
-    def update_progress():
-        for i in range(100):
-            time.sleep(0.05)
-            # Update progress bar width
-            progress.config(width=int(i * 3))
-            splash.update()
-    
-    # Start progress update in thread
-    progress_thread = threading.Thread(target=update_progress)
-    progress_thread.daemon = True
-    progress_thread.start()
-    
-    return splash
 
+# ── PyWebView window ──────────────────────────────────────────────────────────
+def _open_window():
+    import webview
+
+    class Api:
+        def select_file(self, file_types="All files (*.*)"):
+            try:
+                result = webview.windows[0].create_file_dialog(
+                    webview.OPEN_DIALOG, allow_multiple=False,
+                    file_types=(file_types, "All files (*.*)")
+                )
+                return result[0] if result else None
+            except Exception:
+                return None
+
+    webview.create_window(
+        "Auto Accessories POS System",
+        url="http://127.0.0.1:8000",
+        width=1366, height=768,
+        resizable=True, min_size=(1024, 600),
+        zoomable=True,
+        js_api=Api()
+    )
+    webview.start(debug=False)
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    """Main entry point."""
-    print("Starting Auto Accessories POS System...")
-    
-    # Check if running from executable
-    if getattr(sys, 'frozen', False):
-        # Running as executable
-        base_path = Path(sys.executable).parent
-        os.chdir(base_path)
-    else:
-        # Running from source
-        base_path = Path(__file__).parent.parent
-    
-    # Show splash screen
-    splash = show_splash_screen()
-    
-    try:
-        # Check requirements
-        if not check_requirements():
+    splash, status_lbl = _splash()
+
+    def _update(msg):
+        if status_lbl:
+            try:
+                status_lbl.config(text=msg)
+                splash.update()
+            except Exception:
+                pass
+
+    _update("Starting backend server...")
+    t = threading.Thread(target=_start_server, daemon=True)
+    t.start()
+
+    ready = _wait_for_server(40)
+
+    if splash:
+        try:
             splash.destroy()
-            messagebox.showerror(
-                "Error",
-                "Required packages not found.\n"
-                "Please install requirements:\n"
-                "pip install fastapi uvicorn pywebview"
-            )
-            return
-        
-        # Start backend in separate thread
-        backend_thread = threading.Thread(target=start_backend)
-        backend_thread.daemon = True
-        backend_thread.start()
-        
-        # Wait for backend to start
-        time.sleep(3)
-        
-        # Close splash screen
-        splash.destroy()
-        
-        # Start frontend
-        start_frontend()
-        
-    except Exception as e:
-        splash.destroy()
-        messagebox.showerror(
-            "Startup Error",
-            f"Failed to start application:\n{str(e)}"
-        )
+        except Exception:
+            pass
+
+    if not ready:
+        err = _server_error or "Server did not respond within 40 seconds."
+        _show_error("Startup Error",
+                    f"Backend server failed to start.\n\n{err}")
+        return
+
+    _open_window()
+
 
 if __name__ == "__main__":
     main()

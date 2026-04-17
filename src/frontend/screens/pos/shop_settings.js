@@ -24,9 +24,16 @@ if (!window.ShopSettings) {
                 taxNumber: 'Tax ID: 123456789',
                 receiptMessage: 'Thank you for your business!',
                 gstRate: 0.17, // 17% GST
+                gstNumber: '',       // GST registration number
                 currency: 'PKR',
                 logoPath: null,
-                logo_path: null // Add snake_case alias to match API/LocalStorage usage
+                logo_path: null, // Add snake_case alias to match API/LocalStorage usage
+                receiptTheme: 'classic',   // 'classic' | 'modern' | 'minimal'
+                useRawPrint:  false,      // true = use ESC/POS raw byte path
+                showLogo:     true,
+                showHeader:   true,
+                showFooter:   true,
+                showBarcode:  true
             };
         }
 

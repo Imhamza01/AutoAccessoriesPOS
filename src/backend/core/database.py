@@ -268,15 +268,74 @@ class DatabaseManager:
                         ntn_number VARCHAR(100),
                         strn_number VARCHAR(100),
                         gst_number VARCHAR(100),
+                        gst_rate DECIMAL(5,4) DEFAULT 0.1700,
                         invoice_prefix VARCHAR(10) DEFAULT 'INV',
                         invoice_start_number INTEGER DEFAULT 1000,
                         receipt_footer TEXT,
                         logo_path VARCHAR(500),
                         currency_symbol VARCHAR(10) DEFAULT '₹',
+                        receipt_show_logo BOOLEAN DEFAULT 1,
+                        receipt_logo_size VARCHAR(20) DEFAULT 'medium',
+                        receipt_font_size VARCHAR(20) DEFAULT 'medium',
+                        receipt_show_header BOOLEAN DEFAULT 1,
+                        receipt_header_text TEXT,
+                        receipt_show_footer BOOLEAN DEFAULT 1,
+                        receipt_show_barcode BOOLEAN DEFAULT 0,
+                        receipt_show_tax_id BOOLEAN DEFAULT 1,
+                        receipt_show_customer BOOLEAN DEFAULT 1,
+                        receipt_terms TEXT,
+                        receipt_theme VARCHAR(20) DEFAULT 'modern',
+                        use_raw_print INTEGER DEFAULT 0,
+                        show_logo INTEGER DEFAULT 1,
+                        show_header INTEGER DEFAULT 1,
+                        show_footer INTEGER DEFAULT 1,
+                        show_barcode INTEGER DEFAULT 1,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                     ''')
+                    
+                    # Migration guard: add gst_rate column if it doesn't exist
+                    try:
+                        cursor.execute("ALTER TABLE shop_settings ADD COLUMN gst_rate DECIMAL(5,4) DEFAULT 0.1700")
+                    except Exception:
+                        pass  # Column already exists
+                    
+                    # Migration: add receipt customization columns
+                    receipt_columns = [
+                        ("receipt_show_logo", "BOOLEAN DEFAULT 1"),
+                        ("receipt_logo_size", "VARCHAR(20) DEFAULT 'medium'"),
+                        ("receipt_font_size", "VARCHAR(20) DEFAULT 'medium'"),
+                        ("receipt_show_header", "BOOLEAN DEFAULT 1"),
+                        ("receipt_header_text", "TEXT"),
+                        ("receipt_show_footer", "BOOLEAN DEFAULT 1"),
+                        ("receipt_show_barcode", "BOOLEAN DEFAULT 0"),
+                        ("receipt_show_tax_id", "BOOLEAN DEFAULT 1"),
+                        ("receipt_show_customer", "BOOLEAN DEFAULT 1"),
+                        ("receipt_terms", "TEXT")
+                    ]
+                    
+                    for col_name, col_type in receipt_columns:
+                        try:
+                            cursor.execute(f"ALTER TABLE shop_settings ADD COLUMN {col_name} {col_type}")
+                        except Exception:
+                            pass  # Column already exists
+                    
+                    # Migration: add receipt theme and print method columns
+                    new_receipt_columns = [
+                        "ALTER TABLE shop_settings ADD COLUMN receipt_theme VARCHAR(20) DEFAULT 'modern'",
+                        "ALTER TABLE shop_settings ADD COLUMN use_raw_print INTEGER DEFAULT 0",
+                        "ALTER TABLE shop_settings ADD COLUMN show_logo INTEGER DEFAULT 1",
+                        "ALTER TABLE shop_settings ADD COLUMN show_header INTEGER DEFAULT 1",
+                        "ALTER TABLE shop_settings ADD COLUMN show_footer INTEGER DEFAULT 1",
+                        "ALTER TABLE shop_settings ADD COLUMN show_barcode INTEGER DEFAULT 1"
+                    ]
+                    
+                    for col_sql in new_receipt_columns:
+                        try:
+                            cursor.execute(col_sql)
+                        except Exception:
+                            pass  # Column already exists
                     
                     # 3. CATEGORIES (For auto parts)
                     cursor.execute('''
@@ -575,7 +634,7 @@ class DatabaseManager:
                     CREATE TABLE IF NOT EXISTS sale_items (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         sale_id INTEGER NOT NULL,
-                        product_id INTEGER NOT NULL,
+                        product_id INTEGER,
                         variant_id INTEGER,
                         product_code VARCHAR(50) NOT NULL,
                         product_name VARCHAR(200) NOT NULL,

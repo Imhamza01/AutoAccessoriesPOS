@@ -5,14 +5,17 @@ MAIN FASTAPI APPLICATION - Updated
 
 import os
 import sys
+import mimetypes
 from pathlib import Path
 from datetime import datetime
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 import logging
 
-# Add current directory to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add backend directory to path for intra-package imports
+_backend_dir = str(Path(__file__).parent)
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
 
 from core.security import middleware
 from core.logger import setup_logging
@@ -28,6 +31,7 @@ from api.users import router as users_router
 from api.settings import router as settings_router
 from api.customer_payments import router as customer_payments_router
 from api.credit_management import router as credit_management_router
+from api.printers import router as printers_router
 
 # Setup logging
 setup_logging()
@@ -43,6 +47,10 @@ except ImportError as e:
 except Exception as e:
     logger.error(f"Error loading middleware: {e}")
     app_middleware = []
+
+# Add explicit MIME type configuration before creating the app
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
 
 app = FastAPI(
     title="Auto Accessories POS System",
@@ -103,6 +111,7 @@ app.include_router(users_router)
 app.include_router(settings_router)
 app.include_router(customer_payments_router)
 app.include_router(credit_management_router)
+app.include_router(printers_router)
 
 # Health check endpoint
 @app.get("/health")
@@ -115,20 +124,23 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
-# Mount static files (mounted after routes so API endpoints like /health take precedence)
-# Initialize DatabaseManager to get paths
-from core.database import get_database_manager
-db_manager = get_database_manager()
-
 # Mount uploads directory for user content (logos, etc)
 # MUST be mounted before "/" catch-all to ensure it's matched first
+from core.database import get_database_manager
+db_manager = get_database_manager()
 uploads_path = db_manager.app_data_path / "uploads"
 uploads_path.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(uploads_path)), name="uploads")
 logger.info(f"Mounted /uploads to {uploads_path}")
 
 # Mount static files (mounted after routes so API endpoints like /health take precedence)
-frontend_path = Path(__file__).parent.parent / "frontend"
+# When running as a frozen exe, FRONTEND_PATH env var is set by desktop/main.py
+_env_frontend = os.environ.get("FRONTEND_PATH")
+if _env_frontend and Path(_env_frontend).exists():
+    frontend_path = Path(_env_frontend)
+else:
+    frontend_path = Path(__file__).parent.parent / "frontend"
+
 if frontend_path.exists():
     app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
 else:

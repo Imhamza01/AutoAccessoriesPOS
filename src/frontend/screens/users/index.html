@@ -28,8 +28,12 @@
       <input type="hidden" id="user-id">
       <div class="form-group"><label>Username</label><input id="user-username" required></div>
       <div class="form-group"><label>Full Name</label><input id="user-fullname"></div>
-      <div class="form-group"><label>Role</label><select id="user-role"><option value="shop_boy">Shop Boy</option><option value="munshi">Munshi</option><option value="malik">Malik</option></select></div>
+       <div class="form-group"><label>Role</label><select id="user-role"><option value="shop_boy">Shop Boy</option><option value="stock_boy">Stock Boy</option><option value="munshi">Munshi</option><option value="malik">Malik</option></select></div>
       <div class="form-group"><label>Status</label><select id="user-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+      <div class="form-group" id="password-field">
+        <label>Password *</label>
+        <input type="password" id="user-password" required>
+      </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" onclick="document.getElementById('user-modal').style.display='none'">Cancel</button>
         <button type="submit" class="btn btn-primary">Save</button>

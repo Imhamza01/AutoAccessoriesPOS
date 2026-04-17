@@ -132,7 +132,14 @@ class SalesScreen {
         console.log('[Sales] Updating summary for', this.sales.length, 'sales');
         const today = new Date().toISOString().split('T')[0];
         const normalized = this.sales.map(s => this.normalizeSale(s));
-        const todaySales = normalized.filter(s => (s.date || '').toString().startsWith(today));
+        
+        const todaySales = normalized.filter(s => {
+            if (!s.date) return false;
+            const saleDate = new Date(s.date);
+            const saleDateStr = saleDate.toISOString().split('T')[0];
+            return saleDateStr === today;
+        });
+        
         const totalRevenue = todaySales.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
 
         const todayEl = document.getElementById('today-revenue');
@@ -143,10 +150,10 @@ class SalesScreen {
             todayEl.textContent = `PKR ${totalRevenue.toLocaleString()}`;
         }
         if (totalEl) {
-            totalEl.textContent = this.sales.length;
+            totalEl.textContent = todaySales.length;
         }
         if (avgEl) {
-            const avg = this.sales.length > 0 ? totalRevenue / this.sales.length : 0;
+            const avg = todaySales.length > 0 ? totalRevenue / todaySales.length : 0;
             avgEl.textContent = `PKR ${Math.floor(avg).toLocaleString()}`;
         }
     }
@@ -259,16 +266,34 @@ class SalesScreen {
     viewDetails(saleId) {
         console.log('[Sales] Viewing details for sale:', saleId);
         
-        // Find the sale in our loaded data
-        const sale = this.sales.find(s => s.id === saleId);
-        if (!sale) {
-            console.warn('[Sales] Sale not found in current data:', saleId);
-            showAlert('Error', 'Sale details not found');
-            return;
-        }
+        // Fetch full sale details from API
+        this.app.showLoading('Loading sale details...');
         
-        // Display the sale details in a modal
-        this.displaySaleDetailsModal(sale);
+        this.api.get(`/sales/${saleId}`).then(response => {
+            this.app.hideLoading();
+            
+            if (response && response.success && response.sale) {
+                this.displaySaleDetailsModal(response.sale);
+            } else {
+                // Fallback to local data
+                const sale = this.sales.find(s => s.id === saleId);
+                if (sale) {
+                    this.displaySaleDetailsModal(sale);
+                } else {
+                    showAlert('Error', 'Sale details not found');
+                }
+            }
+        }).catch(err => {
+            this.app.hideLoading();
+            console.error('[Sales] Error loading sale details:', err);
+            // Fallback to local data
+            const sale = this.sales.find(s => s.id === saleId);
+            if (sale) {
+                this.displaySaleDetailsModal(sale);
+            } else {
+                showAlert('Error', 'Sale details not found');
+            }
+        });
     }
 
     displaySaleDetailsModal(sale) {
@@ -390,6 +415,34 @@ class SalesScreen {
                     </div>
                 </div>
 
+                ${sale.items && sale.items.length > 0 ? `
+                <div class="details-section">
+                    <h4>Items Sold</h4>
+                    <table class="items-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Product</th>
+                                <th class="text-center">Qty</th>
+                                <th class="text-right">Unit Price</th>
+                                <th class="text-right">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${sale.items.map((item, idx) => `
+                                <tr>
+                                    <td>${idx + 1}</td>
+                                    <td>${this.escapeHtml(item.product_name || item.product || 'N/A')}</td>
+                                    <td class="text-center">${item.quantity || 0}</td>
+                                    <td class="text-right">PKR ${(Number(item.unit_price) || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })}</td>
+                                    <td class="text-right">PKR ${(Number(item.line_total) || Number(item.total_price) || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                ` : ''}
+
                 ${sale.notes ? `
                 <div class="details-section">
                     <h4>Notes</h4>
@@ -494,27 +547,44 @@ class SalesScreen {
                     color: #2c3e50;
                 }
 
-                .badge {
+.badge {
                     padding: 0.25rem 0.75rem;
                     border-radius: 0.25rem;
                     font-size: 0.8rem;
                     font-weight: 600;
                 }
-
-                .badge-success {
-                    background: #d5f4e6;
-                    color: #27ae60;
+                
+                .items-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-size: 0.9rem;
                 }
-
-                .badge-warning {
-                    background: #ffeaa7;
-                    color: #d63031;
+                
+                .items-table th {
+                    background: #f8f9fa;
+                    padding: 0.75rem;
+                    text-align: left;
+                    border-bottom: 2px solid #3498db;
+                    color: #2c3e50;
+                    font-weight: 600;
                 }
-
-                @media (max-width: 768px) {
-                    .details-grid {
-                        grid-template-columns: 1fr;
-                    }
+                
+                .items-table td {
+                    padding: 0.75rem;
+                    border-bottom: 1px solid #ecf0f1;
+                    color: #2c3e50;
+                }
+                
+                .items-table tbody tr:hover {
+                    background: #f8f9fa;
+                }
+                
+                .text-center {
+                    text-align: center;
+                }
+                
+                .text-right {
+                    text-align: right;
                 }
             </style>
         `;

@@ -9,6 +9,7 @@ import logging
 
 from core.auth import get_current_user, require_permission
 from core.database import get_database_manager
+from core.backup_manager import create_auto_backup
 
 router = APIRouter(prefix="/pos", tags=["pos"])
 logger = logging.getLogger(__name__)
@@ -63,7 +64,31 @@ async def create_pos_transaction(
             for item in transaction_data.get("items", []):
                 product_id = item.get("product_id")
                 quantity = item.get("quantity")
-                
+                is_custom = item.get("is_custom", False)
+
+                if is_custom or not product_id:
+                    # Custom item / service — no product lookup or stock deduction
+                    product_code = 'CUSTOM'
+                    product_name = item.get("product_name") or 'Custom Item'
+                    cost_price = 0
+                    unit_price = item.get("unit_price", 0)
+                    line_total = item.get("total_price", unit_price * quantity)
+                    line_profit = line_total  # no cost
+
+                    cur.execute("""
+                        INSERT INTO sale_items (
+                            sale_id, product_id, product_code, product_name,
+                            quantity, unit_price, cost_price,
+                            line_total, line_profit, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        sale_id, None, product_code, product_name,
+                        quantity, unit_price, cost_price,
+                        line_total, line_profit,
+                        datetime.datetime.now().isoformat(sep=' ')
+                    ))
+                    continue
+
                 # Fetch product details for the invoice
                 cur.execute("SELECT product_code, name, cost_price, current_stock FROM products WHERE id = ?", (product_id,))
                 product_row = cur.fetchone()
@@ -167,11 +192,18 @@ async def create_pos_transaction(
         return {
             "success": True,
             "message": "Transaction completed successfully",
-            "sale_id": sale_id
+            "sale_id": sale_id,
+            "invoice_number": invoice_number
         }
     except Exception as e:
         logger.error(f"Failed to create POS transaction: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Create automatic backup after successful transaction
+        try:
+            create_auto_backup()
+        except Exception as backup_error:
+            logger.error(f"Auto-backup failed: {backup_error}")
 
 
 @router.get("/barcode/{barcode}", dependencies=[Depends(require_permission("pos.sell"))])
@@ -382,7 +414,31 @@ async def hold_sale(
             for item in sale_data.get("items", []):
                 product_id = item.get("product_id")
                 quantity = item.get("quantity")
-                
+                is_custom = item.get("is_custom", False)
+
+                if is_custom or not product_id:
+                    # Custom item / service — no product lookup
+                    product_code = 'CUSTOM'
+                    product_name = item.get("product_name") or 'Custom Item'
+                    cost_price = 0
+                    unit_price = item.get("unit_price", 0)
+                    line_total = item.get("total_price", unit_price * quantity)
+                    line_profit = line_total
+
+                    cur.execute("""
+                        INSERT INTO sale_items (
+                            sale_id, product_id, product_code, product_name,
+                            quantity, unit_price, cost_price,
+                            line_total, line_profit, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        sale_id, None, product_code, product_name,
+                        quantity, unit_price, cost_price,
+                        line_total, line_profit,
+                        datetime.datetime.now().isoformat(sep=' ')
+                    ))
+                    continue
+
                 # Fetch product details for the invoice
                 cur.execute("SELECT product_code, name, cost_price FROM products WHERE id = ?", (product_id,))
                 product_row = cur.fetchone()

@@ -164,6 +164,20 @@ async def create_customer(
 
         db = get_database_manager()
         with db.get_cursor() as cur:
+            # Check if phone number already exists
+            phone = customer_data.get("phone")
+            if phone:
+                cur.execute("SELECT id FROM customers WHERE phone = ?", (phone,))
+                if cur.fetchone():
+                    raise HTTPException(status_code=400, detail="A customer with this phone number already exists")
+            
+            # Check if email already exists (if provided)
+            email = customer_data.get("email")
+            if email:
+                cur.execute("SELECT id FROM customers WHERE email = ?", (email,))
+                if cur.fetchone():
+                    raise HTTPException(status_code=400, detail="A customer with this email already exists")
+            
             cur.execute("""
                 INSERT INTO customers (
                     customer_code, full_name, phone, phone2, email, address, city, area, 
@@ -172,9 +186,9 @@ async def create_customer(
             """, (
                 customer_data.get("customer_code") or f"CUST-{int(datetime.datetime.now().timestamp())}",
                 customer_data.get("name") or customer_data.get("full_name"),
-                customer_data.get("phone"),
+                phone,
                 customer_data.get("phone2"),
-                customer_data.get("email"),
+                email,
                 customer_data.get("address"),
                 customer_data.get("city"),
                 customer_data.get("area"),
@@ -192,6 +206,8 @@ async def create_customer(
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to create customer: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -212,13 +228,22 @@ async def update_customer(
             if not cur.fetchone():
                 raise HTTPException(status_code=404, detail="Customer not found")
             
-            # Build update query
+            # Build update query - map frontend field names to database column names
+            field_mapping = {
+                "name": "full_name",
+                "phone": "phone",
+                "email": "email",
+                "address": "address",
+                "city": "city",
+                "credit_limit": "credit_limit"
+            }
+            
             updates = []
             params = []
-            for field in ["name", "phone", "email", "address", "city", "province", "credit_limit"]:
-                if field in customer_data:
-                    updates.append(f"{field} = ?")
-                    params.append(customer_data[field])
+            for frontend_field, db_field in field_mapping.items():
+                if frontend_field in customer_data:
+                    updates.append(f"{db_field} = ?")
+                    params.append(customer_data[frontend_field])
             
             if updates:
                 updates.append("updated_at = ?")
