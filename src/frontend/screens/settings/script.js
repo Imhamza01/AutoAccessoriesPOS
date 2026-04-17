@@ -442,6 +442,7 @@ class SettingsScreen {
             { label: 'Owner Name', id: 'owner-name', value: shopSettings.owner_name },
             { label: 'NTN Number', id: 'ntn-number', value: shopSettings.shop_tax_id },
             { label: 'GST Number', id: 'gst-number', value: shopSettings.gst_number },
+            { label: 'GST Rate (%)', id: 'gst-rate-input', type: 'number', value: ((shopSettings.gst_rate || 0) * 100).toString(), step: '0.01', min: '0', max: '100' },
             { label: 'Currency Symbol', id: 'currency-symbol', value: shopSettings.currency || '₹' }
         ];
 
@@ -451,10 +452,13 @@ class SettingsScreen {
             const label = document.createElement('label');
             label.textContent = field.label;
             const input = document.createElement('input');
-            input.type = 'text';
+            input.type = field.type || 'text';
             input.value = field.value || '';
             input.id = field.id;
             input.className = 'input-field';
+            if (field.step) input.step = field.step;
+            if (field.min) input.min = field.min;
+            if (field.max) input.max = field.max;
             group.appendChild(label);
             group.appendChild(input);
             taxGrid.appendChild(group);
@@ -509,7 +513,300 @@ class SettingsScreen {
         footerGroup.appendChild(footerTextarea);
         brandingSection.appendChild(footerGroup);
 
+        // Receipt Theme Selector
+        const themeGroup = document.createElement('div');
+        themeGroup.className = 'form-group';
+        themeGroup.style.marginTop = '20px';
+        const themeLabel = document.createElement('label');
+        themeLabel.textContent = 'Receipt Theme';
+        themeLabel.style.marginBottom = '10px';
+        themeLabel.style.display = 'block';
+        themeGroup.appendChild(themeLabel);
+
+        const themeSelector = document.createElement('div');
+        themeSelector.id = 'receipt-theme-selector';
+        themeSelector.style.cssText = 'display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0;';
+
+        const themes = [
+            { value: 'classic', label: 'Classic', desc: 'Traditional courier, separator lines' },
+            { value: 'modern', label: 'Modern', desc: 'Dark header, boxed totals' },
+            { value: 'minimal', label: 'Minimal', desc: 'Clean whitespace, elegant' }
+        ];
+
+        const currentTheme = shopSettings.receiptTheme || 'modern';
+
+        themes.forEach(theme => {
+            const option = document.createElement('label');
+            option.className = 'theme-option';
+            option.style.cssText = 'cursor: pointer;';
+
+            const radio = document.createElement('input');
+            radio.type = 'radio';
+            radio.name = 'receiptTheme';
+            radio.value = theme.value;
+            radio.checked = currentTheme === theme.value;
+            radio.style.display = 'none';
+
+            const card = document.createElement('span');
+            card.className = `theme-card theme-${theme.value}`;
+            card.style.cssText = `
+                display: block; padding: 10px 14px; border: 2px solid #ddd;
+                border-radius: 8px; min-width: 100px; text-align: center;
+                transition: border-color 0.2s, background 0.2s; font-size: 12px;
+            `;
+            if (currentTheme === theme.value) {
+                card.style.borderColor = '#2563eb';
+                card.style.background = '#eff6ff';
+            }
+
+            const strong = document.createElement('strong');
+            strong.textContent = theme.label;
+            if (theme.value === 'classic') strong.style.fontFamily = "'Courier New', monospace";
+            else if (theme.value === 'modern') strong.style.fontFamily = "Arial, sans-serif";
+            else strong.style.fontFamily = "'Segoe UI', sans-serif";
+
+            const small = document.createElement('br');
+            const desc = document.createElement('small');
+            desc.textContent = theme.desc;
+
+            card.appendChild(strong);
+            card.appendChild(small);
+            card.appendChild(desc);
+
+            radio.addEventListener('change', () => {
+                document.querySelectorAll('#receipt-theme-selector .theme-card').forEach(c => {
+                    c.style.borderColor = '#ddd';
+                    c.style.background = 'transparent';
+                });
+                card.style.borderColor = '#2563eb';
+                card.style.background = '#eff6ff';
+                if (window.shopSettings) {
+                    window.shopSettings.saveSettings({ receiptTheme: theme.value });
+                }
+            });
+
+            option.appendChild(radio);
+            option.appendChild(card);
+            themeSelector.appendChild(option);
+        });
+
+        themeGroup.appendChild(themeSelector);
+
+        // Preview Receipt Button
+        const previewBtn = document.createElement('button');
+        previewBtn.type = 'button';
+        previewBtn.className = 'btn btn-secondary';
+        previewBtn.style.marginTop = '10px';
+        previewBtn.textContent = '👁 Preview Theme';
+        previewBtn.onclick = () => {
+            const selectedTheme = document.querySelector('input[name="receiptTheme"]:checked');
+            const theme = selectedTheme ? selectedTheme.value : 'modern';
+            if (window.shopSettings) window.shopSettings.saveSettings({ receiptTheme: theme });
+
+            const sampleData = {
+                invoiceNo:    'INV-2024-0001',
+                date:         new Date().toLocaleDateString('en-PK'),
+                time:         new Date().toLocaleTimeString('en-PK'),
+                customer:     'Ali Hassan',
+                items: [
+                    { name: 'Car Cover Universal', quantity: 2, price: 1500,  total: 3000  },
+                    { name: 'Seat Covers Set',      quantity: 1, price: 4500,  total: 4500  },
+                    { name: 'Floor Mats (4 pcs)',   quantity: 1, price: 1200,  total: 1200  },
+                ],
+                subtotal:    8700,
+                discount:    200,
+                taxRate:     0.17,
+                taxAmount:   1445,
+                grandTotal:  9945,
+                amountPaid:  10000,
+                change:      55,
+            };
+            if (window.ReceiptRenderer) {
+                window.ReceiptRenderer.preview(sampleData);
+            } else {
+                alert('ReceiptRenderer not loaded. Please refresh the page.');
+            }
+        };
+        themeGroup.appendChild(previewBtn);
+
+        // Raw Print Toggle
+        const rawPrintGroup = document.createElement('div');
+        rawPrintGroup.className = 'form-group';
+        rawPrintGroup.style.marginTop = '20px';
+        const rawPrintLabel = document.createElement('label');
+        rawPrintLabel.textContent = 'Printing Method';
+        rawPrintLabel.style.display = 'block';
+        rawPrintLabel.style.marginBottom = '8px';
+        rawPrintGroup.appendChild(rawPrintLabel);
+
+        const rawPrintSelect = document.createElement('select');
+        rawPrintSelect.id = 'use-raw-print-select';
+        rawPrintSelect.className = 'input-field';
+        const htmlOption = document.createElement('option');
+        htmlOption.value = 'false';
+        htmlOption.textContent = 'HTML Print (Recommended — works without drivers)';
+        const rawOption = document.createElement('option');
+        rawOption.value = 'true';
+        rawOption.textContent = 'ESC/POS Raw (Advanced — requires direct printer port)';
+        rawPrintSelect.appendChild(htmlOption);
+        rawPrintSelect.appendChild(rawOption);
+        rawPrintSelect.value = String(shopSettings.useRawPrint === true || shopSettings.useRawPrint === 1);
+        rawPrintSelect.addEventListener('change', () => {
+            if (window.shopSettings) {
+                window.shopSettings.saveSettings({ useRawPrint: rawPrintSelect.value === 'true' });
+            }
+        });
+        rawPrintGroup.appendChild(rawPrintSelect);
+        brandingSection.appendChild(themeGroup);
+        brandingSection.appendChild(rawPrintGroup);
+
         sections.push(brandingSection);
+
+        // Receipt Customization Section
+        const receiptSection = document.createElement('div');
+        receiptSection.className = 'form-section';
+        const receiptTitle = document.createElement('h3');
+        receiptTitle.textContent = 'Receipt Customization';
+        receiptSection.appendChild(receiptTitle);
+
+        const receiptGrid = document.createElement('div');
+        receiptGrid.className = 'form-grid';
+
+        // Receipt options
+        const receiptOptions = [
+            { 
+                label: 'Show Logo', 
+                id: 'receipt-show-logo', 
+                type: 'checkbox', 
+                checked: shopSettings.receipt_show_logo !== 0 
+            },
+            { 
+                label: 'Show Header', 
+                id: 'receipt-show-header', 
+                type: 'checkbox', 
+                checked: shopSettings.receipt_show_header !== 0 
+            },
+            { 
+                label: 'Show Footer', 
+                id: 'receipt-show-footer', 
+                type: 'checkbox', 
+                checked: shopSettings.receipt_show_footer !== 0 
+            },
+            { 
+                label: 'Show Tax IDs', 
+                id: 'receipt-show-tax-id', 
+                type: 'checkbox', 
+                checked: shopSettings.receipt_show_tax_id !== 0 
+            },
+            { 
+                label: 'Show Customer Name', 
+                id: 'receipt-show-customer', 
+                type: 'checkbox', 
+                checked: shopSettings.receipt_show_customer !== 0 
+            },
+            { 
+                label: 'Show Barcode', 
+                id: 'receipt-show-barcode', 
+                type: 'checkbox', 
+                checked: shopSettings.receipt_show_barcode === 1 
+            }
+        ];
+
+        receiptOptions.forEach(opt => {
+            const group = document.createElement('div');
+            group.className = 'form-group';
+            const checkboxDiv = document.createElement('div');
+            checkboxDiv.style.display = 'flex';
+            checkboxDiv.style.alignItems = 'center';
+            checkboxDiv.style.gap = '8px';
+            
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.id = opt.id;
+            checkbox.checked = opt.checked;
+            checkbox.style.width = 'auto';
+            
+            const label = document.createElement('label');
+            label.textContent = opt.label;
+            label.style.marginBottom = '0';
+            
+            checkboxDiv.appendChild(checkbox);
+            checkboxDiv.appendChild(label);
+            group.appendChild(checkboxDiv);
+            receiptGrid.appendChild(group);
+        });
+
+        // Logo Size
+        const logoSizeGroup = document.createElement('div');
+        logoSizeGroup.className = 'form-group';
+        const logoSizeLabel = document.createElement('label');
+        logoSizeLabel.textContent = 'Logo Size';
+        const logoSizeSelect = document.createElement('select');
+        logoSizeSelect.id = 'receipt-logo-size';
+        logoSizeSelect.className = 'input-field';
+        ['small', 'medium', 'large'].forEach(size => {
+            const option = document.createElement('option');
+            option.value = size;
+            option.textContent = size.charAt(0).toUpperCase() + size.slice(1);
+            option.selected = shopSettings.receipt_logo_size === size;
+            logoSizeSelect.appendChild(option);
+        });
+        logoSizeGroup.appendChild(logoSizeLabel);
+        logoSizeGroup.appendChild(logoSizeSelect);
+        receiptGrid.appendChild(logoSizeGroup);
+
+        // Font Size
+        const fontSizeGroup = document.createElement('div');
+        fontSizeGroup.className = 'form-group';
+        const fontSizeLabel = document.createElement('label');
+        fontSizeLabel.textContent = 'Font Size';
+        const fontSizeSelect = document.createElement('select');
+        fontSizeSelect.id = 'receipt-font-size';
+        fontSizeSelect.className = 'input-field';
+        ['small', 'medium', 'large'].forEach(size => {
+            const option = document.createElement('option');
+            option.value = size;
+            option.textContent = size.charAt(0).toUpperCase() + size.slice(1);
+            option.selected = shopSettings.receipt_font_size === size;
+            fontSizeSelect.appendChild(option);
+        });
+        fontSizeGroup.appendChild(fontSizeLabel);
+        fontSizeGroup.appendChild(fontSizeSelect);
+        receiptGrid.appendChild(fontSizeGroup);
+
+        receiptSection.appendChild(receiptGrid);
+
+        // Custom Header Text
+        const headerTextGroup = document.createElement('div');
+        headerTextGroup.className = 'form-group';
+        const headerTextLabel = document.createElement('label');
+        headerTextLabel.textContent = 'Custom Header Text (Optional)';
+        const headerTextInput = document.createElement('input');
+        headerTextInput.type = 'text';
+        headerTextInput.id = 'receipt-header-text';
+        headerTextInput.className = 'input-field';
+        headerTextInput.value = shopSettings.receipt_header_text || '';
+        headerTextInput.placeholder = 'e.g., Premium Auto Parts';
+        headerTextGroup.appendChild(headerTextLabel);
+        headerTextGroup.appendChild(headerTextInput);
+        receiptSection.appendChild(headerTextGroup);
+
+        // Terms & Conditions
+        const termsGroup = document.createElement('div');
+        termsGroup.className = 'form-group';
+        const termsLabel = document.createElement('label');
+        termsLabel.textContent = 'Terms & Conditions (Footer)';
+        const termsTextarea = document.createElement('textarea');
+        termsTextarea.id = 'receipt-terms';
+        termsTextarea.className = 'input-field';
+        termsTextarea.rows = 3;
+        termsTextarea.value = shopSettings.receipt_terms || '';
+        termsTextarea.placeholder = 'e.g., Goods once sold will not be taken back';
+        termsGroup.appendChild(termsLabel);
+        termsGroup.appendChild(termsTextarea);
+        receiptSection.appendChild(termsGroup);
+
+        sections.push(receiptSection);
 
         // Action Buttons
         const actionButtons = document.createElement('div');
@@ -1089,6 +1386,10 @@ class SettingsScreen {
 
     async saveShop() {
         try {
+            const gstRateValue = parseFloat(document.getElementById('gst-rate-input').value);
+            // Allow GST rate to be zero or any valid number
+            const gstRate = isNaN(gstRateValue) ? 0 : (gstRateValue / 100);
+            
             const formData = {
                 shop_name: document.getElementById('shop-name-input').value,
                 shop_phone: document.getElementById('shop-phone').value,
@@ -1098,15 +1399,27 @@ class SettingsScreen {
                 owner_name: document.getElementById('owner-name').value,
                 ntn_number: document.getElementById('ntn-number').value,
                 gst_number: document.getElementById('gst-number').value,
+                gst_rate: gstRate,
                 currency_symbol: document.getElementById('currency-symbol').value,
                 receipt_footer: document.getElementById('receipt-footer').value,
-                logo_path: document.getElementById('logo-path').value
+                logo_path: document.getElementById('logo-path').value,
+                // Receipt customization
+                receipt_show_logo: document.getElementById('receipt-show-logo').checked ? 1 : 0,
+                receipt_logo_size: document.getElementById('receipt-logo-size').value,
+                receipt_font_size: document.getElementById('receipt-font-size').value,
+                receipt_show_header: document.getElementById('receipt-show-header').checked ? 1 : 0,
+                receipt_header_text: document.getElementById('receipt-header-text').value,
+                receipt_show_footer: document.getElementById('receipt-show-footer').checked ? 1 : 0,
+                receipt_show_barcode: document.getElementById('receipt-show-barcode').checked ? 1 : 0,
+                receipt_show_tax_id: document.getElementById('receipt-show-tax-id').checked ? 1 : 0,
+                receipt_show_customer: document.getElementById('receipt-show-customer').checked ? 1 : 0,
+                receipt_terms: document.getElementById('receipt-terms').value
             };
 
-            console.log('Saving shop settings:', formData); // Debug log
+            console.log('Saving shop settings:', formData);
 
             const response = await this.app.api.put('/settings/shop', formData);
-            console.log('Save response:', response); // Debug log
+            console.log('Save response:', response);
 
             // Also update localStorage to keep systems synchronized
             if (window.shopSettings) {
@@ -1116,10 +1429,25 @@ class SettingsScreen {
                     shopEmail: formData.shop_email,
                     shopAddress: formData.shop_address,
                     taxNumber: formData.ntn_number,
+                    gstNumber: formData.gst_number,
+                    gstRate: gstRateValue / 100,
                     receiptMessage: formData.receipt_footer,
                     currency: formData.currency_symbol,
-                    // Preserve GST rate from current settings or default to 0.17
-                    gstRate: (window.shopSettings && window.shopSettings.getSetting('gstRate')) || 0.17
+                    logo_path: formData.logo_path,
+                    // Receipt settings
+                    receiptShowLogo: formData.receipt_show_logo,
+                    receiptLogoSize: formData.receipt_logo_size,
+                    receiptFontSize: formData.receipt_font_size,
+                    receiptShowHeader: formData.receipt_show_header,
+                    receiptHeaderText: formData.receipt_header_text,
+                    receiptShowFooter: formData.receipt_show_footer,
+                    receiptShowBarcode: formData.receipt_show_barcode,
+                    receiptShowTaxId: formData.receipt_show_tax_id,
+                    receiptShowCustomer: formData.receipt_show_customer,
+                    receiptTerms: formData.receipt_terms,
+                    // New receipt theme and print settings
+                    receiptTheme: document.querySelector('input[name="receiptTheme"]:checked')?.value || 'modern',
+                    useRawPrint: document.getElementById('use-raw-print-select')?.value === 'true'
                 };
                 window.shopSettings.saveSettings(localStorageSettings);
             }
@@ -1432,7 +1760,7 @@ class SettingsScreen {
         if (!confirm('Are you sure you want to delete this user?')) return;
 
         try {
-            await this.app.api.delete(`/users/${id}`);
+            await this.app.api.delete(`/settings/users/${id}`);
             this.app.showNotification('User deleted successfully', 'success');
             this.loadUsersSettings(); // Refresh the user list
         } catch (e) {

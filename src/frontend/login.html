@@ -384,13 +384,11 @@
             }
 
             autoFocus() {
-                // Auto-focus on username after 500ms
-                setTimeout(() => {
-                    const usernameInput = document.getElementById('username');
-                    if (usernameInput && !usernameInput.value) {
-                        usernameInput.focus();
-                    }
-                }, 500);
+                // Focus immediately — no delay needed
+                const usernameInput = document.getElementById('username');
+                if (usernameInput && !usernameInput.value) {
+                    usernameInput.focus();
+                }
             }
 
             validateUsername() {
@@ -491,10 +489,14 @@
                 const username = document.getElementById('username').value.trim();
                 const password = document.getElementById('password').value;
 
+                console.log('[Login] Starting login process...');
+                const startTime = Date.now();
+
                 this.setLoading(true);
                 this.clearStatus();
 
                 try {
+                    console.log('[Login] Sending auth request...');
                     const response = await fetch(`${this.apiBaseUrl}/auth/login`, {
                         method: 'POST',
                         headers: {
@@ -507,28 +509,27 @@
                         })
                     });
 
+                    console.log('[Login] Auth response received in', Date.now() - startTime, 'ms');
+
                     const data = await response.json();
 
                     if (!response.ok) {
                         throw new Error(data.detail || 'Login failed');
                     }
 
+                    console.log('[Login] Storing tokens...');
                     // Store tokens and user data
                     localStorage.setItem('access_token', data.access_token);
                     localStorage.setItem('refresh_token', data.refresh_token);
                     localStorage.setItem('user_data', JSON.stringify(data.user));
                     localStorage.setItem('session_token', data.user.session_token);
 
-                    // Show success message
-                    this.showStatus(`Welcome, ${data.user.full_name}!`, 'success');
-
-                    // Redirect to main application after 1 second
-                    setTimeout(() => {
-                        window.location.href = '/index.html';
-                    }, 1000);
+                    console.log('[Login] Redirecting immediately...');
+                    // Redirect immediately - no delay needed
+                    window.location.replace('/index.html');
 
                 } catch (error) {
-                    console.error('Login error:', error);
+                    console.error('[Login] Error:', error);
                     
                     // Show appropriate error message
                     let errorMessage = error.message;
@@ -546,6 +547,7 @@
                     }
                 } finally {
                     this.setLoading(false);
+                    console.log('[Login] Total login time:', Date.now() - startTime, 'ms');
                 }
             }
 
@@ -557,20 +559,47 @@
                     return false;
                 }
             }
+
+            async validateToken() {
+                try {
+                    const accessToken = localStorage.getItem('access_token');
+                    if (!accessToken) {
+                        return false;
+                    }
+
+                    const response = await fetch(`${this.apiBaseUrl}/auth/me`, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    return response.ok;
+                } catch (error) {
+                    console.error('Token validation error:', error);
+                    return false;
+                }
+            }
         }
 
         // Initialize login manager when DOM is loaded
         document.addEventListener('DOMContentLoaded', () => {
             window.loginManager = new LoginManager();
             
-            // Check if user is already logged in
+            // INSTANT login - check token without API call
             const accessToken = localStorage.getItem('access_token');
             if (accessToken) {
-                // Redirect to main app
-                window.location.href = '/index.html';
+                // Token exists - redirect immediately (validate on main page if needed)
+                console.log('[Login] Token found, redirecting instantly');
+                window.location.replace('/index.html');
+                return; // Stop further execution
             }
             
-            // Check server status on startup
+            // No token - show login form immediately
+            console.log('[Login] No token, showing login form');
+            
+            // Check server status in background (non-blocking, doesn't delay login)
             window.loginManager.checkServerStatus().then(isRunning => {
                 if (!isRunning) {
                     window.loginManager.showStatus(
@@ -578,6 +607,8 @@
                         'warning'
                     );
                 }
+            }).catch(() => {
+                // Ignore server check errors - don't block login
             });
         });
 

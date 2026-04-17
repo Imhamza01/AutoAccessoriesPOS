@@ -80,6 +80,22 @@ async def list_sales(
                 else:
                     sales.append(row)
             
+            # Get item counts for each sale
+            if sales:
+                sale_ids = [s['id'] for s in sales if isinstance(s, dict) and 'id' in s]
+                if sale_ids:
+                    placeholders = ','.join('?' * len(sale_ids))
+                    cur.execute(f"""
+                        SELECT sale_id, COUNT(*) as item_count 
+                        FROM sale_items 
+                        WHERE sale_id IN ({placeholders})
+                        GROUP BY sale_id
+                    """, sale_ids)
+                    item_counts = {row['sale_id']: row['item_count'] for row in cur.fetchall()}
+                    for sale in sales:
+                        if isinstance(sale, dict) and sale['id'] in item_counts:
+                            sale['total_items'] = item_counts[sale['id']]
+            
             # Get total count with same filters
             count_query = "SELECT COUNT(*) FROM sales WHERE sale_status != 'cancelled'"
             

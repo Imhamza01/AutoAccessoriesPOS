@@ -950,3 +950,51 @@ body {
 ::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
 }
+
+/* Theme Selector Styles for Print Dialog */
+.theme-selector {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 8px 0;
+}
+
+.theme-option {
+    cursor: pointer;
+}
+
+.theme-card {
+    display: block;
+    padding: 10px 14px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    min-width: 100px;
+    text-align: center;
+    transition: all 0.2s ease;
+    font-size: 12px;
+    background: white;
+}
+
+.theme-card:hover {
+    border-color: #aaa;
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.theme-option input[type="radio"]:checked + .theme-card {
+    border-color: #2563eb;
+    background: #eff6ff;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.2);
+}
+
+.theme-classic strong {
+    font-family: 'Courier New', monospace;
+}
+
+.theme-modern strong {
+    font-family: Arial, sans-serif;
+}
+
+.theme-minimal strong {
+    font-family: 'Segoe UI', sans-serif;
+}

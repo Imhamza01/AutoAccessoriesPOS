@@ -12,6 +12,7 @@ from jose.exceptions import ExpiredSignatureError
 import hashlib
 import secrets
 import logging
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List, Tuple
 from fastapi import HTTPException, Request, Depends
@@ -163,6 +164,7 @@ class UserCreate(BaseModel):
     cnic: Optional[str] = Field(None, min_length=13, max_length=13)
     salary: Optional[float] = Field(0, ge=0)
     commission_rate: Optional[float] = Field(0, ge=0, le=100)
+    status: Optional[str] = Field('active', pattern="^(active|inactive|suspended)$")
     
     @validator('username')
     def validate_username(cls, v):
@@ -172,12 +174,22 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     """User update model"""
+    username: Optional[str] = Field(None, min_length=3, max_length=50)
     full_name: Optional[str] = Field(None, min_length=2, max_length=100)
+    role: Optional[str] = Field(None, pattern="^(malik|munshi|shop_boy|stock_boy)$")
     phone: Optional[str] = Field(None, max_length=20)
     cnic: Optional[str] = Field(None, min_length=13, max_length=13)
     salary: Optional[float] = Field(None, ge=0)
     commission_rate: Optional[float] = Field(None, ge=0, le=100)
     status: Optional[str] = Field(None, pattern="^(active|inactive|suspended)$")
+
+    @validator('username')
+    def validate_username(cls, v):
+        if v is not None:
+            if not v.replace('_', '').replace('.', '').isalnum():
+                raise ValueError('Username can only contain letters, numbers, underscores and dots')
+            return v.lower()
+        return v
 
 class ChangePasswordRequest(BaseModel):
     """Change password model"""
@@ -548,17 +560,22 @@ class AuthenticationManager:
                     "can_backup_restore": PAKISTANI_ROLES.get(user_dict["role"], {}).get("can_backup_restore", False),
                 }
                 
-                # Log successful login
-                audit_log(
-                    user_id=user_dict["id"],
-                    action="login_success",
-                    table_name="users",
-                    record_id=user_dict["id"],
-                    old_values={"last_login": user_dict.get("last_login")},
-                    new_values={"last_login": datetime.now(timezone.utc).isoformat()},
-                    ip_address=request.client.host if request.client else None,
-                    user_agent=request.headers.get("user-agent")
-                )
+                # Fire-and-forget audit log — do NOT await, keeps login fast
+                def _bg_audit():
+                    try:
+                        audit_log(
+                            user_id=user_dict["id"],
+                            action="login_success",
+                            table_name="users",
+                            record_id=user_dict["id"],
+                            old_values={"last_login": user_dict.get("last_login")},
+                            new_values={"last_login": datetime.now(timezone.utc).isoformat()},
+                            ip_address=request.client.host if request.client else None,
+                            user_agent=request.headers.get("user-agent")
+                        )
+                    except Exception as _e:
+                        logger.warning(f"Background audit_log failed: {_e}")
+                asyncio.get_event_loop().run_in_executor(None, _bg_audit)
                 
                 return {
                     "access_token": access_token,
@@ -1045,9 +1062,9 @@ async def create_user(user_data: UserCreate, current_user: Dict[str, Any], reque
             cursor.execute('''
                 INSERT INTO users (
                     username, password_hash, full_name, role,
-                    phone, cnic, salary, commission_rate,
+                    phone, cnic, salary, commission_rate, status,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ''', (
                 user_data.username,
                 password_hash,
@@ -1056,7 +1073,8 @@ async def create_user(user_data: UserCreate, current_user: Dict[str, Any], reque
                 user_data.phone,
                 user_data.cnic,
                 user_data.salary,
-                user_data.commission_rate
+                user_data.commission_rate,
+                user_data.status
             ))
             
             user_id = cursor.lastrowid
@@ -1196,9 +1214,21 @@ async def update_user(
             update_fields = []
             update_values = []
             
+            if user_data.username is not None:
+                # Check uniqueness
+                cursor.execute("SELECT id FROM users WHERE username = ? AND id != ?", (user_data.username, user_id))
+                if cursor.fetchone():
+                    raise HTTPException(status_code=400, detail="Username already taken")
+                update_fields.append("username = ?")
+                update_values.append(user_data.username)
+            
             if user_data.full_name is not None:
                 update_fields.append("full_name = ?")
                 update_values.append(user_data.full_name)
+            
+            if user_data.role is not None:
+                update_fields.append("role = ?")
+                update_values.append(user_data.role)
             
             if user_data.phone is not None:
                 update_fields.append("phone = ?")

@@ -19,68 +19,88 @@ class AutoAccessoriesPOS {
     }
 
     async init() {
-        this.showLoading('Initializing application...');
+        // INSTANT init - show loading briefly
+        this.showLoading('Loading...');
 
         try {
-            await this.checkAuthentication();
-            await this.initializeApp();
-            this.hideLoading();
+            // Run auth check and app init in parallel, but don't block
+            await Promise.race([
+                this.checkAuthentication(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Auth timeout')), 3000))
+            ]).catch(err => {
+                console.warn('[App] Auth check issue:', err.message);
+                // Don't block - continue anyway
+            });
 
-            if (this.currentUser) {
-                this.showNotification(`Welcome back, ${this.currentUser.full_name}!`, 'success', 3000);
-            }
+            // Initialize app without waiting
+            this.initializeApp().catch(err => {
+                console.error('[App] Init error:', err);
+            });
+
+            // Hide loading quickly
+            setTimeout(() => {
+                this.hideLoading();
+                if (this.currentUser) {
+                    this.showNotification(`Welcome back, ${this.currentUser.full_name}!`, 'success', 2000);
+                }
+            }, 100);
 
         } catch (error) {
-            console.error('Initialization error:', error);
+            console.error('[App] Initialization error:', error);
             this.hideLoading();
-            this.showError('Failed to initialize application: ' + error.message);
         }
     }
 
     async checkAuthentication() {
-        this.updateLoadingMessage('Checking authentication...');
-
+        const startTime = Date.now();
         const accessToken = localStorage.getItem('access_token');
         const userData = localStorage.getItem('user_data');
 
+        // INSTANT check - no API call yet
         if (!accessToken || !userData) {
-            try {
-                const urlParams = new URLSearchParams(window.location.search);
-                const previewFlag = urlParams.get('preview') === '1';
-
-                if (previewFlag) {
-                    console.warn('No auth tokens found — running in explicit preview mode; continuing without authentication.');
-                    return;
-                }
-            } catch (e) {
-                console.warn('Error checking preview mode, redirecting to login', e);
-            }
-
-            window.location.href = '/login.html';
+            console.log('[Auth] No tokens found, redirecting to login');
+            window.location.replace('/login.html');
             return;
         }
 
+        // Load user from localStorage immediately (don't wait for API)
+        try {
+            this.currentUser = JSON.parse(userData);
+            console.log(`[Auth] User loaded from cache in ${Date.now() - startTime}ms:`, this.currentUser.username);
+        } catch (e) {
+            console.error('[Auth] Failed to parse user data:', e);
+            this.clearAuthData();
+            window.location.replace('/login.html');
+            return;
+        }
+
+        // Validate token in background (non-blocking)
+        this.validateTokenInBackground().catch(err => {
+            console.warn('[Auth] Background validation failed:', err.message);
+            // User is already logged in from cache, don't disrupt
+        });
+    }
+
+    async validateTokenInBackground() {
         try {
             await this.api.get('/auth/me');
-            this.currentUser = JSON.parse(userData);
-            console.log('[App] User authenticated:', this.currentUser.username, 'Role:', this.currentUser.role);
-
+            console.log('[Auth] Token validated successfully');
         } catch (error) {
-            console.warn('Authentication failed:', error);
-
+            console.warn('[Auth] Token invalid, trying refresh...');
+            
             const refreshToken = localStorage.getItem('refresh_token');
             if (refreshToken) {
                 try {
                     await this.refreshToken(refreshToken);
                 } catch (refreshError) {
+                    console.error('[Auth] Refresh failed, clearing auth');
                     this.clearAuthData();
-                    window.location.href = '/login.html';
-                    return;
+                    window.location.replace('/login.html');
                 }
             } else {
+                console.error('[Auth] No refresh token, clearing auth');
                 this.clearAuthData();
-                window.location.href = '/login.html';
-                return;
+                window.location.replace('/login.html');
             }
         }
     }
@@ -125,56 +145,34 @@ class AutoAccessoriesPOS {
     }
 
     async initializeApp() {
-        this.updateLoadingMessage('Loading application...');
-
-        const initTimeout = setTimeout(() => {
-            console.error('[App] Initialization timeout - forcing loading screen to hide');
-            this.hideLoading();
-            this.showError('Application initialization timed out. Please refresh the page.');
-        }, 15000);
-
+        // INSTANT initialization - no blocking
         try {
-            console.log('[App] Initializing app...');
-
-            console.log('[App] Step 1: Loading app structure (header, sidebar)...');
+            // Load structure first (needed for UI)
             await this.loadAppStructure();
-            console.log('[App] ✓ App structure loaded');
 
-            console.log('[App] Step 2: Initializing clock...');
+            // Initialize non-blocking features
             this.initClock();
-
-            console.log('[App] Step 3: Setting up event listeners...');
             this.initEventListeners();
-
-            console.log('[App] Step 4: Setting up keyboard shortcuts...');
             this.initKeyboardShortcuts();
 
-            console.log('[App] Step 5: Loading initial screen...');
+            // Load screen asynchronously (don't block)
             const urlParams = new URLSearchParams(window.location.search);
             const screenParam = urlParams.get('screen');
             const targetScreen = screenParam && this.isValidScreen(screenParam) ? screenParam : 'dashboard';
 
-            await this.loadScreen(targetScreen);
-            console.log('[App] ✓ Screen loaded successfully');
+            // Load screen without blocking
+            this.loadScreen(targetScreen).catch(err => {
+                console.error('[App] Screen load error:', err);
+            });
 
+            // Check password expiration (non-blocking)
             if (this.currentUser && this.currentUser.password_expired) {
-                console.warn('User password expired - notifying user instead of showing modal.');
                 this.showNotification('Your password has expired. Please change it from Settings.', 'warning', 10000);
-
-                if (document.querySelectorAll('.modal-overlay[style*="flex"]').length > 0) {
-                    document.querySelectorAll('.modal-overlay').forEach(modal => {
-                        modal.style.display = 'none';
-                    });
-                    console.warn('Closed existing modals to prevent stacking');
-                }
             }
 
-            clearTimeout(initTimeout);
-            console.log('[App] ✓ Application initialization complete!');
+            console.log('[App] ✓ Application initialized');
         } catch (error) {
-            clearTimeout(initTimeout);
             console.error('[App] Initialization error:', error);
-            this.showError('Failed to initialize application: ' + error.message);
         }
     }
 
@@ -291,6 +289,15 @@ class AutoAccessoriesPOS {
                 console.warn('[App] Modal container not found, skipping modals');
             }
 
+            // Load print dialog component
+            console.log('[App] Step 5: Loading print dialog...');
+            // Load CSS directly for nested path
+            const printDialogCSS = document.createElement('link');
+            printDialogCSS.rel = 'stylesheet';
+            printDialogCSS.href = `components/modals/print-dialog.css?v=${Date.now()}`;
+            document.head.appendChild(printDialogCSS);
+            await this.loadPrintDialog();
+
             // Update user info in header
             console.log('[App] Updating user info...');
             this.updateUserInfo();
@@ -390,6 +397,37 @@ class AutoAccessoriesPOS {
         }
     }
 
+    async loadPrintDialog() {
+        try {
+            console.log('[App] Loading print dialog HTML...');
+            const printDialogHtml = await this.loadTemplate('components/modals/print-dialog.html');
+            const modalContainer = document.getElementById('modal-container');
+            if (modalContainer) {
+                // Append to existing modals
+                modalContainer.innerHTML += printDialogHtml;
+                console.log('[App] ✓ Print dialog loaded and inserted into DOM');
+            }
+
+            // Load print dialog JavaScript
+            console.log('[App] Loading print dialog JS...');
+            await new Promise((resolve) => {
+                const script = document.createElement('script');
+                script.src = `components/modals/print-dialog.js?v=${Date.now()}`;
+                script.onload = () => {
+                    console.log('[App] ✓ Print dialog JS loaded');
+                    resolve();
+                };
+                script.onerror = () => {
+                    console.warn('[App] Failed to load print dialog JS');
+                    resolve();
+                };
+                document.head.appendChild(script);
+            });
+        } catch (error) {
+            console.error('[App] Print dialog loading error:', error);
+        }
+    }
+
     async updateUserInfo() {
         if (this.currentUser) {
             // Update header profile
@@ -454,6 +492,10 @@ class AutoAccessoriesPOS {
 
                 // Update global settings module for POS receipt
                 if (window.shopSettings && window.shopSettings.saveSettings) {
+                    // Get GST rate from API response or localStorage or default
+                    const gstRate = settings.gst_rate !== undefined ? settings.gst_rate : 
+                                   (window.shopSettings.getSetting('gstRate') || 0.17);
+                    
                     const mappedSettings = {
                         shopName: settings.shop_name,
                         shopAddress: settings.shop_address,
@@ -463,10 +505,10 @@ class AutoAccessoriesPOS {
                         receiptMessage: settings.receipt_footer, // receipt_footer from API -> receiptMessage in ShopSettings
                         currency: settings.currency,
                         logo_path: fullLogoPath, // Use the full path we calculated
-                        gstRate: 0.17 // Default/Hardcoded for now as it might not be in settings table yet
+                        gstRate: gstRate
                     };
                     window.shopSettings.saveSettings(mappedSettings);
-                    console.log('[App] Shop settings updated globally');
+                    console.log('[App] Shop settings updated globally, GST Rate:', gstRate);
                 } else {
                     // Fallback: Manually update localStorage so POS can pick it up
                     try {
@@ -475,6 +517,10 @@ class AutoAccessoriesPOS {
                             const saved = localStorage.getItem('shop_settings');
                             if (saved) currentSettings = JSON.parse(saved);
                         } catch (e) { /* ignore */ }
+
+                        // Get GST rate from API response or localStorage or default
+                        const gstRate = settings.gst_rate !== undefined ? settings.gst_rate :
+                                       currentSettings.gstRate || 0.17;
 
                         const newSettings = {
                             ...currentSettings,
@@ -486,11 +532,10 @@ class AutoAccessoriesPOS {
                             receiptMessage: settings.receipt_footer,
                             currency: settings.currency,
                             logo_path: fullLogoPath,
-                            // Preserve existing if not set above, or default
-                            gstRate: currentSettings.gstRate || 0.17
+                            gstRate: gstRate
                         };
                         localStorage.setItem('shop_settings', JSON.stringify(newSettings));
-                        console.log('[App] Shop settings updated via localStorage fallback');
+                        console.log('[App] Shop settings updated via localStorage fallback, GST Rate:', gstRate);
                     } catch (e) {
                         console.warn('Failed to save shop settings to localStorage', e);
                     }
@@ -637,28 +682,32 @@ class AutoAccessoriesPOS {
 
     async handleLogout() {
         if (confirm('Are you sure you want to logout?')) {
-            try {
-                await this.api.post('/auth/logout');
-            } catch (error) {
-                console.error('Logout error:', error);
-            } finally {
-                this.clearAuthData();
-                this.showNotification('Logged out successfully', 'success', 1000);
-                setTimeout(() => {
-                    window.location.replace('/login.html');
-                }, 100);
-            }
+            // INSTANT logout - no delays
+            this.clearAuthData();
+            
+            // Fire and forget (don't wait for response)
+            this.api.post('/auth/logout').catch(() => {});
+            
+            // Redirect immediately
+            window.location.replace('/login.html');
         }
     }
 
     async loadScreen(screenName) {
-        if (this.currentScreen === screenName && this.screens[screenName]) {
-            console.log(`[App] Screen ${screenName} already loaded, skipping...`);
-            return; // Screen already loaded
-        }
-
         console.log(`[App] ===== LOADING SCREEN: ${screenName} =====`);
         this.showLoading(`Loading ${this.getScreenDisplayName(screenName)}...`);
+        
+        // If already on this screen, just refresh instead of skipping
+        if (this.currentScreen === screenName && this.screens[screenName]) {
+            console.log(`[App] Screen ${screenName} already active, refreshing...`);
+            this.currentScreen = screenName;
+            if (typeof this.screens[screenName].refresh === 'function') {
+                await this.screens[screenName].refresh();
+            }
+            this.hideLoading();
+            return;
+        }
+        
         this.currentScreen = screenName;
 
         try {
@@ -905,7 +954,7 @@ class AutoAccessoriesPOS {
     }
 
     isValidScreen(screenName) {
-        const validScreens = ['dashboard', 'pos', 'products', 'customers', 'inventory', 'sales', 'reports', 'expenses', 'users', 'settings'];
+        const validScreens = ['dashboard', 'pos', 'products', 'customers', 'inventory', 'sales', 'reports', 'expenses', 'users', 'settings', 'credit-management'];
         return validScreens.includes(screenName);
     }
 
@@ -1336,24 +1385,4 @@ function showNotification(a, b, c) {
     }
 }
 
-
-
-// ==================== INITIALIZATION ====================
-
-// Initialize Application
-document.addEventListener('DOMContentLoaded', () => {
-    if (window.app) return;
-
-    console.log('Initializing Auto Accessories POS...');
-    window.app = new AutoAccessoriesPOS();
-    window.POS = window.app;
-
-    window.onpopstate = (event) => {
-        if (event.state && event.state.screen) {
-            window.app.loadScreen(event.state.screen);
-        } else {
-            window.app.loadScreen('dashboard');
-        }
-    };
-});
 

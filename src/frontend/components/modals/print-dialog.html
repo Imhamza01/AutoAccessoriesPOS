@@ -1,0 +1,227 @@
+<!-- Print Receipt Dialog -->
+<div class="modal-overlay" id="print-dialog" style="display: none;">
+    <div class="modal modal-xl print-dialog-modal">
+        <div class="modal-header print-dialog-header">
+            <div class="header-left">
+                <h3 class="modal-title">
+                    <i class="icon">🖨️</i> Print Receipt
+                </h3>
+                <span class="invoice-badge" id="print-invoice-number">INV-00000000</span>
+            </div>
+            <button class="modal-close" onclick="PrintDialog.close()">&times;</button>
+        </div>
+        
+        <div class="modal-body print-dialog-body">
+            <!-- Left Panel: Print Settings -->
+            <div class="print-settings-panel">
+                <div class="settings-section">
+                    <h4 class="section-title">
+                        <i class="icon">🖨️</i> Printer
+                    </h4>
+                    <div class="form-group">
+                        <label class="input-label">Select Printer</label>
+                        <select class="input-field" id="print-printer-select">
+                            <option value="default">Default Printer</option>
+                            <option value="thermal">Thermal Printer (80mm)</option>
+                            <option value="browser">Browser Print Dialog</option>
+                        </select>
+                    </div>
+                    <div class="printer-status" id="printer-status">
+                        <span class="status-dot status-ready"></span>
+                        <span class="status-text">Ready to print</span>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h4 class="section-title">
+                        <i class="icon">📄</i> Page Settings
+                    </h4>
+                    <div class="form-group">
+                        <label class="input-label">Paper Size</label>
+                        <select class="input-field" id="print-paper-size">
+                            <option value="80mm" selected>80mm Thermal Roll</option>
+                            <option value="58mm">58mm Thermal Roll</option>
+                            <option value="a4">A4 (PDF)</option>
+                            <option value="letter">Letter (PDF)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="input-label">Orientation</label>
+                        <div class="orientation-selector">
+                            <button class="orientation-btn active" data-orientation="portrait" onclick="PrintDialog.setOrientation('portrait')">
+                                <div class="orientation-icon portrait"></div>
+                                <span>Portrait</span>
+                            </button>
+                            <button class="orientation-btn" data-orientation="landscape" onclick="PrintDialog.setOrientation('landscape')">
+                                <div class="orientation-icon landscape"></div>
+                                <span>Landscape</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="input-label">Scale</label>
+                        <div class="scale-control">
+                            <input type="range" class="scale-slider" id="print-scale-slider" 
+                                   min="50" max="150" value="100" step="10"
+                                   oninput="PrintDialog.updateScale(this.value)">
+                            <span class="scale-value" id="print-scale-value">100%</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="print-margins" checked>
+                            <span class="checkbox-custom"></span>
+                            <span class="checkbox-text">Enable Margins</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h4 class="section-title">
+                        <i class="icon">⚙️</i> Print Options
+                    </h4>
+                    <div class="form-group">
+                        <label class="input-label">Number of Copies</label>
+                        <div class="copies-control">
+                            <button class="copies-btn" onclick="PrintDialog.changeCopies(-1)">−</button>
+                            <input type="number" class="copies-input" id="print-copies" 
+                                   value="1" min="1" max="10" onchange="PrintDialog.updateCopies(this.value)">
+                            <button class="copies-btn" onclick="PrintDialog.changeCopies(1)">+</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="print-show-logo" checked>
+                            <span class="checkbox-custom"></span>
+                            <span class="checkbox-text">Show Logo</span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="print-show-header" checked>
+                            <span class="checkbox-custom"></span>
+                            <span class="checkbox-text">Show Header</span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="print-show-barcode" checked>
+                            <span class="checkbox-custom"></span>
+                            <span class="checkbox-text">Show Barcode</span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="print-show-footer" checked>
+                            <span class="checkbox-custom"></span>
+                            <span class="checkbox-text">Show Footer</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h4 class="section-title">
+                        <i class="icon">🎨</i> Appearance
+                    </h4>
+                    <div class="form-group">
+                        <label class="input-label">Receipt Theme</label>
+                        <div class="theme-selector" id="print-theme-selector">
+                            <label class="theme-option">
+                                <input type="radio" name="receiptTheme" value="classic" style="display: none;">
+                                <span class="theme-card theme-classic">
+                                    <strong style="font-family: 'Courier New', monospace;">Classic</strong><br>
+                                    <small>Traditional</small>
+                                </span>
+                            </label>
+                            <label class="theme-option">
+                                <input type="radio" name="receiptTheme" value="modern" style="display: none;">
+                                <span class="theme-card theme-modern">
+                                    <strong style="font-family: Arial, sans-serif;">Modern</strong><br>
+                                    <small>Professional</small>
+                                </span>
+                            </label>
+                            <label class="theme-option">
+                                <input type="radio" name="receiptTheme" value="minimal" style="display: none;">
+                                <span class="theme-card theme-minimal">
+                                    <strong style="font-family: 'Segoe UI', sans-serif;">Minimal</strong><br>
+                                    <small>Clean</small>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="input-label">Font Size</label>
+                        <select class="input-field" id="print-font-size">
+                            <option value="small">Small</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="large">Large</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="input-label">Logo Size</label>
+                        <select class="input-field" id="print-logo-size">
+                            <option value="small">Small</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="large">Large</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Receipt Preview -->
+            <div class="print-preview-panel">
+                <div class="preview-header">
+                    <h4 class="section-title">
+                        <i class="icon">👁️</i> Receipt Preview
+                    </h4>
+                    <div class="preview-actions">
+                        <button class="preview-btn" onclick="PrintDialog.zoomIn()" title="Zoom In">
+                            <i class="icon">🔍+</i>
+                        </button>
+                        <button class="preview-btn" onclick="PrintDialog.zoomOut()" title="Zoom Out">
+                            <i class="icon">🔍−</i>
+                        </button>
+                        <button class="preview-btn" onclick="PrintDialog.resetZoom()" title="Reset Zoom">
+                            <i class="icon">↺</i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="preview-container" id="print-preview-container">
+                    <div class="receipt-preview" id="receipt-preview-content">
+                        <!-- Receipt content will be rendered here -->
+                        <div class="preview-loading">
+                            <div class="spinner"></div>
+                            <p>Generating receipt preview...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="preview-footer">
+                    <div class="page-info">
+                        <span>Page 1 of 1</span>
+                        <span class="separator">|</span>
+                        <span id="preview-dimensions">80mm × Auto</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-footer print-dialog-footer">
+            <div class="footer-left">
+                <button class="btn btn-secondary" onclick="PrintDialog.close()">
+                    <i class="icon">✕</i> Cancel
+                </button>
+            </div>
+            <div class="footer-right">
+                <button class="btn btn-outline" onclick="PrintDialog.saveAsPDF()">
+                    <i class="icon">📄</i> Save as PDF
+                </button>
+                <button class="btn btn-primary btn-print" onclick="PrintDialog.print()" id="print-btn">
+                    <i class="icon">🖨️</i> Print Receipt
+                    <span class="btn-copies" id="btn-copies-text"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

@@ -30,8 +30,13 @@ async def get_shop_settings(
             cur.execute("""
                 SELECT shop_name, shop_phone, shop_email, shop_address,
                        shop_city, owner_name, ntn_number, gst_number,
-                       currency_symbol, 'Asia/Karachi', '09:00', '18:00',
-                       logo_path, created_at, receipt_footer
+                       gst_rate, currency_symbol,
+                       logo_path, created_at, receipt_footer,
+                       receipt_show_logo, receipt_logo_size, receipt_font_size,
+                       receipt_show_header, receipt_header_text, receipt_show_footer,
+                       receipt_show_barcode, receipt_show_tax_id, receipt_show_customer,
+                       receipt_terms,
+                       receipt_theme, use_raw_print, show_logo, show_header, show_footer, show_barcode
                 FROM shop_settings LIMIT 1
             """)
             row = cur.fetchone()
@@ -57,13 +62,30 @@ async def get_shop_settings(
                 "owner_name": settings.get("owner_name"),
                 "shop_tax_id": settings.get("ntn_number"),
                 "gst_number": settings.get("gst_number"),
+                "gst_rate": settings.get("gst_rate", 0.17),
                 "currency": settings.get("currency_symbol"),
                 "timezone": "Asia/Karachi",
                 "business_hours_open": "09:00",
                 "business_hours_close": "18:00",
                 "logo_path": settings.get("logo_path"),
                 "receipt_footer": settings.get("receipt_footer"),
-                "updated_at": settings.get("created_at") # Using created_at as updated_at if not present
+                "receipt_show_logo": settings.get("receipt_show_logo", 1),
+                "receipt_logo_size": settings.get("receipt_logo_size", "medium"),
+                "receipt_font_size": settings.get("receipt_font_size", "medium"),
+                "receipt_show_header": settings.get("receipt_show_header", 1),
+                "receipt_header_text": settings.get("receipt_header_text"),
+                "receipt_show_footer": settings.get("receipt_show_footer", 1),
+                "receipt_show_barcode": settings.get("receipt_show_barcode", 0),
+                "receipt_show_tax_id": settings.get("receipt_show_tax_id", 1),
+                "receipt_show_customer": settings.get("receipt_show_customer", 1),
+                "receipt_terms": settings.get("receipt_terms"),
+                "receipt_theme": settings.get("receipt_theme", "modern"),
+                "use_raw_print": bool(settings.get("use_raw_print", 1)),
+                "show_logo": bool(settings.get("show_logo", 1)),
+                "show_header": bool(settings.get("show_header", 1)),
+                "show_footer": bool(settings.get("show_footer", 1)),
+                "show_barcode": bool(settings.get("show_barcode", 1)),
+                "updated_at": settings.get("created_at")
             }
         }
     except Exception as e:
@@ -88,30 +110,62 @@ async def update_shop_settings(
                 # Update
                 updates = []
                 params = []
-                for field in [
-                    "shop_name", "shop_phone", "shop_email", "shop_address",
-                    "shop_city", "owner_name", "ntn_number", "gst_number",
-                    "currency_symbol", "logo_path", "receipt_footer"
-                ]:
-                    if field in settings_data:
-                        updates.append(f"{field} = ?")
-                        params.append(settings_data[field])
+                field_map = {
+                    "shop_name": "shop_name",
+                    "shop_phone": "shop_phone",
+                    "shop_email": "shop_email",
+                    "shop_address": "shop_address",
+                    "shop_city": "shop_city",
+                    "owner_name": "owner_name",
+                    "ntn_number": "ntn_number",
+                    "shop_tax_id": "ntn_number",
+                    "gst_number": "gst_number",
+                    "gst_rate": "gst_rate",
+                    "currency_symbol": "currency_symbol",
+                    "currency": "currency_symbol",
+                    "logo_path": "logo_path",
+                    "receipt_footer": "receipt_footer",
+                    "receipt_show_logo": "receipt_show_logo",
+                    "receipt_logo_size": "receipt_logo_size",
+                    "receipt_font_size": "receipt_font_size",
+                    "receipt_show_header": "receipt_show_header",
+                    "receipt_header_text": "receipt_header_text",
+                    "receipt_show_footer": "receipt_show_footer",
+                    "receipt_show_barcode": "receipt_show_barcode",
+                    "receipt_show_tax_id": "receipt_show_tax_id",
+                    "receipt_show_customer": "receipt_show_customer",
+                    "receipt_terms": "receipt_terms",
+                    "receipt_theme": "receipt_theme",
+                    "use_raw_print": "use_raw_print",
+                    "show_logo": "show_logo",
+                    "show_header": "show_header",
+                    "show_footer": "show_footer",
+                    "show_barcode": "show_barcode"
+                }
+                for frontend_key, db_col in field_map.items():
+                    if frontend_key in settings_data and settings_data[frontend_key] is not None:
+                        updates.append(f"{db_col} = ?")
+                        params.append(settings_data[frontend_key])
                 
                 if updates:
                     updates.append("updated_at = ?")
                     params.append(datetime.datetime.now().isoformat())
                     
-                    query = f"UPDATE shop_settings SET {', '.join(updates)}"
+                    # FIX: added WHERE id = ?
+                    query = f"UPDATE shop_settings SET {', '.join(updates)} WHERE id = ?"
+                    params.append(exists['id'])
                     cur.execute(query, params)
             else:
-                # Insert
+                # Insert with all columns including new ones
                 cur.execute("""
                     INSERT INTO shop_settings (
                         shop_name, shop_phone, shop_email, shop_address,
                         shop_city, owner_name, ntn_number, gst_number,
-                        currency_symbol, receipt_footer, logo_path,
+                        gst_rate, currency_symbol, receipt_footer, logo_path,
+                        receipt_theme, use_raw_print, show_logo, show_header,
+                        show_footer, show_barcode,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     settings_data.get("shop_name"),
                     settings_data.get("shop_phone"),
@@ -121,16 +175,27 @@ async def update_shop_settings(
                     settings_data.get("owner_name"),
                     settings_data.get("ntn_number") or settings_data.get("shop_tax_id"),
                     settings_data.get("gst_number"),
+                    settings_data.get("gst_rate", 0.17),
                     settings_data.get("currency", settings_data.get("currency_symbol", "₹")),
                     settings_data.get("receipt_footer", ""),
                     settings_data.get("logo_path"),
+                    settings_data.get("receipt_theme", "modern"),
+                    settings_data.get("use_raw_print", True),
+                    settings_data.get("show_logo", True),
+                    settings_data.get("show_header", True),
+                    settings_data.get("show_footer", True),
+                    settings_data.get("show_barcode", True),
                     datetime.datetime.now().isoformat(),
                     datetime.datetime.now().isoformat()
                 ))
         
+        # GST rate is now stored in database for synchronization between POS and main settings
+        # Default GST rate is 17% but can be set to 0 or any other value
+        
         return {
             "success": True,
-            "message": "Settings updated successfully"
+            "message": "Settings updated successfully",
+            "gst_rate": settings_data.get("gst_rate", 0.17)  # Return GST rate back to frontend
         }
     except Exception as e:
         logger.error(f"Failed to update shop settings: {e}")
@@ -531,12 +596,14 @@ async def get_users(
             """)
             rows = cur.fetchall()
         
-        # Convert to dicts and add dummy email field
+        # Convert to dicts and add compatibility fields
         users = []
         for row in rows:
             u = dict(row)
-            u['email'] = u.get('email', '') # Placeholder for frontend compatibility
-            u['phone'] = u.get('phone', '') # Placeholder for frontend compatibility
+            u['email'] = u.get('email', '')  # Placeholder for frontend compatibility
+            u['phone'] = u.get('phone', '')  # Placeholder for frontend compatibility
+            # Map status to is_active boolean for frontend expectations
+            u['is_active'] = (u.get('status') == 'active')
             users.append(u)
         
         return {
@@ -660,7 +727,7 @@ async def delete_user(
         db = get_database_manager()
         
         with db.get_cursor() as cur:
-            cur.execute("UPDATE users SET is_active = 0 WHERE id = ?", (user_id,))
+            cur.execute("UPDATE users SET status = 'inactive' WHERE id = ?", (user_id,))
         
         return {
             "success": True,

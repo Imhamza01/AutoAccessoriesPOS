@@ -71,6 +71,13 @@ class PosScreen {
             // Continue initialization even if shop settings module fails to load
         }
 
+        // Load settings from API to ensure we have the latest gst_rate
+        try {
+            await this.syncShopSettings();
+        } catch (error) {
+            console.warn('Could not sync shop settings on init:', error);
+        }
+
         try {
             await this.loadCategories();
             await this.loadProducts();
@@ -85,9 +92,51 @@ class PosScreen {
         this.focusSearch();
     }
 
+    // Sync shop settings from API to localStorage
+    async syncShopSettings() {
+        try {
+            const response = await this.app.api.get('/settings/shop');
+            if (response.success && response.settings) {
+                const settings = {
+                    shopName: response.settings.shop_name || 'Auto Accessories Shop',
+                    shopAddress: response.settings.shop_address || '',
+                    shopPhone: response.settings.shop_phone || '',
+                    shopEmail: response.settings.shop_email || '',
+                    taxNumber: response.settings.shop_tax_id || '',
+                    gstNumber: response.settings.gst_number || '',
+                    gstRate: response.settings.gst_rate !== undefined ? response.settings.gst_rate : 0.17,
+                    receiptMessage: response.settings.receipt_footer || 'Thank you for your business!',
+                    currency: response.settings.currency || 'PKR',
+                    logo_path: response.settings.logo_path || null,
+                    // Receipt customization
+                    receiptShowLogo: response.settings.receipt_show_logo !== undefined ? response.settings.receipt_show_logo : 1,
+                    receiptLogoSize: response.settings.receipt_logo_size || 'medium',
+                    receiptFontSize: response.settings.receipt_font_size || 'medium',
+                    receiptShowHeader: response.settings.receipt_show_header !== undefined ? response.settings.receipt_show_header : 1,
+                    receiptHeaderText: response.settings.receipt_header_text || '',
+                    receiptShowFooter: response.settings.receipt_show_footer !== undefined ? response.settings.receipt_show_footer : 1,
+                    receiptShowBarcode: response.settings.receipt_show_barcode || 0,
+                    receiptShowTaxId: response.settings.receipt_show_tax_id !== undefined ? response.settings.receipt_show_tax_id : 1,
+                    receiptShowCustomer: response.settings.receipt_show_customer !== undefined ? response.settings.receipt_show_customer : 1,
+                    receiptTerms: response.settings.receipt_terms || ''
+                };
+
+                // Save to localStorage
+                if (window.shopSettings) {
+                    window.shopSettings.saveSettings(settings);
+                    console.log('[POS] Shop settings synced from API, gstRate:', settings.gstRate);
+                }
+            }
+        } catch (error) {
+            console.warn('[POS] Failed to sync shop settings:', error);
+            // Non-critical, will use localStorage defaults
+        }
+    }
+
     refresh() {
         this.loadCategories(); // Refresh categories too
         this.loadProducts();
+        this.syncShopSettings(); // Refresh settings too
         this.updateCartDisplay();
     }
 
@@ -170,10 +219,10 @@ class PosScreen {
             ['hold-sale', () => this.holdSale()],
             ['apply-discount', () => this.applyDiscount()],
             ['view-held-sales', () => this.showHeldSales()],
-            ['print-receipt', () => this.printReceipt()],
             ['checkout-btn', () => this.processPayment()],
             ['shop-settings', () => this.showShopSettings()],
-            ['credit-payment-btn', () => this.showCreditPaymentModal()]
+            ['credit-payment-btn', () => this.showCreditPaymentModal()],
+            ['add-custom-item', () => this.showCustomItemModal()]
         ];
 
         buttonBindings.forEach(([id, fn]) => {
@@ -398,10 +447,10 @@ class PosScreen {
             ['hold-sale', () => this.holdSale()],
             ['apply-discount', () => this.applyDiscount()],
             ['view-held-sales', () => this.showHeldSales()],
-            ['print-receipt', () => this.printReceipt()],
             ['checkout-btn', () => this.processPayment()],
             ['shop-settings', () => this.showShopSettings()],
-            ['credit-payment-btn', () => this.showCreditPaymentModal()]
+            ['credit-payment-btn', () => this.showCreditPaymentModal()],
+            ['add-custom-item', () => this.showCustomItemModal()]
         ];
 
         ids.forEach(([id, fn]) => {
@@ -528,8 +577,67 @@ class PosScreen {
         this.app.showNotification(`Added ${product.name || product[1]}`, 'success');
     }
 
+    showCustomItemModal() {
+        const existing = document.getElementById('custom-item-modal-overlay');
+        if (existing) existing.remove();
+        const html = `
+        <div class="modal-overlay" id="custom-item-modal-overlay" style="display:flex;">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3>Add Custom Item / Service</h3>
+                    <button class="modal-close-btn" onclick="document.getElementById('custom-item-modal-overlay').remove()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Description *</label>
+                        <input type="text" id="custom-item-name" class="input-field" placeholder="e.g. Car Wash, Labour Charge...">
+                    </div>
+                    <div class="form-group">
+                        <label>Quantity *</label>
+                        <input type="number" id="custom-item-qty" class="input-field" value="1" min="0.01" step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label>Unit Price *</label>
+                        <input type="number" id="custom-item-price" class="input-field" value="0" min="0" step="0.01">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="document.getElementById('custom-item-modal-overlay').remove()">Cancel</button>
+                    <button class="btn btn-success" onclick="window.app.screens.pos.addCustomItemToCart()">Add to Cart</button>
+                </div>
+            </div>
+        </div>`;
+        document.body.insertAdjacentHTML('beforeend', html);
+        document.getElementById('custom-item-name').focus();
+    }
+
+    addCustomItemToCart() {
+        const name = document.getElementById('custom-item-name').value.trim();
+        const qty = parseFloat(document.getElementById('custom-item-qty').value) || 0;
+        const price = parseFloat(document.getElementById('custom-item-price').value) || 0;
+        if (!name) { this.app.showNotification('Please enter a description', 'error'); return; }
+        if (qty <= 0) { this.app.showNotification('Quantity must be greater than 0', 'error'); return; }
+        if (price < 0) { this.app.showNotification('Price cannot be negative', 'error'); return; }
+        const cartId = 'custom-' + Date.now();
+        this.cart.push({
+            product: { id: null, _cartId: cartId, name: name, is_custom: true },
+            quantity: qty,
+            price: price,
+            discount: 0,
+            original_total: price * qty,
+            total: price * qty
+        });
+        document.getElementById('custom-item-modal-overlay').remove();
+        this.updateCartDisplay();
+        this.app.showNotification(`Added: ${name}`, 'success');
+    }
+
+    _getCartItemId(item) {
+        return item.product.is_custom ? item.product._cartId : String(item.product.id || item.product[0]);
+    }
+
     updateCartQuantity(productId, change) {
-        const item = this.cart.find(item => item.product.id == productId);
+        const item = this.cart.find(i => this._getCartItemId(i) === String(productId));
         if (!item) return;
 
         const newQuantity = item.quantity + change;
@@ -538,41 +646,44 @@ class PosScreen {
         } else {
             item.quantity = newQuantity;
             item.total = item.price * newQuantity;
-            item.original_total = item.price * newQuantity; // Update original total as well
+            item.original_total = item.price * newQuantity;
             this.updateCartDisplay();
         }
     }
 
     removeFromCart(productId) {
-        this.cart = this.cart.filter(item => item.product.id != productId);
+        this.cart = this.cart.filter(i => this._getCartItemId(i) !== String(productId));
         this.updateCartDisplay();
     }
 
     updateCartDisplay() {
         const cartItems = document.getElementById('cart-items');
         if (cartItems) {
-            cartItems.innerHTML = this.cart.map(item => `
+            cartItems.innerHTML = this.cart.map(item => {
+                const itemId = this._getCartItemId(item);
+                const icon = item.product.is_custom ? '🔧' :
+                    (item.product.image || item.product.image_path) ?
+                    `<img src="${item.product.image || item.product.image_path}" width="40" onerror="this.onerror=null;this.parentElement.innerHTML='📦';this.style.display='none';">` :
+                    '📦';
+                const nameLabel = item.product.is_custom
+                    ? `${item.product.name} <span style="font-size:10px;color:#888;">(custom)</span>`
+                    : (item.product.name || item.product[1]);
+                return `
                 <div class="cart-item">
-                    <div class="cart-item-image">
-                       ${(item.product.image || item.product.image_path) ?
-                    `<img src="${item.product.image || item.product.image_path}" 
-                                width="40" 
-                                onerror="this.onerror=null; this.parentElement.innerHTML='📦'; this.style.display='none';">` :
-                    '📦'}
-                    </div>
+                    <div class="cart-item-image">${icon}</div>
                     <div class="cart-item-details">
-                        <div class="cart-item-name">${item.product.name || item.product[1]}</div>
+                        <div class="cart-item-name">${nameLabel}</div>
                         <div class="cart-item-price">${this.app.formatCurrency(item.price)} x ${item.quantity}</div>
                     </div>
                     <div class="cart-item-controls">
-                        <button class="quantity-decrease" data-product-id="${item.product.id || item.product[0]}">-</button>
+                        <button class="quantity-decrease" data-product-id="${itemId}">-</button>
                         <span>${item.quantity}</span>
-                        <button class="quantity-increase" data-product-id="${item.product.id || item.product[0]}">+</button>
-                        <button class="remove-item" data-product-id="${item.product.id || item.product[0]}">&times;</button>
+                        <button class="quantity-increase" data-product-id="${itemId}">+</button>
+                        <button class="remove-item" data-product-id="${itemId}">&times;</button>
                     </div>
                     <div class="cart-item-total">${this.app.formatCurrency(item.total)}</div>
-                </div>
-            `).join('');
+                </div>`;
+            }).join('');
         }
 
         this.updateCartSummary();
@@ -587,14 +698,16 @@ class PosScreen {
 
     updateCartSummary() {
         const subtotal = this.cart.reduce((sum, item) => sum + item.total, 0);
-        const tax = subtotal * 0.17;
+        const settings = window.shopSettings ? window.shopSettings.getAllSettings() : {};
+        const gstRate = (settings.gstRate !== undefined && settings.gstRate !== null) ? settings.gstRate : 0.17;
+        const tax = subtotal * gstRate;
         const total = subtotal + tax;
 
         const summaryElement = document.getElementById('cart-summary');
         if (summaryElement) {
             summaryElement.innerHTML = `
                 <div class="cart-row"><span>Subtotal:</span><span>${this.app.formatCurrency(subtotal)}</span></div>
-                <div class="cart-row"><span>GST (17%):</span><span>${this.app.formatCurrency(tax)}</span></div>
+                <div class="cart-row"><span>GST (${(gstRate * 100).toFixed(0)}%):</span><span>${this.app.formatCurrency(tax)}</span></div>
                 <div class="cart-row total"><span>Total:</span><span>${this.app.formatCurrency(total)}</span></div>
             `;
         }
@@ -950,7 +1063,9 @@ class PosScreen {
     async showPaymentModal() {
         // Calculate totals
         const subtotal = this.cart.reduce((sum, item) => sum + item.total, 0);
-        const gstRate = window.shopSettings ? window.shopSettings.getSetting('gstRate') || 0.17 : 0.17;
+        const gstRate = window.shopSettings ? 
+            ((window.shopSettings.getSetting('gstRate') !== undefined && window.shopSettings.getSetting('gstRate') !== null) ? 
+            window.shopSettings.getSetting('gstRate') : 0.17) : 0.17;
         const tax = subtotal * gstRate;
         const total = subtotal + tax;
 
@@ -1169,7 +1284,9 @@ class PosScreen {
 
             // Validate payment
             const subtotal = this.cart.reduce((sum, item) => sum + item.total, 0);
-            const gstRate = window.shopSettings ? window.shopSettings.getSetting('gstRate') || 0.17 : 0.17;
+            const gstRate = window.shopSettings ? 
+                ((window.shopSettings.getSetting('gstRate') !== undefined && window.shopSettings.getSetting('gstRate') !== null) ? 
+                window.shopSettings.getSetting('gstRate') : 0.17) : 0.17;
             const tax = subtotal * gstRate;
             const total = subtotal + tax;
 
@@ -1195,6 +1312,33 @@ class PosScreen {
                 return;
             }
 
+            // Validate credit limit for credit customers
+            if (paymentMethod === 'credit' && selectedCustomerId) {
+                try {
+                    const customerResponse = await this.api.get(`/customers/${selectedCustomerId}`);
+                    if (customerResponse && customerResponse.success) {
+                        const customer = customerResponse.customer;
+                        const creditLimit = customer.credit_limit || 0;
+                        const currentBalance = customer.current_balance || 0;
+                        
+                        if (creditLimit <= 0) {
+                            this.app.showNotification('Customer has zero credit limit. Credit sale not allowed.', 'error');
+                            this.app.hideLoading();
+                            return;
+                        }
+                        
+                        const availableCredit = creditLimit - currentBalance;
+                        if (total > availableCredit) {
+                            this.app.showNotification(`Insufficient credit limit. Available: ${this.app.formatCurrency(availableCredit)}, Required: ${this.app.formatCurrency(total)}`, 'error');
+                            this.app.hideLoading();
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error checking customer credit:', e);
+                }
+            }
+
             // Prepare payload matching backend expectations
             const saleData = {
                 customer_id: selectedCustomerId, // Use selected customer
@@ -1206,7 +1350,9 @@ class PosScreen {
                 payment_status: paymentMethod === 'credit' ? 'pending' : 'completed',
                 notes: '', // No notes by default
                 items: this.cart.map(i => ({
-                    product_id: i.product.id || i.product[0],
+                    product_id: i.product.is_custom ? null : (i.product.id || i.product[0]),
+                    product_name: i.product.is_custom ? i.product.name : undefined,
+                    is_custom: i.product.is_custom || false,
                     quantity: i.quantity,
                     unit_price: i.price,
                     total_price: i.quantity * i.price
@@ -1220,17 +1366,20 @@ class PosScreen {
                     amount_tendered: amountTendered,
                     change_amount: amountTendered - total,
                     payment_method: paymentMethod,
-                    timestamp: new Date()
+                    timestamp: new Date(),
+                    invoice_number: response.invoice_number || 'INV-' + Date.now().toString().slice(-8)
                 };
 
                 this.app.showNotification('Sale completed!', 'success');
+                
+                const receiptData = this.prepareReceiptData();
+                receiptData.invoiceNo = this.lastPaymentDetails.invoice_number;
+                window.PrintDialog.open(receiptData);
+                
                 this.cart = [];
                 this.updateCartDisplay();
                 this.closePaymentModal();
                 this.refresh();
-
-                // Print receipt
-                this.printReceipt();
 
                 // Update all relevant screens
                 if (window.app.screens.dashboard) {
@@ -1278,7 +1427,9 @@ class PosScreen {
         try {
             // Calculate totals
             const subtotal = this.cart.reduce((sum, item) => sum + item.total, 0);
-            const gstRate = window.shopSettings ? window.shopSettings.getSetting('gstRate') || 0.17 : 0.17;
+            const gstRate = window.shopSettings ? 
+                ((window.shopSettings.getSetting('gstRate') !== undefined && window.shopSettings.getSetting('gstRate') !== null) ? 
+                window.shopSettings.getSetting('gstRate') : 0.17) : 0.17;
             const tax = subtotal * gstRate;
             const total = subtotal + tax;
 
@@ -1421,7 +1572,9 @@ class PosScreen {
 
             // Calculate totals again (as they were passed as parameters earlier)
             const subtotal = this.cart.reduce((sum, item) => sum + item.total, 0);
-            const gstRate = window.shopSettings ? window.shopSettings.getSetting('gstRate') || 0.17 : 0.17;
+            const gstRate = window.shopSettings ? 
+                ((window.shopSettings.getSetting('gstRate') !== undefined && window.shopSettings.getSetting('gstRate') !== null) ? 
+                window.shopSettings.getSetting('gstRate') : 0.17) : 0.17;
             const tax = subtotal * gstRate;
             const total = subtotal + tax;
 
@@ -1437,7 +1590,9 @@ class PosScreen {
                 notes: 'Sale held by cashier',
                 hold_reason: 'Held by cashier',
                 items: this.cart.map(i => ({
-                    product_id: i.product.id || i.product[0],
+                    product_id: i.product.is_custom ? null : (i.product.id || i.product[0]),
+                    product_name: i.product.is_custom ? i.product.name : undefined,
+                    is_custom: i.product.is_custom || false,
                     quantity: i.quantity,
                     unit_price: i.price,
                     total_price: i.quantity * i.price
@@ -1473,6 +1628,7 @@ class PosScreen {
 
             if (response.success && response.settings) {
                 // Map API response fields to localStorage format
+                const apiGstRate = response.settings.gst_rate !== undefined ? response.settings.gst_rate : 0.17;
                 settings = {
                     shopName: response.settings.shop_name || 'Auto Accessories Shop',
                     shopAddress: response.settings.shop_address || '123 Main Street, City',
@@ -1481,8 +1637,8 @@ class PosScreen {
                     taxNumber: response.settings.shop_tax_id || 'Tax ID: 123456789',
                     receiptMessage: response.settings.receipt_footer || 'Thank you for your business!',
                     currency: response.settings.currency || 'PKR',
-                    // Try to preserve existing GST rate from localStorage if available, otherwise default to 0.17
-                    gstRate: (window.shopSettings && window.shopSettings.getSetting('gstRate')) || 0.17
+                    gstRate: apiGstRate,
+                    gstNumber: response.settings.gst_number || ''
                 };
 
                 // Also update localStorage to keep them in sync
@@ -1632,6 +1788,9 @@ class PosScreen {
     }
 
     async saveShopSettings() {
+        const gstRateValue = parseFloat(document.getElementById('gst-rate').value);
+        const gstRate = isNaN(gstRateValue) ? 0 : (gstRateValue / 100);
+        
         const settings = {
             shopName: document.getElementById('shop-name-input').value,
             shopAddress: document.getElementById('shop-address').value,
@@ -1639,7 +1798,7 @@ class PosScreen {
             shopEmail: document.getElementById('shop-email').value,
             taxNumber: document.getElementById('tax-number').value,
             receiptMessage: document.getElementById('receipt-message').value,
-            gstRate: parseFloat(document.getElementById('gst-rate').value) / 100,
+            gstRate: gstRate,
             currency: document.getElementById('currency').value
         };
 
@@ -1660,7 +1819,7 @@ class PosScreen {
                 ntn_number: settings.taxNumber,
                 receipt_footer: settings.receiptMessage,
                 currency_symbol: settings.currency,
-                // Note: GST Rate is not saved to DB, only used locally
+                gst_rate: settings.gstRate  // Save GST rate to database
             };
 
             const response = await this.app.api.put('/settings/shop', apiSettings);
@@ -1976,134 +2135,638 @@ class PosScreen {
         this.app.showNotification('Discount of ' + this.app.formatCurrency(discountAmount) + ' applied', 'success');
         this.closeDiscountModal();
     }
-    printReceipt() {
+    
+    prepareReceiptData() {
+        const settings = window.shopSettings ? window.shopSettings.getAllSettings() : {};
+        const shopName = settings.shopName || 'Auto Accessories Shop';
+        const shopAddress = settings.shopAddress || '';
+        const shopPhone = settings.shopPhone || '';
+        const taxNumber = settings.taxNumber || '';
+        const gstNumber = settings.gstNumber || '';
+        const receiptMessage = settings.receiptMessage || 'Thank you for your business!';
+        const currency = settings.currency || 'PKR';
+        const logoPath = settings.logo_path || '';
+        const showLogo = settings.receiptShowLogo !== 0;
+        const logoSize = settings.receiptLogoSize || 'medium';
+        const fontSize = settings.receiptFontSize || 'medium';
+        const showHeader = settings.receiptShowHeader !== 0;
+        const headerText = settings.receiptHeaderText || '';
+        const showFooter = settings.receiptShowFooter !== 0;
+        const showBarcode = settings.receiptShowBarcode === 1;
+        const showTaxId = settings.receiptShowTaxId !== 0;
+        const showCustomer = settings.receiptShowCustomer !== 0;
+        const terms = settings.receiptTerms || '';
+        const receiptTheme = settings.receiptTheme || 'modern';
+        const subtotal = this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const discount = this.currentDiscount || 0;
+        const taxRate = (settings.gstRate !== undefined && settings.gstRate !== null) ? settings.gstRate : 0.17;
+        const afterDiscount = subtotal - discount;
+        const taxAmount = afterDiscount * taxRate;
+        const grandTotal = afterDiscount + taxAmount;
+        const amountPaid = this.lastPaymentDetails?.amount_tendered || grandTotal;
+        const change = amountPaid - grandTotal;
+        
+        return {
+            shopName: shopName,
+            shopAddress: shopAddress,
+            shopPhone: shopPhone,
+            taxNumber: taxNumber,
+            gstNumber: gstNumber,
+            invoiceNo: 'INV-' + Date.now().toString().slice(-8),
+            date: new Date().toLocaleDateString('en-PK'),
+            time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+            customer: showCustomer ? (this.currentCustomer?.full_name || '') : '',
+            payment_method: this.lastPaymentDetails?.payment_method || 'cash',
+            items: this.cart.map(item => ({
+                name: item.product.name || item.product[1] || 'Unknown Product',
+                quantity: item.quantity,
+                price: item.price,
+                total: item.price * item.quantity,
+                is_custom: item.product.is_custom || false
+            })),
+            subtotal: subtotal,
+            discount: discount,
+            taxRate: taxRate,
+            taxAmount: taxAmount,
+            grandTotal: grandTotal,
+            amountPaid: amountPaid,
+            change: change,
+            footerMessage: showFooter ? receiptMessage : '',
+            terms: terms,
+            receiptTheme: receiptTheme,
+            fontSize: fontSize,
+            showLogo: showLogo,
+            logoPath: logoPath,
+            logoSize: logoSize,
+            showHeader: showHeader,
+            headerText: headerText,
+            showBarcode: showBarcode,
+            showTaxId: showTaxId,
+            showFooter: showFooter
+        };
+    }
+    
+    printReceipt(externalReceiptData = null) {
+        if (externalReceiptData) {
+            // Use externally provided receipt data (e.g., for shop copy)
+            if (window.PrintDialog) {
+                window.PrintDialog.open(externalReceiptData);
+            } else if (window.ReceiptRenderer) {
+                window.ReceiptRenderer.printReceipt(externalReceiptData, () => {});
+            } else if (window.PrintService) {
+                window.PrintService.printReceipt(externalReceiptData, () => {});
+            } else {
+                this.app.showNotification('Print service not available', 'error');
+            }
+            return;
+        }
+        
         if (this.cart.length === 0) {
             this.app.showNotification('Cart is empty', 'error');
             return;
         }
+    
+        // Get shop settings
+        const settings = window.shopSettings ? window.shopSettings.getAllSettings() : {};
+        const shopName = settings.shopName || 'Auto Accessories Shop';
+        const shopAddress = settings.shopAddress || '';
+        const shopPhone = settings.shopPhone || '';
+        const taxNumber = settings.taxNumber || '';
+        const gstNumber = settings.gstNumber || '';
+        const receiptMessage = settings.receiptMessage || 'Thank you for your business!';
+        const currency = settings.currency || 'PKR';
+        const logoPath = settings.logo_path || '';
+    
+        // Receipt customization settings - MUST sync with preview
+        const showLogo = settings.receiptShowLogo !== 0;
+        const logoSize = settings.receiptLogoSize || 'medium';
+        const fontSize = settings.receiptFontSize || 'medium';
+        const showHeader = settings.receiptShowHeader !== 0;
+        const headerText = settings.receiptHeaderText || '';
+        const showFooter = settings.receiptShowFooter !== 0;
+        const showBarcode = settings.receiptShowBarcode === 1;
+        const showTaxId = settings.receiptShowTaxId !== 0;
+        const showCustomer = settings.receiptShowCustomer !== 0;
+        const terms = settings.receiptTerms || '';
+        const receiptTheme = settings.receiptTheme || 'modern';
+    
+        // Calculate totals
+        const subtotal = this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const discount = this.currentDiscount || 0;
+        const taxRate = (settings.gstRate !== undefined && settings.gstRate !== null) ? settings.gstRate : 0.17;
+        const afterDiscount = subtotal - discount;
+        const taxAmount = afterDiscount * taxRate;
+        const grandTotal = afterDiscount + taxAmount;
+        const amountPaid = this.lastPaymentDetails?.amount_tendered || grandTotal;
+        const change = amountPaid - grandTotal;
+    
+        // Build receipt data object WITH ALL SETTINGS
+        const receiptData = {
+            shopName: shopName,
+            shopAddress: shopAddress,
+            shopPhone: shopPhone,
+            taxNumber: taxNumber,
+            gstNumber: gstNumber,
+            invoiceNo: 'INV-' + Date.now().toString().slice(-8),
+            date: new Date().toLocaleDateString('en-PK'),
+            time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+            customer: showCustomer ? (this.currentCustomer?.full_name || '') : '',
+            items: this.cart.map(item => ({
+                name: item.product.name || item.product[1] || 'Unknown Product',
+                quantity: item.quantity,
+                price: item.price,
+                total: item.price * item.quantity,
+                is_custom: item.product.is_custom || false
+            })),
+            subtotal: subtotal,
+            discount: discount,
+            taxRate: taxRate,
+            taxAmount: taxAmount,
+            grandTotal: grandTotal,
+            amountPaid: amountPaid,
+            change: change,
+            footerMessage: showFooter ? receiptMessage : '',
+            terms: terms,
+            // Receipt customization - sync with preview
+            receiptTheme: receiptTheme,
+            fontSize: fontSize,
+            showLogo: showLogo,
+            logoPath: logoPath,
+            logoSize: logoSize,
+            showHeader: showHeader,
+            headerText: headerText,
+            showBarcode: showBarcode,
+            showTaxId: showTaxId,
+            showFooter: showFooter
+        };
+    
+        // Use PrintDialog for enhanced print UI (which now uses native ESC/POS)
+        if (window.PrintDialog) {
+            window.PrintDialog.open(receiptData);
+        } else if (window.ReceiptRenderer) {
+            // Use ReceiptRenderer which uses native ESC/POS
+            window.ReceiptRenderer.printReceipt(receiptData, () => {
+                console.log('[POS] Print completed');
+            });
+        } else if (window.PrintService) {
+            // Fallback to PrintService native ESC/POS
+            console.warn('[POS] Using PrintService directly');
+            window.PrintService.printReceipt(receiptData, () => {
+                console.log('[POS] Print completed');
+            });
+        } else {
+            // Last resort fallback
+            console.error('[POS] No print service available');
+            this.app.showNotification('Print service not available', 'error');
+        }
+    }
 
-        // Create receipt content
-        const receiptContent = this.generateReceiptContent();
+    printWithIframe(receiptHTML) {
+        // Remove any existing print frame
+        const existing = document.getElementById('_thermal_print_frame');
+        if (existing) existing.remove();
 
-        // Create a new window for printing
-        const printWindow = window.open('', '_blank');
-        printWindow.document.write(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Receipt</title>
-                <style>
-                    body { 
-                        font-family: \'Courier New\', monospace; 
-                        margin: 0; 
-                        padding: 20px;
-                        max-width: 300px;
-                        background: white;
-                    }
-                    .receipt-header { 
-                        text-align: center; 
-                        margin-bottom: 15px; 
-                        border-bottom: 1px dashed #000; 
-                        padding-bottom: 10px; 
-                    }
-                    .receipt-title { 
-                        font-size: 1.2em; 
-                        font-weight: bold; 
-                        margin: 0; 
-                    }
-                    .receipt-subtitle { 
-                        font-size: 0.8em; 
-                        margin: 5px 0; 
-                    }
-                    .receipt-details { 
-                        font-size: 0.7em; 
-                        margin: 5px 0; 
-                    }
-                    .items { 
-                        margin: 10px 0; 
-                    }
-                    .item { 
-                        display: flex; 
-                        justify-content: space-between; 
-                        margin-bottom: 5px; 
-                        font-size: 0.8em; 
-                    }
-                    .item-name { 
-                        flex: 1; 
-                    }
-                    .item-qty { 
-                        width: 30px; 
-                        text-align: right; 
-                    }
-                    .item-price { 
-                        width: 60px; 
-                        text-align: right; 
-                    }
-                    .total-section { 
-                        margin-top: 10px; 
-                        border-top: 1px solid #000; 
-                        padding-top: 10px; 
-                        font-weight: bold; 
-                    }
-                    .total-row { 
-                        display: flex; 
-                        justify-content: space-between; 
-                    }
-                    .thank-you { 
-                        text-align: center; 
-                        margin-top: 15px; 
-                        font-style: italic; 
-                    }
-                    .receipt-footer { 
-                        text-align: center; 
-                        margin-top: 15px; 
-                        font-size: 0.7em; 
-                        border-top: 1px dashed #000; 
-                        padding-top: 10px; 
-                    }
-                </style>
-            </head>
-            <body>
-                ${receiptContent}
-            </body>
-            </html>
-        `);
-        printWindow.document.close();
-        printWindow.focus();
+        // Create a hidden iframe — works in PyWebView unlike window.open()
+        const iframe = document.createElement('iframe');
+        iframe.id = '_thermal_print_frame';
+        iframe.style.cssText = [
+            'position:fixed',
+            'top:-9999px',
+            'left:-9999px',
+            'width:80mm',
+            'height:1px',
+            'border:none',
+            'visibility:hidden'
+        ].join(';');
 
-        // Wait for content and images to load then print
-        printWindow.onload = function () {
-            const images = printWindow.document.getElementsByTagName('img');
-            if (images.length > 0) {
-                let loaded = 0;
-                const checkPrint = () => {
-                    loaded++;
-                    if (loaded >= images.length) {
-                        setTimeout(() => {
-                            printWindow.print();
-                            printWindow.close();
-                        }, 500); // Extra delay for rendering
-                    }
-                };
+        document.body.appendChild(iframe);
 
-                for (let i = 0; i < images.length; i++) {
-                    if (images[i].complete) {
-                        checkPrint();
-                    } else {
-                        images[i].onload = checkPrint;
-                        images[i].onerror = checkPrint;
-                    }
-                }
-            } else {
-                printWindow.print();
-                printWindow.close();
+        // Use srcdoc for PyWebView compatibility (replaces doc.write)
+        iframe.srcdoc = receiptHTML;
+
+        // Wait for content to render then print
+        const doPrint = () => {
+            try {
+                iframe.contentWindow.focus();
+                iframe.contentWindow.print();
+                // Clean up after print dialog closes
+                setTimeout(() => {
+                    if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+                }, 2000);
+            } catch(e) {
+                console.error('Print failed:', e);
+                this.app.showNotification('Print failed: ' + e.message, 'error');
             }
         };
+
+        // Wait for iframe to load (srcdoc triggers load event)
+        iframe.onload = () => setTimeout(doPrint, 500);
+    }
+
+    generateReceiptHTML() {
+        const settings = window.shopSettings ? window.shopSettings.getAllSettings() : {};
+        const shopName = settings.shopName || 'Auto Accessories Shop';
+        const shopAddress = settings.shopAddress || '';
+        const shopPhone = settings.shopPhone || '';
+        const taxNumber = settings.taxNumber || '';
+        const gstNumber = settings.gstNumber || '';
+        const receiptMessage = settings.receiptMessage || 'Thank you for your business!';
+        const currency = settings.currency || 'PKR';
+        const logoPath = settings.logo_path || '';
+
+        // Receipt customization settings
+        const showLogo = settings.receiptShowLogo !== 0;
+        const logoSize = settings.receiptLogoSize || 'medium';
+        const fontSize = settings.receiptFontSize || 'medium';
+        const showHeader = settings.receiptShowHeader !== 0;
+        const headerText = settings.receiptHeaderText || '';
+        const showFooter = settings.receiptShowFooter !== 0;
+        const showBarcode = settings.receiptShowBarcode === 1;
+        const showTaxId = settings.receiptShowTaxId !== 0;
+        const showCustomer = settings.receiptShowCustomer !== 0;
+        const terms = settings.receiptTerms || '';
+
+        // Font size mapping
+        const fontSizeMap = {
+            small: { body: '10px', header: '12px', title: '13px', info: '9px' },
+            medium: { body: '11px', header: '14px', title: '16px', info: '10px' },
+            large: { body: '12px', header: '16px', title: '18px', info: '11px' }
+        };
+        const sizes = fontSizeMap[fontSize] || fontSizeMap.medium;
+
+        // Logo size mapping
+        const logoSizeMap = {
+            small: '60px',
+            medium: '90px',
+            large: '120px'
+        };
+        const logoWidth = logoSizeMap[logoSize] || '90px';
+
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('en-PK');
+        const timeStr = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
+        const invoiceNo = 'INV-' + Date.now().toString().slice(-8);
+
+        // Build items rows
+        let itemsHTML = '';
+        let subtotal = 0;
+        this.cart.forEach(item => {
+            const lineTotal = (item.price * item.quantity);
+            subtotal += lineTotal;
+            const itemName = item.product.is_custom 
+                ? `${item.product.name} <span class="item-detail">(Service)</span>`
+                : this.escapeHtml(item.product.name || item.product[1] || 'Unknown Product');
+            const itemPriceDetail = item.product.is_custom
+                ? `<span class="item-detail">${currency} ${item.price.toFixed(2)} x ${item.quantity}</span>`
+                : `<span class="item-detail">${currency} ${item.price.toFixed(2)} x ${item.quantity}</span>`;
+            itemsHTML += `
+            <tr>
+                <td class="item-name-cell">
+                    ${itemName}
+                    ${itemPriceDetail}
+                </td>
+                <td class="qty-cell">${item.quantity}</td>
+                <td class="price-cell">${currency} ${lineTotal.toFixed(2)}</td>
+            </tr>`;
+        });
+
+        const discount = this.currentDiscount || 0;
+        const taxRate = (settings.gstRate !== undefined && settings.gstRate !== null) ? settings.gstRate : 0.17;
+        const afterDiscount = subtotal - discount;
+        const taxAmount = afterDiscount * taxRate;
+        const grandTotal = afterDiscount + taxAmount;
+        const amountPaid = this.amountPaid || grandTotal;
+        const change = amountPaid - grandTotal;
+
+        return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Receipt</title>
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', 'Arial', sans-serif;
+    font-size: 12px;
+    width: 72mm;
+    padding: 4mm;
+    line-height: 1.4;
+    color: #000;
+    background: #fff;
+}
+
+/* Logo */
+.logo-section {
+    text-align: center;
+    margin-bottom: 6px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #000;
+}
+
+.receipt-logo {
+    max-width: 90px;
+    height: auto;
+    display: block;
+    margin: 0 auto 6px auto;
+    filter: contrast(1.2);
+}
+
+/* Header */
+.shop-title {
+    font-size: 18px;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+}
+
+.shop-details {
+    font-size: 10px;
+    text-align: center;
+    margin-bottom: 6px;
+    line-height: 1.5;
+    color: #333;
+}
+
+/* Invoice Info */
+.invoice-info {
+    font-size: 10px;
+    margin-bottom: 6px;
+    padding: 4px;
+    background: #f9f9f9;
+    border-radius: 3px;
+}
+
+.invoice-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 3px;
+}
+
+/* Divider */
+.divider {
+    border-top: 2px dashed #333;
+    margin: 6px 0;
+}
+
+/* Items Table */
+.items-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 6px;
+}
+
+.items-table th {
+    border-bottom: 2px solid #000;
+    padding: 4px 2px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+}
+
+.items-table th.qty-col {
+    text-align: center;
+    width: 40px;
+}
+
+.items-table th.price-col {
+    text-align: right;
+    width: 70px;
+}
+
+.items-table td {
+    padding: 3px 2px;
+    vertical-align: top;
+}
+
+.item-name-cell {
+    font-weight: bold;
+    word-break: break-word;
+}
+
+.item-detail {
+    font-size: 9px;
+    color: #555;
+    display: block;
+    margin-top: 2px;
+}
+
+.qty-cell {
+    text-align: center;
+}
+
+.price-cell {
+    text-align: right;
+    font-weight: bold;
+}
+
+/* Totals */
+.totals-section {
+    margin-bottom: 5px;
+}
+
+.total-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 0;
+}
+
+.total-label {
+    font-weight: bold;
+}
+
+.total-value {
+    text-align: right;
+}
+
+.grand-total {
+    font-size: 14px;
+    font-weight: 700;
+    border-top: 3px double #000;
+    border-bottom: 3px double #000;
+    padding: 6px 0;
+    margin-top: 4px;
+}
+
+.payment-box {
+    border: 2px solid #333;
+    padding: 6px;
+    margin-top: 6px;
+    border-radius: 3px;
+    background: #fafafa;
+}
+
+/* Footer */
+.footer-section {
+    text-align: center;
+    margin-top: 10px;
+    padding-top: 6px;
+}
+
+.thank-you {
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+}
+
+.footer-text {
+    font-size: 10px;
+    line-height: 1.5;
+    color: #333;
+}
+
+.terms {
+    font-size: 9px;
+    margin-top: 6px;
+    padding-top: 4px;
+    border-top: 2px dashed #333;
+    color: #555;
+}
+
+@media print {
+    @page {
+        size: 80mm auto;
+        margin: 0;
+    }
+    
+    body {
+        width: 72mm;
+        padding: 4mm;
+    }
+}
+</style>
+</head>
+<body>
+
+${showLogo && logoPath ? `
+<div class="logo-section">
+    <img src="${logoPath}" class="receipt-logo" onerror="this.style.display='none'">
+</div>
+` : ''}
+
+${showHeader ? `
+<div class="shop-title">${this.escapeHtml(shopName)}</div>
+<div class="shop-details">
+    ${shopAddress ? this.escapeHtml(shopAddress) + '<br>' : ''}
+    ${shopPhone ? 'Ph: ' + this.escapeHtml(shopPhone) + '<br>' : ''}
+    ${showTaxId && taxNumber ? 'NTN: ' + this.escapeHtml(taxNumber) + '<br>' : ''}
+    ${showTaxId && gstNumber ? 'GST: ' + this.escapeHtml(gstNumber) : ''}
+</div>
+` : ''}
+
+<div class="invoice-info">
+    <div class="invoice-row">
+        <span>Invoice:</span>
+        <span><strong>${invoiceNo}</strong></span>
+    </div>
+    <div class="invoice-row">
+        <span>Date:</span>
+        <span>${dateStr} ${timeStr}</span>
+    </div>
+    ${showCustomer && this.currentCustomer ? `
+    <div class="invoice-row">
+        <span>Customer:</span>
+        <span>${this.escapeHtml(this.currentCustomer.full_name || '')}</span>
+    </div>` : ''}
+</div>
+
+<div class="divider"></div>
+
+<table class="items-table">
+    <thead>
+        <tr>
+            <th>Item</th>
+            <th class="qty-col">Qty</th>
+            <th class="price-col">Amount</th>
+        </tr>
+    </thead>
+    <tbody>
+        ${itemsHTML}
+    </tbody>
+</table>
+
+<div class="divider"></div>
+
+<div class="totals-section">
+    <div class="total-row">
+        <span class="total-label">Subtotal:</span>
+        <span class="total-value">${currency} ${subtotal.toFixed(2)}</span>
+    </div>
+    ${discount > 0 ? `
+    <div class="total-row">
+        <span class="total-label">Discount:</span>
+        <span class="total-value">- ${currency} ${discount.toFixed(2)}</span>
+    </div>
+    ` : ''}
+    <div class="total-row">
+        <span class="total-label">Tax (${(taxRate * 100).toFixed(1)}%):</span>
+        <span class="total-value">${currency} ${taxAmount.toFixed(2)}</span>
+    </div>
+    
+    <div class="total-row grand-total">
+        <span>TOTAL:</span>
+        <span>${currency} ${grandTotal.toFixed(2)}</span>
+    </div>
+    
+    <div class="payment-box">
+        <div class="total-row">
+            <span>Paid:</span>
+            <span>${currency} ${amountPaid.toFixed(2)}</span>
+        </div>
+        <div class="total-row">
+            <span>Change:</span>
+            <span>${currency} ${change.toFixed(2)}</span>
+        </div>
+    </div>
+</div>
+
+${showBarcode ? `
+<div class="divider"></div>
+<div style="text-align: center; font-family: monospace; font-size: 24px; letter-spacing: 2px;">
+    *${invoiceNo}*
+</div>
+<div style="text-align: center; font-size: 9px; margin-top: 2px;">${invoiceNo}</div>
+` : ''}
+
+<div class="footer-section">
+    ${showFooter ? `
+    <div class="thank-you">Thank You!</div>
+    <div class="footer-text">
+        ${receiptMessage ? this.escapeHtml(receiptMessage) : 'We appreciate your business'}
+    </div>
+    ` : ''}
+    
+    ${terms ? `
+    <div class="terms">
+        ${this.escapeHtml(terms)}
+    </div>
+    ` : ''}
+</div>
+
+</body>
+</html>`;
+    }
+
+    escapeHtml(text) {
+        if (!text) return '';
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
     }
 
     generateReceiptContent() {
         const subtotal = this.cart.reduce((sum, item) => sum + item.total, 0);
-        const gstRate = window.shopSettings ? window.shopSettings.getSetting('gstRate') || 0.17 : 0.17;
+        const gstRate = window.shopSettings ? 
+            ((window.shopSettings.getSetting('gstRate') !== undefined && window.shopSettings.getSetting('gstRate') !== null) ? 
+            window.shopSettings.getSetting('gstRate') : 0.17) : 0.17;
         const tax = subtotal * gstRate;
         const total = subtotal + tax;
 

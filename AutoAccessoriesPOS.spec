@@ -1,111 +1,18 @@
-
 # -*- mode: python ; coding: utf-8 -*-
 
-import sys
-import os
-from pathlib import Path
 
 a = Analysis(
-    ['src/desktop/main.py'],
-    pathex=[],
+    ['d:\\AutoAccessoriesPOS\\src\\desktop\\main.py'],
+    pathex=['d:\\AutoAccessoriesPOS', 'd:\\AutoAccessoriesPOS\\src', 'd:\\AutoAccessoriesPOS\\src\\backend'],
     binaries=[],
-    datas=[
-        ('src/frontend', 'frontend'),
-        ('src/backend', 'backend'),
-        ('drivers', 'drivers'),
-        ('docs', 'docs'),
-        ('requirements.txt', '.'),
-        ('README.md', '.'),
-        ('LICENSE', '.'),
-    ],
-    hiddenimports=[
-        # Core dependencies
-        'fastapi',
-        'fastapi.routing',
-        'fastapi.middleware',
-        'fastapi.middleware.cors',
-        'fastapi.staticfiles',
-        'uvicorn',
-        'uvicorn.logging',
-        'uvicorn.loops',
-        'uvicorn.loops.auto',
-        'uvicorn.protocols',
-        'uvicorn.protocols.http',
-        'uvicorn.protocols.http.auto',
-        'uvicorn.protocols.websockets',
-        'uvicorn.protocols.websockets.auto',
-        'uvicorn.lifespan',
-        'uvicorn.lifespan.on',
-        'pywebview',
-        'sqlite3',
-        
-        # Pydantic and validation
-        'pydantic',
-        'pydantic.fields',
-        'pydantic.main',
-        'pydantic.types',
-        'pydantic_core',
-        'typing_extensions',
-        
-        # SQLAlchemy
-        'sqlalchemy',
-        'sqlalchemy.ext',
-        'sqlalchemy.ext.declarative',
-        'sqlalchemy.orm',
-        'sqlalchemy.sql',
-        
-        # Starlette (FastAPI dependency)
-        'starlette',
-        'starlette.applications',
-        'starlette.middleware',
-        'starlette.middleware.cors',
-        'starlette.responses',
-        'starlette.routing',
-        'starlette.staticfiles',
-        
-        # Other required packages
-        'multipart',
-        'python_multipart',
-        'jose',
-        'passlib',
-        'passlib.handlers',
-        'passlib.handlers.bcrypt',
-        'bcrypt',
-        'cryptography',
-        'reportlab',
-        'PIL',
-        'openpyxl',
-        'qrcode',
-        'serial',
-        'pytz',
-        'dateutil',
-    ],
+    datas=[('d:\\AutoAccessoriesPOS\\src\\frontend', 'src/frontend'), ('d:\\AutoAccessoriesPOS\\src\\backend', 'src/backend'), ('d:\\AutoAccessoriesPOS\\src\\__init__.py', 'src')],
+    hiddenimports=['backend.main', 'backend.core.security', 'backend.core.logger', 'backend.core.database', 'backend.core.auth', 'backend.core.cache', 'backend.core.events', 'backend.core.file_manager', 'backend.core.backup_manager', 'backend.api.auth', 'backend.api.products', 'backend.api.customers', 'backend.api.sales', 'backend.api.inventory', 'backend.api.expenses', 'backend.api.pos', 'backend.api.reports', 'backend.api.users', 'backend.api.settings', 'backend.api.customer_payments', 'backend.api.credit_management', 'backend.api.printers', 'backend.api.base', 'backend.models.base', 'backend.models.user_models', 'backend.models.product_models', 'backend.models.customer_models', 'backend.models.sales_models', 'backend.models.financial_models', 'backend.models.inventory_models', 'backend.models.settings_models', 'backend.models.gst_models', 'backend.repositories.base_repo', 'backend.repositories.user_repo', 'backend.repositories.product_repo', 'backend.repositories.customer_repo', 'backend.repositories.sales_repo', 'backend.repositories.pos_repo', 'backend.services.pos_service', 'backend.services.product_service', 'backend.services.customer_service', 'backend.services.sales_service', 'backend.services.inventory_service', 'backend.services.gst_service', 'backend.services.pricing_service', 'backend.services.commission_service', 'backend.utils.calculations', 'backend.utils.formatters', 'backend.utils.validators', 'backend.utils.invoice_generator', 'backend.utils.receipt_printer', 'backend.utils.barcode_generator', 'backend.utils.gst_calculator', 'uvicorn.logging', 'uvicorn.loops', 'uvicorn.loops.auto', 'uvicorn.protocols', 'uvicorn.protocols.http', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets', 'uvicorn.protocols.websockets.auto', 'uvicorn.lifespan', 'uvicorn.lifespan.on', 'fastapi', 'fastapi.staticfiles', 'fastapi.middleware.cors', 'starlette.staticfiles', 'starlette.middleware.cors', 'anyio', 'anyio._backends._asyncio', 'anyio._backends._trio', 'passlib', 'passlib.handlers', 'passlib.handlers.bcrypt', 'passlib.handlers.sha2_crypt', 'jose', 'jose.jwt', 'multipart', 'sqlalchemy', 'alembic', 'pydantic', 'pydantic_settings', 'reportlab', 'reportlab.pdfgen', 'reportlab.lib', 'openpyxl', 'qrcode', 'PIL', 'PIL.Image', 'win32api', 'win32print', 'webview', 'webview.platforms.winforms', 'clr', 'pythonnet', 'tkinter', 'tkinter.messagebox', 'sqlite3', 'email.mime.text', 'email.mime.multipart', 'logging.handlers'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
     noarchive=False,
-    optimize=2,
 )
-
-# Exclude unnecessary packages to reduce size
-excludes = [
-    'numpy',
-    'pandas',
-    'matplotlib',
-    'scipy',
-    'tkinter',
-    'test',
-    'unittest',
-    'pydoc',
-]
-
-for excl in excludes:
-    try:
-        a.excludes.append(excl)
-    except:
-        pass
-
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -121,22 +28,10 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # Set to True for debugging
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
 )
-
-# For Windows, create single executable
-if sys.platform == 'win32':
-    coll = COLLECT(
-        exe,
-        a.binaries,
-        a.datas,
-        strip=False,
-        upx=True,
-        upx_exclude=[],
-        name='AutoAccessoriesPOS',
-    )

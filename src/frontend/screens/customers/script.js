@@ -169,15 +169,22 @@ class CustomersScreen {
                 this.app.showNotification('Customer updated successfully', 'success');
             } else {
                 console.log('[Customers] Adding new customer:', data);
-                await this.app.api.post('/customers', data);
-                this.app.showNotification('Customer added successfully', 'success');
+                const response = await this.app.api.post('/customers', data);
+                if (response && response.success) {
+                    this.app.showNotification('Customer added successfully', 'success');
+                } else {
+                    const errorMsg = response?.error || response?.detail || 'Failed to add customer';
+                    this.app.showNotification(errorMsg, 'error');
+                    return;
+                }
             }
             document.getElementById('customer-modal').style.display = 'none';
             console.log('[Customers] Reloading customer list...');
             this.load();
         } catch (err) {
             console.error('[Customers] Failed to save customer:', err);
-            this.app.showNotification('Failed to save customer: ' + err.message, 'error');
+            const errorMsg = err.message || err.error || 'Failed to save customer';
+            this.app.showNotification(errorMsg, 'error');
         }
     }
 
@@ -185,13 +192,15 @@ class CustomersScreen {
         const customer = this.customers.find(c => (c.id || c[0]) === id);
         if (!customer) return;
 
+        console.log('[Customers] Editing customer:', customer);
+
         document.getElementById('modal-title').textContent = 'Edit Customer';
         document.getElementById('customer-id').value = customer.id || customer[0] || '';
-        document.getElementById('customer-name').value = customer.name || customer[1] || '';
-        document.getElementById('customer-phone').value = customer.phone || customer[2] || '';
-        document.getElementById('customer-email').value = customer.email || customer[3] || '';
-        document.getElementById('customer-address').value = customer.address || customer[4] || '';
-        document.getElementById('customer-city').value = customer.city || customer[5] || '';
+        document.getElementById('customer-name').value = customer.full_name || customer.name || customer[2] || '';
+        document.getElementById('customer-phone').value = customer.phone || customer[3] || '';
+        document.getElementById('customer-email').value = customer.email || customer[5] || '';
+        document.getElementById('customer-address').value = customer.address || customer[6] || '';
+        document.getElementById('customer-city').value = customer.city || customer[7] || '';
         document.getElementById('customer-credit-limit').value = customer.credit_limit || customer[9] || 0;
 
         document.getElementById('customer-modal').style.display = 'block';
