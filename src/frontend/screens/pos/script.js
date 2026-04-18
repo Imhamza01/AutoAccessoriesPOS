@@ -1307,7 +1307,7 @@ class PosScreen {
 
             // Validate credit sales for walk-in customers
             if (paymentMethod === 'credit' && !selectedCustomerId) {
-                this.app.showNotification('Walk-in customers cannot get items on credit. Customer must be registered first.', 'error');
+                this.app.showToast('Credit sales require a registered customer. Please select a customer first.', 'error');
                 this.app.hideLoading();
                 return;
             }
@@ -1322,14 +1322,14 @@ class PosScreen {
                         const currentBalance = customer.current_balance || 0;
                         
                         if (creditLimit <= 0) {
-                            this.app.showNotification('Customer has zero credit limit. Credit sale not allowed.', 'error');
+                            this.app.showToast('Customer has zero credit limit. Credit sale not allowed.', 'error');
                             this.app.hideLoading();
                             return;
                         }
                         
                         const availableCredit = creditLimit - currentBalance;
                         if (total > availableCredit) {
-                            this.app.showNotification(`Insufficient credit limit. Available: ${this.app.formatCurrency(availableCredit)}, Required: ${this.app.formatCurrency(total)}`, 'error');
+                            this.app.showToast(`Credit limit exceeded! Available: ${this.app.formatCurrency(availableCredit)}, Required: ${this.app.formatCurrency(total)}`, 'error');
                             this.app.hideLoading();
                             return;
                         }
@@ -1350,8 +1350,10 @@ class PosScreen {
                 payment_status: paymentMethod === 'credit' ? 'pending' : 'completed',
                 notes: '', // No notes by default
                 items: this.cart.map(i => ({
-                    product_id: i.product.is_custom ? null : (i.product.id || i.product[0]),
-                    product_name: i.product.is_custom ? i.product.name : undefined,
+                    product_id: (i.product.is_custom || !i.product.id) ? null : (i.product.id || i.product[0]),
+                    product_name: i.product.is_custom
+                        ? (i.product.name || 'Custom Item')
+                        : (i.product.name || i.product[1] || null),
                     is_custom: i.product.is_custom || false,
                     quantity: i.quantity,
                     unit_price: i.price,
@@ -1590,8 +1592,10 @@ class PosScreen {
                 notes: 'Sale held by cashier',
                 hold_reason: 'Held by cashier',
                 items: this.cart.map(i => ({
-                    product_id: i.product.is_custom ? null : (i.product.id || i.product[0]),
-                    product_name: i.product.is_custom ? i.product.name : undefined,
+                    product_id: (i.product.is_custom || !i.product.id) ? null : (i.product.id || i.product[0]),
+                    product_name: i.product.is_custom
+                        ? (i.product.name || 'Custom Item')
+                        : (i.product.name || i.product[1] || null),
                     is_custom: i.product.is_custom || false,
                     quantity: i.quantity,
                     unit_price: i.price,

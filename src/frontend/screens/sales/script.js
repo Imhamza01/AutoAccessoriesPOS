@@ -30,9 +30,32 @@ class SalesScreen {
         }
     }
 
-    refresh() {
+refresh() {
         console.log('[Sales] Refreshing sales...');
+        this.setupEventListeners();
         return this.load();
+    }
+
+    init() {
+        console.log('[Sales] Initializing Sales Screen');
+        console.log('[Sales] this.app:', this.app);
+        console.log('[Sales] this.api:', this.api);
+        console.log('[Sales] Init called!');  // Removed alert for better UX
+        try {
+            this.setupEventListeners();
+            console.log('[Sales] ✓ Event listeners set up');
+        } catch (e) {
+            console.error('[Sales] Error setting up event listeners:', e);
+        }
+        
+        try {
+            this.load();
+            console.log('[Sales] ✓ Load called');
+        } catch (e) {
+            console.error('[Sales] Error calling load:', e);
+        }
+
+        setTimeout(() => this.setupEventListeners(), 200);
     }
 
     setupEventListeners() {
@@ -619,8 +642,67 @@ class SalesScreen {
     }
 
     printSale() {
-        console.log('[Sales] Print sale functionality - to be implemented');
-        showAlert('Coming Soon', 'Print functionality will be available soon');
+        console.log('[Sales] Print sale functionality - attempting to print');
+        // Get the currently displayed sale details from the modal if open
+        const saleDetailsContent = document.getElementById('sale-details-content');
+        const saleInvoiceTitle = document.getElementById('sale-invoice-title');
+        
+        if (saleDetailsContent && saleInvoiceTitle) {
+            // Get shop settings for receipt
+            const shopSettings = window.shopSettings ? window.shopSettings.getAllSettings() : {};
+            
+            // Extract data from the displayed content
+            const invoiceNo = saleInvoiceTitle.textContent || 'INV-0000';
+            
+            // Build receipt data object
+            const receiptData = {
+                invoiceNo: invoiceNo,
+                date: new Date().toLocaleDateString('en-PK'),
+                time: new Date().toLocaleTimeString('en-PK'),
+                shopName: shopSettings.shopName || shopSettings.shop_name || 'Auto Accessories POS',
+                shopAddress: shopSettings.shopAddress || shopSettings.shop_address || '',
+                shopPhone: shopSettings.shopPhone || shopSettings.shop_phone || '',
+                taxNumber: shopSettings.taxNumber || '',
+                gstNumber: shopSettings.gstNumber || '',
+                logoPath: shopSettings.logoPath || shopSettings.logo_path || '',
+                footerMessage: shopSettings.receiptMessage || shopSettings.receipt_footer || '',
+                receiptTheme: 'classic',
+                fontSize: 'medium',
+                logoSize: 'medium',
+                showLogo: true,
+                showHeader: true,
+                showBarcode: true,
+                showFooter: true
+            };
+            
+            // Try to extract details from the HTML content if available
+            try {
+                // Find totals in the displayed content
+                const grandTotalMatch = saleDetailsContent.innerHTML.match(/Grand Total[:\s]*PKR\s*([\d,.]+)/i);
+                const subtotalMatch = saleDetailsContent.innerHTML.match(/Subtotal[:\s]*PKR\s*([\d,.]+)/i);
+                const gstMatch = saleDetailsContent.innerHTML.match(/GST\s*\([\d.]+%\)?[:\s]*PKR\s*([\d,.]+)/i);
+                
+                if (grandTotalMatch) receiptData.grandTotal = parseFloat(grandTotalMatch[1].replace(/,/g, ''));
+                if (subtotalMatch) receiptData.subtotal = parseFloat(subtotalMatch[1].replace(/,/g, ''));
+                if (gstMatch) receiptData.taxAmount = parseFloat(gstMatch[1].replace(/,/g, ''));
+                
+                // Find customer name
+                const customerMatch = saleDetailsContent.innerHTML.match(/Name[:\s]*([^<]+)/i);
+                if (customerMatch) receiptData.customer = customerMatch[1].trim();
+            } catch (e) {
+                console.warn('[Sales] Could not parse sale details from DOM:', e);
+            }
+            
+            // Open the print dialog with the receipt data
+            if (window.PrintDialog) {
+                window.PrintDialog.open(receiptData);
+                this.app.showToast('Opening print dialog...', 'info');
+            } else {
+                this.app.showToast('Print service not available', 'error');
+            }
+        } else {
+            this.app.showToast('No sale details available to print. Please view a sale first.', 'warning');
+        }
     }
 
     filter() {

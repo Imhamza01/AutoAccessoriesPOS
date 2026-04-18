@@ -7,11 +7,8 @@
             <p class="header-subtitle">Manage customer credit and payments</p>
         </div>
         <div class="screen-actions">
-            <button class="btn btn-primary" id="refresh-btn">
+            <button class="btn btn-primary" id="refresh-btn" onclick="app.screens['credit-management'] ? app.screens['credit-management'].refresh() : app.screens.creditManagement.refresh()">
                 <span class="btn-icon">🔄</span> Refresh
-            </button>
-            <button class="btn btn-warning" id="reconcile-btn">
-                <span class="btn-icon">🔧</span> Reconcile Balances
             </button>
         </div>
     </div>
@@ -84,10 +81,10 @@
     <!-- Tabs -->
     <section class="tabs-section">
         <div class="tabs">
-            <button class="tab-btn active" data-tab="credit-sales">Credit Sales</button>
-            <button class="tab-btn" data-tab="credit-customers">Credit Customers</button>
-            <button class="tab-btn" data-tab="credit-payments">Payments</button>
-            <button class="tab-btn" data-tab="credit-history">History</button>
+            <button class="tab-btn active" data-tab="credit-sales" onclick="window.switchCreditTab('credit-sales')">Credit Sales</button>
+            <button class="tab-btn" data-tab="credit-customers" onclick="window.switchCreditTab('credit-customers')">Credit Customers</button>
+            <button class="tab-btn" data-tab="credit-payments" onclick="window.switchCreditTab('credit-payments')">Payments</button>
+            <button class="tab-btn" data-tab="credit-history" onclick="window.switchCreditTab('credit-history')">History</button>
         </div>
 
         <!-- Tab Content -->

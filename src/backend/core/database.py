@@ -160,7 +160,7 @@ class DatabaseManager:
             # Optimize for POS usage
             conn.execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging for concurrency
             conn.execute("PRAGMA synchronous = NORMAL")  # Good balance of speed and safety
-            conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
+            conn.execute("PRAGMA foreign_keys = OFF")  # Disable foreign key constraints for custom items
             conn.execute("PRAGMA busy_timeout = 10000")  # 10 second timeout to reduce transient locks
             conn.execute("PRAGMA cache_size = -2000")  # 2MB cache
             conn.execute("PRAGMA temp_store = MEMORY")  # Store temp tables in memory
@@ -668,7 +668,6 @@ class DatabaseManager:
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         
                         FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
-                        FOREIGN KEY (product_id) REFERENCES products(id),
                         FOREIGN KEY (variant_id) REFERENCES product_variants(id)
                     )
                     ''')

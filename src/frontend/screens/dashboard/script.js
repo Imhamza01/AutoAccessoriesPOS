@@ -94,6 +94,7 @@ class DashboardScreen {
 
     async refresh() {
         console.log('Refreshing dashboard...');
+        this.app.showLoading('Refreshing dashboard...');
         try {
             await Promise.all([
                 this.loadDashboardStats(),
@@ -108,8 +109,12 @@ class DashboardScreen {
             if (timeEl) {
                 timeEl.textContent = new Date().toLocaleTimeString();
             }
+            this.app.showToast('Dashboard refreshed', 'success');
         } catch (error) {
             console.error('Error refreshing dashboard:', error);
+            this.app.showToast('Failed to refresh dashboard', 'error');
+        } finally {
+            this.app.hideLoading();
         }
     }
 

@@ -1,0 +1,427 @@
+================================================================================
+AUTO ACCESSORIES POS — COMPREHENSIVE BUG FIX PROMPT FOR AGENT
+================================================================================
+
+READ THIS ENTIRE FILE BEFORE MAKING ANY CHANGES.
+Do NOT hallucinate code. Read each target file fully before editing it.
+Make surgical, minimal changes — do not refactor unrelated code.
+
+================================================================================
+PRIORITY 1 (CRITICAL): PAYMENT FAILS IN BUILD (.exe) WITH CUSTOM ITEMS
+================================================================================
+
+FILE: src/frontend/screens/pos/script.js
+FUNCTION: completePayment()
+
+ROOT CAUSE (Frontend):
+In completePayment(), the items mapping sends:
+  product_name: i.product.is_custom ? i.product.name : undefined
+
+In the built .exe (PyWebView/WebView2), `undefined` values in JSON.stringify()
+are dropped entirely from the serialized object. So custom items arrive at the
+backend WITHOUT a `product_name` field at all, causing the backend INSERT to
+store NULL or throw an error.
+
+FIX: Change the items mapping so product_name is always explicitly set:
+
+  items: this.cart.map(i => ({
+    product_id: (i.product.is_custom || !i.product.id) ? null : (i.product.id || i.product[0]),
+    product_name: i.product.is_custom
+      ? (i.product.name || 'Custom Item')
+      : (i.product.name || i.product[1] || null),
+    is_custom: i.product.is_custom || false,
+    quantity: i.quantity,
+    unit_price: i.price,
+    total_price: i.quantity * i.price
+  }))
+
+Apply the SAME fix to the holdSale payload (the other cart.map() call in the
+holdSale/holdSaleWithCustomer function, around the lines with payment_type: 'credit'
+and hold_reason). It has the same `product_name: i.product.is_custom ? i.product.name : undefined`
+pattern.
+
+--------------------------------------------------------------------------------
+
+FILE: src/frontend/app.js
+FUNCTION: loadScreenScript()
+
+ROOT CAUSE (Build - Script Double-Loading):
+In the build (.exe), dynamically created <script> tags have their `.src`
+property stored as a full absolute URL (e.g. http://127.0.0.1:8000/screens/pos/script.js).
+The current deduplication check uses querySelector with data-screen attribute,
+which is ALREADY correct in the current code. VERIFY the current code reads:
+
+  const existing = document.querySelector(`script[data-screen="${screenName}"]`);
+
+If it instead uses an indexOf check like:
+  const existing = Array.from(document.querySelectorAll('script'))
+    .find(s => s.src && s.src.indexOf(srcBase) !== -1);
+
+...then replace it with the data-attribute version above.
+Also confirm the script tag is marked with the data attribute when created:
+  script.setAttribute('data-screen', screenName);
+
+Do the same audit for loadComponentScript() — confirm it uses:
+  const existing = document.querySelector(`script[data-component="${componentName}"]`);
+  ...
+  script.setAttribute('data-component', componentName);
+
+And for loadComponentCSS() and loadScreenCSS() — confirm they use:
+  document.querySelector(`link[data-css="${componentName}"]`)
+  document.querySelector(`link[data-screen-css="${screenName}"]`)
+with matching data attributes set on the created <link> elements.
+
+--------------------------------------------------------------------------------
+
+FILE: src/backend/api/pos.py
+FUNCTION: create_pos_transaction()
+
+VERIFY (do not change if already correct):
+The backend already handles custom items correctly with this logic:
+  if is_custom or not product_id:
+    product_name = item.get("product_name") or 'Custom Item'
+    ...INSERT with product_id=None...
+
+This is correct. However, verify that the sale_items table in the database
+schema has product_id as NULLABLE. Check the CREATE TABLE statement in the
+migration or schema files for sale_items. If product_id has NOT NULL
+constraint, it must be changed to allow NULL.
+
+FILE: src/backend/migrations/ (or wherever schema is defined)
+ACTION: Find the CREATE TABLE sale_items statement. Ensure:
+  product_id INTEGER  -- no NOT NULL constraint, no non-null default
+  product_name TEXT   -- nullable
+  is_custom INTEGER DEFAULT 0  -- or BOOLEAN
+
+If product_id has a NOT NULL constraint, create a migration:
+  ALTER TABLE sale_items RENAME TO sale_items_old;
+  CREATE TABLE sale_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sale_id INTEGER NOT NULL,
+      product_id INTEGER,            -- nullable for custom items
+      product_code TEXT,
+      product_name TEXT,
+      quantity REAL NOT NULL,
+      unit_price REAL NOT NULL,
+      cost_price REAL DEFAULT 0,
+      line_total REAL NOT NULL,
+      line_profit REAL DEFAULT 0,
+      created_at TEXT,
+      FOREIGN KEY (sale_id) REFERENCES sales(id)
+  );
+  INSERT INTO sale_items SELECT * FROM sale_items_old;
+  DROP TABLE sale_items_old;
+
+================================================================================
+PRIORITY 2 (HIGH): LOADING SCREEN GETS STUCK — CUSTOMER CRUD
+================================================================================
+
+FILE: src/frontend/screens/customers/script.js
+FUNCTION: saveCustomer()
+
+ROOT CAUSE:
+saveCustomer() calls this.app.showLoading('Saving customer...') at the top,
+but NEVER calls this.app.hideLoading() on the SUCCESS path. It only calls
+hideLoading() on one early-return error branch (when response.success is false
+for new customers). On success, it falls through to this.load() without ever
+hiding the loader. The this.load() call is async and does not hide loading either.
+
+FIX: Add this.app.hideLoading() in the try block BEFORE calling this.load(),
+and also add a finally block to guarantee hideLoading on all paths:
+
+  this.app.showLoading('Saving customer...');
+  try {
+      if (id) {
+          await this.app.api.put(`/customers/${id}`, data);
+          this.app.showToast('Customer updated successfully', 'success');
+      } else {
+          const response = await this.app.api.post('/customers', data);
+          if (response && response.success) {
+              this.app.showToast('Customer created successfully', 'success');
+          } else {
+              const errorMsg = response?.error || response?.detail || 'Failed to add customer';
+              this.app.showToast(errorMsg, 'error');
+              return;   // finally will call hideLoading
+          }
+      }
+      document.getElementById('customer-modal').style.display = 'none';
+      this.load();
+  } catch (err) {
+      console.error('[Customers] Failed to save customer:', err);
+      const errorMsg = err.message || err.error || 'Failed to save customer';
+      this.app.showToast(errorMsg, 'error');
+  } finally {
+      this.app.hideLoading();
+  }
+
+FUNCTION: delete()
+
+ROOT CAUSE:
+delete() calls showLoading() but does NOT call hideLoading() in a finally
+block. If the API call throws, hideLoading() is never called.
+
+FIX: Add finally block:
+
+  async delete(id) {
+      if (!confirm('Are you sure you want to delete this customer?')) return;
+      this.app.showLoading('Deleting customer...');
+      try {
+          await this.app.api.delete(`/customers/${id}`);
+          this.app.showToast('Customer deleted successfully', 'success');
+          this.load();
+      } catch (err) {
+          this.app.showToast('Failed to delete customer', 'error');
+      } finally {
+          this.app.hideLoading();
+      }
+  }
+
+--------------------------------------------------------------------------------
+
+FILE: src/frontend/screens/users/script.js
+FUNCTION: saveUser()
+
+ROOT CAUSE:
+saveUser() has NO showLoading/hideLoading calls at all. When the form is
+submitted, there is no loading overlay, and after success the screen re-renders
+from load() but the user sees no feedback. More critically: if the API is slow,
+there is no indication the app is working, and users may click Save repeatedly.
+
+FIX: Wrap saveUser in showLoading/hideLoading with a finally block:
+
+  async saveUser(e) {
+      e.preventDefault();
+      const id = document.getElementById('user-id').value;
+      const password = document.getElementById('user-password').value;
+
+      const payload = {
+          username: document.getElementById('user-username').value,
+          full_name: document.getElementById('user-fullname').value,
+          role: document.getElementById('user-role').value,
+          status: document.getElementById('user-status').value
+      };
+      if (!id || password) {
+          payload.password = password;
+      }
+
+      this.app.showLoading(id ? 'Updating user...' : 'Creating user...');
+      try {
+          if (id) {
+              await this.app.api.put(`/auth/users/${id}`, payload);
+              this.app.showNotification('User updated successfully', 'success');
+          } else {
+              await this.app.api.post('/auth/users', payload);
+              this.app.showNotification('User created successfully', 'success');
+          }
+          document.getElementById('user-modal').style.display = 'none';
+          this.load();
+      } catch (err) {
+          console.error('Failed save user', err);
+          this.app.showNotification('Failed to save user: ' + (err.message || 'Unknown error'), 'error');
+      } finally {
+          this.app.hideLoading();
+      }
+  }
+
+--------------------------------------------------------------------------------
+
+FILE: src/frontend/screens/users/script.js
+FUNCTION: render()  — DUPLICATE METHOD BUG
+
+ROOT CAUSE:
+The render() method is defined TWICE in the class body. The first definition
+ends with `}` followed immediately by a newline and `\n`, then code for a
+second render body starting with `const canManage = ...`. JavaScript will use
+the LAST definition, which checks `can_manage_users` (canManage) instead of
+checking for 'malik' role (isAdmin). This means the first render body (with
+the correct admin check) is silently discarded.
+
+FIX: Remove the SECOND render body entirely. Keep only the FIRST render()
+definition that checks:
+  const isAdmin = this.app && this.app.currentUser &&
+      (this.app.currentUser.role === 'malik' || this.app.currentUser.can_manage_users);
+
+The file currently looks like this (schematically):
+
+  render() {
+      ...
+      const isAdmin = ...malik... || ...can_manage_users...;
+      tbody.innerHTML = ...${isAdmin ? deleteBtn : ''}...;
+  }                          <-- ends here, but then:
+
+      const canManage = ...can_manage_users...;   <-- orphaned code
+      tbody.innerHTML = ...${canManage ? deleteBtn : ''}...;
+  }                          <-- second closing brace
+
+Delete everything from `const canManage` down to and including its closing `}`.
+This orphaned code is syntactically broken and causes a parse error in strict
+JS engines used in the build.
+
+================================================================================
+PRIORITY 3 (MEDIUM): EXTRA / REDUNDANT NOTIFICATIONS — REMOVE THESE
+================================================================================
+
+FILE: src/frontend/app.js
+
+NOTIFICATION 1 — "Welcome back" on every page load:
+  Location: init() function, inside the setTimeout after hideLoading()
+  Code: this.showNotification(`Welcome back, ${this.currentUser.full_name}!`, 'success', 2000);
+  ACTION: REMOVE this line entirely. It fires every time the app loads
+  (every screen navigation that reloads index.html), which is annoying.
+
+NOTIFICATION 2 — "X refreshed" on every manual refresh:
+  Location: refreshCurrentScreen() function
+  Code: this.showNotification(`${this.getScreenDisplayName(this.currentScreen)} refreshed`, 'success');
+  ACTION: REMOVE this line. Each screen already shows its own data refresh
+  feedback. A global "Dashboard refreshed" toast on every F5/refresh button
+  press is redundant noise.
+
+NOTIFICATION 3 — Password expiry warning fires on every load even when not expired:
+  Location: initializeApp(), at the end
+  Code: if (this.currentUser && this.currentUser.password_expired) {
+            this.showNotification('Your password has expired...', 'warning', 10000);
+        }
+  This is correct and should be KEPT — only fires when password_expired is true.
+  No change needed here.
+
+================================================================================
+PRIORITY 4 (MEDIUM): USERS SCREEN — LOADING STATE STUCK AFTER SAVE/DELETE
+================================================================================
+
+This is a SECONDARY loading issue separate from Priority 2.
+
+FILE: src/frontend/screens/users/script.js
+FUNCTION: load()
+
+ROOT CAUSE:
+load() does NOT call this.app.showLoading() / hideLoading() at all. When
+saveUser() or deleteUser() calls this.load() to refresh the list, the screen
+tbody shows "Loading..." text (from the initial HTML) but there is no overlay.
+This is acceptable. However the MAIN issue is from saveUser() not having
+showLoading/hideLoading (fixed in Priority 2 above).
+
+ADDITIONAL FIX for load():
+Add a loading state guard so the tbody shows a loading indicator:
+
+  async load() {
+      const tbody = document.getElementById('users-table');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="loading">Loading...</td></tr>';
+      try {
+          const res = await this.app.api.get('/auth/users');
+          if (res && res.success) {
+              this.users = res.users || res.data || [];
+          } else {
+              this.users = [];
+          }
+          this.render();
+      } catch (e) {
+          console.error('Users load error', e);
+          if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="error">Failed to load users</td></tr>';
+      }
+  }
+
+================================================================================
+PRIORITY 5 (LOW): CUSTOMERS edit() — ID TYPE MISMATCH
+================================================================================
+
+FILE: src/frontend/screens/customers/script.js
+FUNCTION: edit()
+
+ROOT CAUSE:
+edit() does:
+  const customer = this.customers.find(c => (c.id || c[0]) === id);
+
+The id parameter comes from an inline onclick like: app.screens.customers.edit(${id})
+where ${id} in the template literal is a number. BUT (c.id || c[0]) may return
+a string if the API returns string IDs. Strict equality === fails for '5' === 5.
+
+FIX:
+  edit(id) {
+      const numId = Number(id);
+      const customer = this.customers.find(c => Number(c.id || c[0]) === numId);
+      if (!customer) {
+          console.warn('[Customers] Customer not found for id:', id);
+          return;
+      }
+      // ... rest unchanged
+  }
+
+================================================================================
+SUMMARY: FILES TO MODIFY
+================================================================================
+
+1. src/frontend/screens/pos/script.js
+   - Fix items mapping in completePayment() — always set product_name explicitly
+   - Fix items mapping in holdSale payload — same pattern
+
+2. src/frontend/app.js
+   - Remove "Welcome back" notification from init()
+   - Remove "X refreshed" notification from refreshCurrentScreen()
+   - Verify/fix loadScreenScript(), loadComponentScript(), loadComponentCSS(),
+     loadScreenCSS() to use data-attributes for deduplication (not indexOf)
+
+3. src/frontend/screens/customers/script.js
+   - Add finally { this.app.hideLoading(); } to saveCustomer()
+   - Add finally { this.app.hideLoading(); } to delete()
+   - Fix edit() ID comparison to use Number()
+
+4. src/frontend/screens/users/script.js
+   - Remove the DUPLICATE render() body (the second one starting with `const canManage`)
+   - Add showLoading/hideLoading with finally to saveUser()
+   - Add loading indicator to load()
+
+5. src/backend/migrations/ or schema definition
+   - Verify sale_items.product_id is NULLABLE — fix if NOT NULL constraint exists
+
+================================================================================
+TESTING CHECKLIST AFTER ALL FIXES
+================================================================================
+
+IN DEVELOPMENT MODE:
+[ ] Add a custom item (e.g. "Car Wash" 1x PKR 500) to cart → complete payment → SUCCESS
+[ ] Add a regular product + a custom item to cart → complete payment → SUCCESS
+[ ] Add customer → loading shows briefly → hides when done → customer in list
+[ ] Edit customer → loading shows briefly → hides when done → changes saved
+[ ] Delete customer → loading shows briefly → hides when done → customer removed
+[ ] Add user → loading shows → hides → user in list (NO stuck loading screen)
+[ ] Edit user → loading shows → hides → changes reflected
+[ ] Delete user → confirmation → user removed
+[ ] Navigate between screens — NO "Welcome back" notification every time
+[ ] Click refresh button — NO "X refreshed" toast notification
+[ ] Custom item modal → add item → it appears in cart correctly
+
+IN BUILD MODE (.exe):
+[ ] All of the above tests pass in the built executable
+[ ] Custom item payment specifically must succeed in build
+[ ] Loading screens do not get stuck after any CRUD operation
+
+================================================================================
+IMPORTANT NOTES FOR AGENT
+================================================================================
+
+1. The backend pos.py ALREADY handles custom items correctly. Do NOT rewrite it.
+   Only verify the sale_items schema allows NULL product_id.
+
+2. The users/index.html button handlers (app.screens.users.showAddUserModal() and
+   app.screens.users.saveUser(event)) are ALREADY correct. Do NOT change index.html.
+
+3. When fixing the duplicate render() in users/script.js, be careful: the file
+   has a `}` that closes the FIRST render, then immediately orphaned code lines
+   before a second `}`. Delete the orphaned lines AND the second closing brace.
+   The class should have exactly ONE render() method.
+
+4. Do NOT change the existing correct deleteUser() in users/script.js — it
+   already has showLoading/hideLoading with a finally block. Only saveUser()
+   is missing this pattern.
+
+5. In PyWebView builds, undefined JSON values are silently dropped. Always
+   use null explicitly instead of undefined in API payloads. This is the
+   core reason payment works in dev (Chrome is more lenient) but fails in build.
+
+6. The loadScreenScript function in app.js already appears to use the
+   data-screen attribute approach. Verify this is the case before making
+   changes — if it's already correct, leave it alone.
+
+================================================================================
+END OF PROMPT
+================================================================================

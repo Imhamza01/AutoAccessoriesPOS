@@ -13,6 +13,8 @@ class UsersScreen {
     }
 
     async load() {
+        const tbody = document.getElementById('users-table');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="loading">Loading...</td></tr>';
         try {
             const res = await this.app.api.get('/auth/users');
             if (res && res.success) {
@@ -31,12 +33,15 @@ class UsersScreen {
     render() {
         const tbody = document.getElementById('users-table');
         if (!tbody) return;
-        if (!this.users || this.users.length === 0) {
+
+        if (this.users.length === 0) {
             tbody.innerHTML = '<tr><td colspan="5" class="empty">No users found</td></tr>';
             return;
         }
 
-        const canManage = this.app && this.app.currentUser && this.app.currentUser.can_manage_users;
+        // Show delete button for admin users (malik role) or users with can_manage permission
+        const isAdmin = this.app && this.app.currentUser &&
+            (this.app.currentUser.role === 'malik' || this.app.currentUser.can_manage_users);
 
         tbody.innerHTML = this.users.map(u => {
             const id = u.id || u[0];
@@ -51,13 +56,14 @@ class UsersScreen {
                 <td>${status}</td>
                 <td>
                     <button class="btn-small" onclick="app.screens.users.edit(${id})">Edit</button>
-                    ${canManage ? `<button class="btn-small btn-danger" onclick="app.screens.users.deleteUser(${id})">Delete</button>` : ''}
+                    ${isAdmin ? `<button class="btn-small btn-danger" onclick="app.screens.users.deleteUser(${id})">Delete</button>` : ''}
                 </td>
             </tr>`;
         }).join('');
     }
 
     showAddUserModal() {
+        // Reset form to default values - clear ALL fields including any previous edit data
         document.getElementById('user-modal-title').textContent = 'Add User';
         document.getElementById('user-id').value = '';
         document.getElementById('user-username').value = '';
@@ -66,6 +72,7 @@ class UsersScreen {
         document.getElementById('user-status').value = 'active';
         document.getElementById('user-password').value = '';
         document.getElementById('user-password').required = true;
+        document.getElementById('user-password').placeholder = '';
         document.getElementById('user-modal').style.display = 'block';
     }
 
@@ -77,32 +84,41 @@ class UsersScreen {
         e.preventDefault();
         const id = document.getElementById('user-id').value;
         const password = document.getElementById('user-password').value;
-        
+
         const payload = {
             username: document.getElementById('user-username').value,
             full_name: document.getElementById('user-fullname').value,
             role: document.getElementById('user-role').value,
             status: document.getElementById('user-status').value
         };
-        
+
         // Only include password for new users (or if password is provided for existing users)
         if (!id || password) {
             payload.password = password;
         }
-        
+
+        this.app.showLoading(id ? 'Updating user...' : 'Creating user...');
         try {
-            if (id) await this.app.api.put(`/auth/users/${id}`, payload);
-            else await this.app.api.post('/auth/users', payload);
+            if (id) {
+                await this.app.api.put(`/auth/users/${id}`, payload);
+                this.app.showNotification('User updated successfully', 'success');
+            } else {
+                await this.app.api.post('/auth/users', payload);
+                this.app.showNotification('User created successfully', 'success');
+            }
             document.getElementById('user-modal').style.display = 'none';
             this.load();
         } catch (err) {
             console.error('Failed save user', err);
             this.app.showNotification('Failed to save user: ' + (err.message || 'Unknown error'), 'error');
+        } finally {
+            this.app.hideLoading();
         }
     }
 
     edit(id) {
-        const user = this.users.find(u => (u.id || u[0]) === id);
+        const numId = Number(id);
+        const user = this.users.find(u => Number(u.id || u[0]) === numId);
         if (!user) return;
         document.getElementById('user-modal-title').textContent = 'Edit User';
         document.getElementById('user-id').value = user.id || user[0] || '';
@@ -122,7 +138,7 @@ class UsersScreen {
         }
         try {
             this.app.showLoading('Deleting user...');
-            const response = await this.app.api.deleteUser(id);
+            const response = await this.app.api.delete(`/auth/users/${id}`);
             if (response && response.success) {
                 this.app.showNotification('User deleted successfully', 'success');
                 this.load(); // Refresh list

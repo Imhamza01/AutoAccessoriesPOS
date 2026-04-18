@@ -40,9 +40,6 @@ class AutoAccessoriesPOS {
             // Hide loading quickly
             setTimeout(() => {
                 this.hideLoading();
-                if (this.currentUser) {
-                    this.showNotification(`Welcome back, ${this.currentUser.full_name}!`, 'success', 2000);
-                }
             }, 100);
 
         } catch (error) {
@@ -349,25 +346,26 @@ class AutoAccessoriesPOS {
 
     loadComponentCSS(componentName) {
         const hrefBase = `components/${componentName}/${componentName}.css`;
-        const existing = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).find(l => l.href && l.href.indexOf(hrefBase) !== -1);
+        const existing = document.querySelector(`link[data-css="${componentName}"]`);
         if (existing) return;
         const link = document.createElement('link');
         link.rel = 'stylesheet';
         link.href = `${hrefBase}?v=${Date.now()}`;
+        link.setAttribute('data-css', componentName);
         document.head.appendChild(link);
     }
 
     loadComponentScript(componentName) {
         return new Promise((resolve, reject) => {
             const srcBase = `components/${componentName}/${componentName}.js`;
-            const existing = Array.from(document.querySelectorAll('script')).find(s => s.src && s.src.indexOf(srcBase) !== -1);
+            const existing = document.querySelector(`script[data-component="${componentName}"]`);
             if (existing) {
-                // Already loaded
                 return resolve();
             }
 
             const script = document.createElement('script');
             script.src = `${srcBase}?v=${Date.now()}`;
+            script.setAttribute('data-component', componentName);
 
             script.onload = () => resolve();
             script.onerror = () => {
@@ -827,7 +825,7 @@ class AutoAccessoriesPOS {
     async loadScreenScript(screenName, screenElement) {
         return new Promise((resolve, reject) => {
             const srcBase = `screens/${screenName}/script.js`;
-            const existing = Array.from(document.querySelectorAll('script')).find(s => s.src && s.src.indexOf(srcBase) !== -1);
+            const existing = document.querySelector(`script[data-screen="${screenName}"]`);
 
             const finalizeInit = () => {
                 try {
@@ -892,6 +890,7 @@ class AutoAccessoriesPOS {
             const script = document.createElement('script');
             script.src = `${srcBase}?v=${Date.now()}`;
             script.async = false;
+            script.setAttribute('data-screen', screenName);
 
             script.onload = () => {
                 // Give the loaded script a tick to register globals
@@ -908,14 +907,16 @@ class AutoAccessoriesPOS {
     }
 
     loadScreenCSS(screenName) {
-        const hrefBase = `screens/${screenName}/style.css`;
-        const existingLink = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).find(l => l.href && l.href.indexOf(hrefBase) !== -1);
-        if (existingLink) return; // already loaded
+        const existingLink = document.querySelector(`link[data-screen-css="${screenName}"]`);
+        if (existingLink) return; 
 
         const link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = `${hrefBase}?v=${Date.now()}`;
-        link.onerror = () => { /* CSS file might not exist, that's okay */ };
+        link.href = `screens/${screenName}/style.css?v=${Date.now()}`;
+        link.setAttribute('data-screen-css', screenName);
+        link.onerror = () => { 
+            console.log(`[App] CSS not found for screen: ${screenName} (optional)`);
+        };
         document.head.appendChild(link);
     }
 
@@ -961,7 +962,6 @@ class AutoAccessoriesPOS {
     refreshCurrentScreen() {
         if (this.screens[this.currentScreen]) {
             this.screens[this.currentScreen].refresh();
-            this.showNotification(`${this.getScreenDisplayName(this.currentScreen)} refreshed`, 'success');
         }
     }
 
@@ -992,11 +992,16 @@ class AutoAccessoriesPOS {
 
     showNotification(message, type = 'info', duration = 5000) {
         const container = document.getElementById('notification-container');
+        if (!container) {
+            console.warn('[App] Notification container not found');
+            return;
+        }
+        
         const id = 'notification-' + Date.now();
 
         const notification = document.createElement('div');
         notification.id = id;
-        notification.className = `notification ${type}`;
+        notification.className = `notification-item ${type}`;
 
         // Create elements safely to prevent XSS
         const iconSpan = document.createElement('span');
@@ -1004,12 +1009,15 @@ class AutoAccessoriesPOS {
         iconSpan.textContent = type === 'success' ? '✓' : type === 'error' ? '✗' : type === 'warning' ? '⚠' : 'ℹ';
 
         const messageSpan = document.createElement('span');
+        messageSpan.className = 'notification-text';
         messageSpan.textContent = message; // Safe text content
 
         const closeBtn = document.createElement('button');
         closeBtn.className = 'notification-close';
         closeBtn.textContent = '×';
-        closeBtn.onclick = () => window.POS.removeNotification(id);
+        closeBtn.onclick = () => {
+            this.removeNotification(id);
+        };
 
         notification.appendChild(iconSpan);
         notification.appendChild(messageSpan);
@@ -1031,7 +1039,7 @@ class AutoAccessoriesPOS {
     removeNotification(id) {
         const notification = document.getElementById(id);
         if (notification) {
-            notification.style.animation = 'slideIn 0.3s ease-out reverse';
+            notification.classList.add('removing');
             setTimeout(() => {
                 if (notification.parentNode) {
                     notification.parentNode.removeChild(notification);
@@ -1040,6 +1048,10 @@ class AutoAccessoriesPOS {
         }
 
         this.notifications = this.notifications.filter(notifId => notifId !== id);
+    }
+
+    showToast(message, type = 'info', duration = 4000) {
+        this.showNotification(message, type, duration);
     }
 
     showChangePasswordModal() {
@@ -1064,37 +1076,30 @@ class AutoAccessoriesPOS {
 
     openQuickSale() {
         this.loadScreen('pos');
-        this.showNotification('Opening POS Terminal...', 'info');
     }
 
     showTodayReports() {
-        this.showNotification('Opening today\'s reports...', 'info');
         this.loadScreen('reports');
     }
 
     openCashRegister() {
-        this.showNotification('Cash register functionality coming soon', 'info');
-        // Would open cash register modal
+        // Cash register functionality coming soon
     }
 
     showDailySummary() {
-        this.showNotification('Showing daily summary...', 'info');
-        // Would open daily summary modal
+        // Daily summary coming soon
     }
 
     showExpenseModal() {
-        this.showNotification('Opening expense form...', 'info');
         this.loadScreen('expenses');
     }
 
     showBackupModal() {
-        this.showNotification('Opening backup dialog...', 'info');
-        // Would open backup modal
+        // Backup modal coming soon
     }
 
     reorderProduct(productCode) {
-        this.showNotification(`Creating purchase order for ${productCode}`, 'info');
-        // Would navigate to purchase order screen
+        // Purchase order functionality coming soon
     }
 
     // ==================== UTILITY METHODS ====================

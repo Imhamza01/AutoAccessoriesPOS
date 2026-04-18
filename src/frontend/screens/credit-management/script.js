@@ -53,12 +53,12 @@ class CreditManagementScreen {
     }
 
     ensureActiveTab() {
-        // Ensure the current tab button and pane are marked as active
-        document.querySelectorAll('.tab-btn').forEach(btn => {
+        const container = document.querySelector('.credit-management-screen') || document;
+        container.querySelectorAll('.tab-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.tab === this.currentTab);
         });
 
-        document.querySelectorAll('.tab-pane').forEach(pane => {
+        container.querySelectorAll('.tab-pane').forEach(pane => {
             pane.classList.toggle('active', pane.id === this.currentTab + '-tab');
         });
     }
@@ -66,14 +66,16 @@ class CreditManagementScreen {
 
 
     setupEventListeners() {
-        // Use document-level delegation for header buttons so they survive
-        // screen re-renders and cached screen revisits
-        document.addEventListener('click', (e) => {
-            const btn = e.target.closest('#refresh-btn');
-            if (btn && document.querySelector('.credit-management-screen')) {
-                this.loadInitialData();
-            }
-        }, { capture: true });
+        const refreshBtn = document.getElementById('refresh-btn');
+        if (refreshBtn) {
+            refreshBtn.onclick = () => {
+                this.app.showLoading('Refreshing credit data...');
+                this.loadInitialData().finally(() => {
+                    this.app.hideLoading();
+                    this.app.showNotification('Credit management data refreshed', 'success');
+                });
+            };
+        }
 
         // Tab switching
         const tabButtons = document.querySelectorAll('.tab-btn');
@@ -131,29 +133,6 @@ class CreditManagementScreen {
 
         const resetFiltersBtn = document.getElementById('reset-filters');
         if (resetFiltersBtn) resetFiltersBtn.addEventListener('click', () => this.resetFilters());
-
-        // Reconcile button
-        const reconcileBtn = document.getElementById('reconcile-btn');
-        if (reconcileBtn) {
-            reconcileBtn.addEventListener('click', async () => {
-                if (!confirm('Recalculate and fix all customers\' balances from sales?')) return;
-                try {
-                    this.app.showLoading('Reconciling customer balances...');
-                    const resp = await this.api.post('/customer-payments/reconcile/customers', {});
-                    if (resp && resp.success) {
-                        this.app.showNotification(`Reconciled ${resp.updated} customers`, 'success');
-                        await this.loadInitialData();
-                    } else {
-                        this.app.showNotification('Reconciliation failed', 'error');
-                    }
-                } catch (e) {
-                    console.error('Reconcile error:', e);
-                    this.app.showNotification('Reconciliation failed: ' + (e.message || e), 'error');
-                } finally {
-                    this.app.hideLoading();
-                }
-            });
-        }
 
         // Use delegated click handling on the screen container for action buttons
         const screenContainer = document.querySelector('.credit-management-screen');
@@ -226,13 +205,29 @@ class CreditManagementScreen {
             console.log('[CreditManagement] dashboard stats response:', response);
 
             if (response && response.success && response.stats) {
-                document.getElementById('total-outstanding').textContent = this.app.formatCurrency(response.stats.total_outstanding_credit);
-                document.getElementById('todays-credit').textContent = this.app.formatCurrency(response.stats.todays_pending_credit);
-                document.getElementById('pending-sales').textContent = response.stats.total_pending_sales;
-                document.getElementById('customers-credit').textContent = response.stats.customers_with_credit;
+                const s = response.stats;
+                const el = (id) => document.getElementById(id);
+                if (el('total-outstanding')) el('total-outstanding').textContent = this.app.formatCurrency(s.total_outstanding_credit || 0);
+                if (el('todays-credit')) el('todays-credit').textContent = this.app.formatCurrency(s.todays_pending_credit || 0);
+                if (el('pending-sales')) el('pending-sales').textContent = s.total_pending_sales || 0;
+                if (el('customers-credit')) el('customers-credit').textContent = s.customers_with_credit || 0;
+            } else {
+                ['total-outstanding', 'todays-credit'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = this.app.formatCurrency(0);
+                });
+                ['pending-sales', 'customers-credit'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = '0';
+                });
             }
         } catch (error) {
             console.error('Error loading dashboard stats:', error);
+            const el = (id) => document.getElementById(id);
+            if (el('total-outstanding')) el('total-outstanding').textContent = this.app.formatCurrency(0);
+            if (el('todays-credit')) el('todays-credit').textContent = this.app.formatCurrency(0);
+            if (el('pending-sales')) el('pending-sales').textContent = '0';
+            if (el('customers-credit')) el('customers-credit').textContent = '0';
         }
     }
 
@@ -308,8 +303,13 @@ class CreditManagementScreen {
                 await this.loadCreditPayments();
                 break;
             case 'credit-history':
-                // Populate history customer dropdown with credit customers
                 this._populateHistoryDropdown();
+                // Auto-select first customer if available and none selected
+                const select = document.getElementById('history-customer-select');
+                if (select && select.options.length > 1 && !select.value) {
+                    select.selectedIndex = 1;
+                    this.loadHistoryData();
+                }
                 break;
         }
     }
@@ -621,13 +621,12 @@ class CreditManagementScreen {
     }
 
     switchTab(tabName) {
-        // Update active tab button
-        document.querySelectorAll('.tab-btn').forEach(btn => {
+        const container = document.querySelector('.credit-management-screen') || document;
+        container.querySelectorAll('.tab-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.tab === tabName);
         });
 
-        // Show active tab pane
-        document.querySelectorAll('.tab-pane').forEach(pane => {
+        container.querySelectorAll('.tab-pane').forEach(pane => {
             pane.classList.toggle('active', pane.id === tabName + '-tab');
         });
 
@@ -1074,9 +1073,21 @@ class CreditManagementScreen {
     }
 
     refresh() {
-        this.loadInitialData();
+        this.app.showLoading('Refreshing credit data...');
+        this.loadInitialData().finally(() => {
+            this.app.hideLoading();
+            this.app.showToast('Credit management data refreshed', 'success');
+        });
     }
 }
+
+// Global tab switch function for onclick handlers
+window.switchCreditTab = function(tabName) {
+    const screen = window.app && window.app.screens && (window.app.screens['credit-management'] || window.app.screens.creditManagement);
+    if (screen && typeof screen.switchTab === 'function') {
+        screen.switchTab(tabName);
+    }
+};
 
 // NOTE: Do NOT auto-instantiate here — the app loader will instantiate the screen class.
 // Removing duplicate DOMContentLoaded initializer to avoid race/duplicate instances.

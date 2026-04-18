@@ -162,19 +162,20 @@ class CustomersScreen {
             credit_limit: parseFloat(document.getElementById('customer-credit-limit').value) || 0
         };
 
+        this.app.showLoading('Saving customer...');
         try {
             if (id) {
                 console.log('[Customers] Updating customer:', id);
                 await this.app.api.put(`/customers/${id}`, data);
-                this.app.showNotification('Customer updated successfully', 'success');
+                this.app.showToast('Customer updated successfully', 'success');
             } else {
                 console.log('[Customers] Adding new customer:', data);
                 const response = await this.app.api.post('/customers', data);
                 if (response && response.success) {
-                    this.app.showNotification('Customer added successfully', 'success');
+                    this.app.showToast('Customer created successfully', 'success');
                 } else {
                     const errorMsg = response?.error || response?.detail || 'Failed to add customer';
-                    this.app.showNotification(errorMsg, 'error');
+                    this.app.showToast(errorMsg, 'error');
                     return;
                 }
             }
@@ -184,13 +185,19 @@ class CustomersScreen {
         } catch (err) {
             console.error('[Customers] Failed to save customer:', err);
             const errorMsg = err.message || err.error || 'Failed to save customer';
-            this.app.showNotification(errorMsg, 'error');
+            this.app.showToast(errorMsg, 'error');
+        } finally {
+            this.app.hideLoading();
         }
     }
 
     edit(id) {
-        const customer = this.customers.find(c => (c.id || c[0]) === id);
-        if (!customer) return;
+        const numId = Number(id);
+        const customer = this.customers.find(c => Number(c.id || c[0]) === numId);
+        if (!customer) {
+            console.warn('[Customers] Customer not found for id:', id);
+            return;
+        }
 
         console.log('[Customers] Editing customer:', customer);
 
@@ -207,14 +214,16 @@ class CustomersScreen {
     }
 
     async delete(id) {
-        if (confirm('Are you sure you want to delete this customer?')) {
-            try {
-                await this.app.api.delete(`/customers/${id}`);
-                this.app.showNotification('Customer deleted', 'success');
-                this.load();
-            } catch (err) {
-                this.app.showNotification('Failed to delete customer', 'error');
-            }
+        if (!confirm('Are you sure you want to delete this customer?')) return;
+        this.app.showLoading('Deleting customer...');
+        try {
+            await this.app.api.delete(`/customers/${id}`);
+            this.app.showToast('Customer deleted successfully', 'success');
+            this.load();
+        } catch (err) {
+            this.app.showToast('Failed to delete customer', 'error');
+        } finally {
+            this.app.hideLoading();
         }
     }
     
