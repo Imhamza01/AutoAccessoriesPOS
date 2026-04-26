@@ -159,7 +159,7 @@ class DatabaseManager:
             
             # Optimize for POS usage
             conn.execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging for concurrency
-            conn.execute("PRAGMA synchronous = NORMAL")  # Good balance of speed and safety
+            conn.execute("PRAGMA synchronous = FULL")   # Safe: every write flushed — critical for money
             conn.execute("PRAGMA foreign_keys = OFF")  # Disable foreign key constraints for custom items
             conn.execute("PRAGMA busy_timeout = 10000")  # 10 second timeout to reduce transient locks
             conn.execute("PRAGMA cache_size = -2000")  # 2MB cache
@@ -273,7 +273,7 @@ class DatabaseManager:
                         invoice_start_number INTEGER DEFAULT 1000,
                         receipt_footer TEXT,
                         logo_path VARCHAR(500),
-                        currency_symbol VARCHAR(10) DEFAULT '₹',
+                        currency_symbol VARCHAR(10) DEFAULT 'PKR',
                         receipt_show_logo BOOLEAN DEFAULT 1,
                         receipt_logo_size VARCHAR(20) DEFAULT 'medium',
                         receipt_font_size VARCHAR(20) DEFAULT 'medium',
@@ -421,10 +421,19 @@ class DatabaseManager:
                         FOREIGN KEY (category_id) REFERENCES categories(id),
                         FOREIGN KEY (brand_id) REFERENCES brands(id),
                         FOREIGN KEY (created_by) REFERENCES users(id)
-                    )
-                    ''')
-                    
-                    # 6. PRODUCT VARIANTS (Size, Color, etc.)
+                     )
+                     ''')
+
+                    # One-time fix: activate all products that were accidentally set to is_active=0
+                    # because of wrong DEFAULT. Only skip products that were INTENTIONALLY deactivated
+                    # (i.e., they have a non-null updated_at different from created_at).
+                    cursor.execute("""
+                        UPDATE products
+                        SET is_active = 1
+                        WHERE is_active = 0 AND (updated_at IS NULL OR updated_at = created_at)
+                    """)
+
+                     # 6. PRODUCT VARIANTS (Size, Color, etc.)
                     cursor.execute('''
                     CREATE TABLE IF NOT EXISTS product_variants (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1228,36 +1237,25 @@ class DatabaseManager:
                     )
                     ''')
                     
-                    # ==================== CREATE INDEXES FOR PERFORMANCE ====================
-                    
-                    logger.info("Creating indexes for performance...")
-                    
-                    # Sales indexes
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(invoice_date)")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_id)")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_cashier ON sales(cashier_id)")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_status ON sales(sale_status)")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_payment ON sales(payment_status)")
-                    
-                    # Sale items indexes
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id)")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id)")
-                    
-                    # Product indexes
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id)")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_code ON products(product_code)")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_active ON products(is_active)")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_stock ON products(current_stock)")
-                    
-                    # Customer indexes
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_customers_cnic ON customers(cnic)")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_customers_type ON customers(customer_type)")
-                    
-                    # Customer payments indexes
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_customer_payments_customer ON customer_payments(customer_id)")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_customer_payments_date ON customer_payments(payment_date)")
+                    # ==================== PERFORMANCE INDEXES ====================
+                    index_sql_list = [
+                        "CREATE INDEX IF NOT EXISTS idx_sales_created_at ON sales(created_at)",
+                        "CREATE INDEX IF NOT EXISTS idx_sales_cashier_id ON sales(cashier_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_sales_customer_id ON sales(customer_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_sales_status ON sales(sale_status)",
+                        "CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON sale_items(sale_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_sale_items_product_id ON sale_items(product_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active)",
+                        "CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)",
+                        "CREATE INDEX IF NOT EXISTS idx_products_code ON products(product_code)",
+                        "CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)",
+                    ]
+                    for idx_sql in index_sql_list:
+                        try:
+                            cursor.execute(idx_sql)
+                        except Exception:
+                            pass  # Already exists or not needed
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_customer_payments_method ON customer_payments(payment_method)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_customer_payments_received_by ON customer_payments(received_by)")
                     

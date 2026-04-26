@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 @router.get("/", dependencies=[Depends(require_permission("customers.view"))])
 async def list_customers(
     skip: int = Query(0),
-    limit: int = Query(50),
+    limit: int = Query(1000, ge=1, le=100000),
     search: Optional[str] = Query(None),
     phone: Optional[str] = Query(None),
     current_user: Dict[str, Any] = Depends(get_current_user)

@@ -11,7 +11,7 @@ class InventoryScreen {
         this.products = [];
         this.categories = [];
         this.currentPage = 1;
-        this.pageSize = 20;
+        this.pageSize = 100;
         this.totalPages = 1;
         this.filters = {};
 
@@ -33,11 +33,11 @@ class InventoryScreen {
         // Search input
         const searchInput = document.getElementById('inventory-search');
         if (searchInput) {
-            searchInput.addEventListener('input', this.debounce(() => {
-                this.filters.search = searchInput.value;
+            searchInput.addEventListener('input', this.debounce((e) => {
+                this.filters.search = e.target.value.trim();
                 this.currentPage = 1;
                 this.loadProducts();
-            }, 500));
+            }, 400));
         }
 
         // Category filter
@@ -56,14 +56,17 @@ class InventoryScreen {
             stockFilter.addEventListener('change', () => {
                 const value = stockFilter.value;
                 if (value === 'low_stock') {
-                    this.filters.stockFilter = 'low';
+                    this.filters.low_stock = true;
+                    this.filters.out_of_stock = null;
                 } else if (value === 'out_of_stock') {
-                    this.filters.stockFilter = 'out';
+                    this.filters.out_of_stock = true;
+                    this.filters.low_stock = null;
                 } else {
-                    this.filters.stockFilter = null;
+                    this.filters.low_stock = null;
+                    this.filters.out_of_stock = null;
                 }
                 this.currentPage = 1;
-                this.render();
+                this.loadProducts();
             });
         }
 
@@ -122,39 +125,30 @@ class InventoryScreen {
     async loadProducts() {
         try {
             this.app.showLoading('Loading inventory...');
-            
-            // First try the inventory/stock endpoint, then fall back to products
-            let response;
-            let url = '/inventory/stock';
-            if (this.filters.search) {
-                url += `?search=${encodeURIComponent(this.filters.search)}`;
-            }
-            if (this.filters.category_id) {
-                url += (url.includes('?') ? '&' : '?') + `category_id=${this.filters.category_id}`;
-            }
 
-            try {
-                response = await this.api.get(url);
-            } catch (inventoryError) {
-                // If inventory/stock fails, try the products endpoint as fallback
-                console.warn('Inventory endpoint failed, trying products endpoint:', inventoryError);
-                let productsUrl = '/products';
-                if (this.filters.search || this.filters.category_id) {
-                    productsUrl += '?';
-                    if (this.filters.search) {
-                        productsUrl += `search=${encodeURIComponent(this.filters.search)}`;
-                        if (this.filters.category_id) {
-                            productsUrl += `&category_id=${this.filters.category_id}`;
-                        }
-                    } else if (this.filters.category_id) {
-                        productsUrl += `category_id=${this.filters.category_id}`;
-                    }
-                }
-                response = await this.api.get(productsUrl);
+            const params = new URLSearchParams({
+                page: this.currentPage,
+                page_size: this.pageSize
+            });
+
+            if (this.filters.category_id) {
+                params.append('category_id', this.filters.category_id);
             }
+            if (this.filters.search) {
+                params.append('search', this.filters.search);
+            }
+            if (this.filters.low_stock) {
+                params.append('low_stock', 'true');
+            }
+            if (this.filters.out_of_stock) {
+                params.append('out_of_stock', 'true');
+            }
+            params.append('show_all', 'true');  // Inventory screen shows ALL products including inactive
+
+            const response = await this.api.get(`/products?${params.toString()}`);
 
             this.products = Array.isArray(response) ? response : (response.products || response.data || []);
-            
+
             console.log(`Loaded ${this.products.length} products`);
             this.render();
         } catch (error) {
@@ -169,25 +163,15 @@ class InventoryScreen {
         const tbody = document.getElementById('inventory-tbody');
         if (!tbody) return;
 
-        // Filter products
-        let filtered = this.products;
-
-        // Apply stock filter
-        if (this.filters.stockFilter === 'low') {
-            filtered = filtered.filter(p => p.current_stock <= p.reorder_level && p.current_stock > 0);
-        } else if (this.filters.stockFilter === 'out') {
-            filtered = filtered.filter(p => p.current_stock === 0);
-        }
-
         // Pagination
-        this.totalPages = Math.ceil(filtered.length / this.pageSize);
+        this.totalPages = Math.ceil(this.products.length / this.pageSize);
         const start = (this.currentPage - 1) * this.pageSize;
         const end = start + this.pageSize;
-        const pageProducts = filtered.slice(start, end);
+        const pageProducts = this.products.slice(start, end);
 
         // Update count
         const countEl = document.getElementById('product-count');
-        if (countEl) countEl.textContent = filtered.length;
+        if (countEl) countEl.textContent = this.products.length;
 
         // Update pagination controls
         const prevBtn = document.getElementById('prev-page');

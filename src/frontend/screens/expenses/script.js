@@ -11,7 +11,7 @@ class ExpensesScreen {
 
     async refresh() {
         try {
-            const response = await this.app.api.get('/expenses');
+            const response = await this.app.api.get('/expenses?limit=10000&skip=0');
             
             if (response && response.success) {
                 this.expenses = response.expenses || response.data || [];

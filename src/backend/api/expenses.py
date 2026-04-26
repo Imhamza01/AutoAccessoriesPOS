@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 @router.get("", dependencies=[Depends(require_permission("expenses.view"))])
 async def list_expenses(
     skip: int = Query(0),
-    limit: int = Query(50),
+    limit: int = Query(500, ge=1, le=100000),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
@@ -225,10 +225,10 @@ async def expense_summary(
             params = []
             
             if start_date:
-                query += " AND created_at >= ?"
+                query += " AND DATE(created_at) >= ?"
                 params.append(start_date)
             if end_date:
-                query += " AND created_at <= ?"
+                query += " AND DATE(created_at) <= ?"
                 params.append(end_date)
             
             query += " GROUP BY category ORDER BY SUM(amount) DESC"
@@ -240,10 +240,10 @@ async def expense_summary(
             total_query = "SELECT SUM(amount) FROM expenses WHERE 1=1"
             total_params = []
             if start_date:
-                total_query += " AND created_at >= ?"
+                total_query += " AND DATE(created_at) >= ?"
                 total_params.append(start_date)
             if end_date:
-                total_query += " AND created_at <= ?"
+                total_query += " AND DATE(created_at) <= ?"
                 total_params.append(end_date)
             
             cur.execute(total_query, total_params)

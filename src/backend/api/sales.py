@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 @router.get("/", dependencies=[Depends(require_permission("sales.view")), Depends(sales_auth)])
 async def list_sales(
     skip: int = Query(0),
-    limit: int = Query(50),
+    limit: int = Query(500, ge=1, le=100000),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     customer_id: Optional[int] = Query(None),

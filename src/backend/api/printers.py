@@ -13,7 +13,7 @@ router = APIRouter(prefix="/printers", tags=["printers"])
 logger = logging.getLogger(__name__)
 
 
-@router.post("/print", dependencies=[Depends(require_permission("pos.sell"))])
+@router.post("/print", dependencies=[Depends(require_permission("pos.access"))])
 async def print_receipt(
     print_data: Dict[str, Any] = Body(...),
     current_user: Dict[str, Any] = Depends(get_current_user)
@@ -87,7 +87,7 @@ async def print_receipt(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/print-html", dependencies=[Depends(require_permission("pos.sell"))])
+@router.post("/print-html", dependencies=[Depends(require_permission("pos.access"))])
 async def print_html_receipt(
     data: Dict[str, Any] = Body(...),
     current_user: Dict[str, Any] = Depends(get_current_user)
@@ -115,7 +115,7 @@ async def print_html_receipt(
             pass
 
 
-@router.get("/status", dependencies=[Depends(require_permission("pos.sell"))])
+@router.get("/status", dependencies=[Depends(require_permission("pos.access"))])
 async def get_printer_status(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):

@@ -139,10 +139,10 @@ async def sales_summary(
             params = []
             
             if start_date:
-                query += " AND created_at >= ?"
+                query += " AND DATE(created_at) >= ?"
                 params.append(start_date)
             if end_date:
-                query += " AND created_at <= ?"
+                query += " AND DATE(created_at) <= ?"
                 params.append(end_date)
             
             # Use DATE(created_at) for grouping
@@ -155,10 +155,10 @@ async def sales_summary(
             metrics_query = "SELECT COUNT(*), SUM(grand_total), SUM(gst_amount) FROM sales WHERE sale_status != 'cancelled'"
             metrics_params = []
             if start_date:
-                metrics_query += " AND created_at >= ?"
+                metrics_query += " AND DATE(created_at) >= ?"
                 metrics_params.append(start_date)
             if end_date:
-                metrics_query += " AND created_at <= ?"
+                metrics_query += " AND DATE(created_at) <= ?"
                 metrics_params.append(end_date)
             
             cur.execute(metrics_query, metrics_params)
@@ -188,7 +188,7 @@ async def sales_summary(
 
 @router.get("/top-products", dependencies=[Depends(require_permission("reports.view"))])
 async def top_products(
-    limit: int = Query(10),
+    limit: int = Query(1000, ge=1, le=100000),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     current_user: Dict[str, Any] = Depends(get_current_user)
@@ -204,17 +204,18 @@ async def top_products(
                 raise HTTPException(status_code=500, detail="Database cursor failed")
             query = """
                 SELECT p.id, p.name, SUM(si.quantity) as qty_sold,
-                       SUM(si.total_price) as revenue
+                       SUM(si.line_total) as revenue
                 FROM sale_items si
                 JOIN products p ON si.product_id = p.id
+                WHERE si.product_id > 0
             """
             params = []
-            
+
             if start_date:
-                query += " AND si.created_at >= ?"
+                query += " AND DATE(created_at) >= ?"
                 params.append(start_date)
             if end_date:
-                query += " AND si.created_at <= ?"
+                query += " AND DATE(created_at) <= ?"
                 params.append(end_date)
             
             query += f" GROUP BY p.id ORDER BY qty_sold DESC LIMIT ?"
@@ -255,17 +256,18 @@ async def customer_sales(
                        SUM(s.grand_total) as total_spent
                 FROM sales s
                 LEFT JOIN customers c ON s.customer_id = c.id
+                WHERE s.sale_status != 'cancelled'
             """
             params = []
-            
+
             if start_date:
                 query += " AND DATE(s.created_at) >= ?"
                 params.append(start_date)
             if end_date:
                 query += " AND DATE(s.created_at) <= ?"
                 params.append(end_date)
-            
-            query += " GROUP BY c.id ORDER BY total_spent DESC"
+
+            query += " GROUP BY c.id ORDER BY total_spent DESC LIMIT 500"
             
             cur.execute(query, params)
             customers = cur.fetchall()
@@ -307,10 +309,10 @@ async def gst_report(
             params = []
             
             if start_date:
-                query += " AND created_at >= ?"
+                query += " AND DATE(created_at) >= ?"
                 params.append(start_date)
             if end_date:
-                query += " AND created_at <= ?"
+                query += " AND DATE(created_at) <= ?"
                 params.append(end_date)
             
             query += " GROUP BY DATE(created_at) ORDER BY date DESC"
@@ -322,10 +324,10 @@ async def gst_report(
             total_query = "SELECT SUM(gst_amount) FROM sales WHERE gst_amount > 0 AND sale_status != 'cancelled'"
             total_params = []
             if start_date:
-                total_query += " AND created_at >= ?"
+                total_query += " AND DATE(created_at) >= ?"
                 total_params.append(start_date)
             if end_date:
-                total_query += " AND created_at <= ?"
+                total_query += " AND DATE(created_at) <= ?"
                 total_params.append(end_date)
             
             cur.execute(total_query, total_params)
@@ -363,23 +365,23 @@ async def profit_loss_report(
             rev_query = "SELECT SUM(grand_total) FROM sales WHERE sale_status != 'cancelled'"
             rev_params = []
             if start_date:
-                rev_query += " AND created_at >= ?"
+                rev_query += " AND DATE(created_at) >= ?"
                 rev_params.append(start_date)
             if end_date:
-                rev_query += " AND created_at <= ?"
+                rev_query += " AND DATE(created_at) <= ?"
                 rev_params.append(end_date)
             
             cur.execute(rev_query, rev_params)
             revenue = cur.fetchone()[0] or 0
             
             # Total expenses
-            exp_query = "SELECT SUM(amount) FROM expenses"
+            exp_query = "SELECT SUM(amount) FROM expenses WHERE 1=1"
             exp_params = []
             if start_date:
-                exp_query += " AND created_at >= ?"
+                exp_query += " AND DATE(created_at) >= ?"
                 exp_params.append(start_date)
             if end_date:
-                exp_query += " AND created_at <= ?"
+                exp_query += " AND DATE(created_at) <= ?"
                 exp_params.append(end_date)
             
             cur.execute(exp_query, exp_params)
@@ -904,19 +906,19 @@ async def sales_by_category(
         with db.get_cursor() as cur:
             query = """
                 SELECT c.name as category, SUM(si.quantity) as quantity_sold,
-                       SUM(si.total_price) as revenue
+                       SUM(si.line_total) as revenue
                 FROM sale_items si
                 JOIN products p ON si.product_id = p.id
                 JOIN categories c ON p.category_id = c.id
                 WHERE 1=1
             """
             params = []
-            
+
             if start_date:
-                query += " AND si.created_at >= ?"
+                query += " AND DATE(created_at) >= ?"
                 params.append(start_date)
             if end_date:
-                query += " AND si.created_at <= ?"
+                query += " AND DATE(created_at) <= ?"
                 params.append(end_date)
             
             query += " GROUP BY c.id ORDER BY revenue DESC"
@@ -959,10 +961,10 @@ async def payment_methods(
             params = []
             
             if start_date:
-                query += " AND created_at >= ?"
+                query += " AND DATE(created_at) >= ?"
                 params.append(start_date)
             if end_date:
-                query += " AND created_at <= ?"
+                query += " AND DATE(created_at) <= ?"
                 params.append(end_date)
             
             query += " GROUP BY payment_method ORDER BY total_amount DESC"
@@ -1082,7 +1084,7 @@ async def pending_credit(
                 JOIN customers c ON s.customer_id = c.id
                 WHERE s.payment_status = 'pending'
                 ORDER BY s.created_at DESC
-                LIMIT 10
+                LIMIT 10000
             """)
             pending_sales = cur.fetchall()
             

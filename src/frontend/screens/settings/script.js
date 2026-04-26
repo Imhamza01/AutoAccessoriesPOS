@@ -31,6 +31,20 @@ class SettingsScreen {
     }
 
     init() {
+        // Permission guard
+        if (window.rbac && !window.rbac.canManageSettings()) {
+            const container = document.querySelector('.screen-content') || document.getElementById('settings-container');
+            if (container) {
+                container.innerHTML = `
+                    <div style="text-align:center; padding: 60px 20px;">
+                        <h2>Access Denied</h2>
+                        <p>Only the Malik (Owner) can access system settings.</p>
+                        <p>Contact your system administrator.</p>
+                    </div>`;
+            }
+            return;
+        }
+
         try {
             // Hide users tab if user doesn't have permission
             if (!this.app.currentUser?.can_manage_users) {
@@ -443,7 +457,7 @@ class SettingsScreen {
             { label: 'NTN Number', id: 'ntn-number', value: shopSettings.shop_tax_id },
             { label: 'GST Number', id: 'gst-number', value: shopSettings.gst_number },
             { label: 'GST Rate (%)', id: 'gst-rate-input', type: 'number', value: ((shopSettings.gst_rate || 0) * 100).toString(), step: '0.01', min: '0', max: '100' },
-            { label: 'Currency Symbol', id: 'currency-symbol', value: shopSettings.currency || '₹' }
+            { label: 'Currency Symbol', id: 'currency-symbol', value: shopSettings.currency || 'PKR' }
         ];
 
         taxFields.forEach(field => {

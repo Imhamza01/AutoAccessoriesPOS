@@ -413,8 +413,8 @@
                     return false;
                 }
                 
-                if (password.length < 4) {
-                    this.showError('password', 'Password must be at least 4 characters');
+                if (password.length < 6) {
+                    this.showError('password', 'Password must be at least 6 characters');
                     return false;
                 }
                 
@@ -526,7 +526,7 @@
 
                     console.log('[Login] Redirecting immediately...');
                     // Redirect immediately - no delay needed
-                    window.location.replace('/index.html');
+                    window.location.replace('index.html');
 
                 } catch (error) {
                     console.error('[Login] Error:', error);
@@ -592,7 +592,7 @@
             if (accessToken) {
                 // Token exists - redirect immediately (validate on main page if needed)
                 console.log('[Login] Token found, redirecting instantly');
-                window.location.replace('/index.html');
+                window.location.replace('index.html');
                 return; // Stop further execution
             }
             

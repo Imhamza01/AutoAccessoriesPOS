@@ -24,6 +24,7 @@ class APIClient {
         }
         this.token = localStorage.getItem('access_token');
         this.sessionToken = localStorage.getItem('session_token');
+        this._isRefreshing = false;  // Prevents recursive token refresh loop
         console.log('[APIClient] baseURL =', this.baseURL);
     }
 
@@ -44,7 +45,9 @@ class APIClient {
             'Accept': 'application/json'
         };
 
-        console.log('[APIClient] Request:', method, url, data ? { body: data } : {});
+        if (window.__DEBUG_API__) {
+            console.log('[APIClient] Request:', method, url, data ? { body: data } : {});
+        }
 
         // Add authorization header if token exists
         if (this.token) {
@@ -66,64 +69,89 @@ class APIClient {
             config.body = JSON.stringify(data);
         }
 
-        try {
-            const response = await fetch(url, config);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
-            console.log('[APIClient] Response status:', response.status, response.statusText);
-            // Handle 401 Unauthorized (token expired)
+        let response;
+        try {
+            response = await fetch(url, { ...config, signal: controller.signal });
+            clearTimeout(timeoutId);
+        } catch (fetchError) {
+            clearTimeout(timeoutId);
+            if (fetchError.name === 'AbortError') {
+                throw new Error('Request timed out. Please check your connection.');
+            }
+            throw fetchError;
+        }
+
+        if (response.status >= 400 || window.__DEBUG_API__) {
+            console.log('[APIClient] Response:', response.status, response.statusText, url);
+        }
             if (response.status === 401) {
-                // If running in a local preview mode, don't redirect to login
+                // Guard: if already refreshing, don't loop
+                if (this._isRefreshing) {
+                    this.clearAuthData();
+                    window.location.href = 'login.html';
+                    throw new Error('Session expired. Please login again.');
+                }
+
                 let previewMode = false;
                 try {
                     const urlParams = new URLSearchParams(window.location.search);
                     previewMode = urlParams.get('preview') === '1';
-                } catch (e) {
-                    // ignore
-                }
+                } catch (e) { }
 
                 if (previewMode) {
-                    console.warn('Received 401 from API but running in preview mode — skipping redirect.');
+                    console.warn('[APIClient] 401 in preview mode — skipping redirect.');
                     return { success: false, error: 'Authentication failed', data: [] };
                 }
 
-                // Try to refresh token
                 const refreshToken = localStorage.getItem('refresh_token');
                 if (refreshToken) {
+                    this._isRefreshing = true;
                     try {
-                        const refreshResponse = await this.post('/auth/refresh', {
-                            refresh_token: refreshToken
+                        // Use raw fetch — NOT this.post() — to avoid recursive loop
+                        const refreshResp = await fetch(`${this.baseURL}/auth/refresh`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ refresh_token: refreshToken })
                         });
 
-                        // Update token and retry request
-                        this.setToken(refreshResponse.access_token);
-                        headers['Authorization'] = `Bearer ${refreshResponse.access_token}`;
-
-                        // Retry the original request
-                        const retryConfig = { ...config, headers };
-                        if (data) {
-                            retryConfig.body = JSON.stringify(data);
+                        if (!refreshResp.ok) {
+                            throw new Error('Refresh token expired or invalid');
                         }
+
+                        const refreshData = await refreshResp.json();
+                        const newToken = refreshData.access_token;
+                        if (!newToken) throw new Error('No access token in refresh response');
+
+                        this.setToken(newToken);
+                        headers['Authorization'] = `Bearer ${newToken}`;
+
+                        // Retry original request once with new token
+                        const retryConfig = { ...config, headers };
+                        if (data) retryConfig.body = JSON.stringify(data);
 
                         const retryResponse = await fetch(url, retryConfig);
                         const retryData = await retryResponse.json();
 
                         if (!retryResponse.ok) {
-                            throw new Error(retryData.detail || 'Request failed');
+                            throw new Error(retryData.detail || 'Retry failed after token refresh');
                         }
-
                         return retryData;
 
                     } catch (refreshError) {
-                        // Refresh failed, clear auth data
+                        console.error('[APIClient] Token refresh failed:', refreshError.message);
                         this.clearAuthData();
-                        window.location.href = '/login.html';
+                        window.location.href = 'login.html';
                         throw new Error('Session expired. Please login again.');
+                    } finally {
+                        this._isRefreshing = false;
                     }
                 } else {
-                    // No refresh token, redirect to login
                     this.clearAuthData();
-                    window.location.href = '/login.html';
-                    throw new Error('Session expired. Please login again.');
+                    window.location.href = 'login.html';
+                    throw new Error('No refresh token. Please login again.');
                 }
             }
 

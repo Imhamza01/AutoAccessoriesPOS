@@ -59,15 +59,15 @@ PAKISTANI_ROLES = {
         "name": "Munshi (Manager)",
         "description": "Manager with most access except user management",
         "permissions": [
-            "dashboard.view",
-            "pos.access",
-            "products.manage",
-            "customers.manage",
-            "sales.manage",
-            "inventory.manage",
+            "dashboard.view", "pos.access",
+            "products.view", "products.manage",
+            "customers.view", "customers.manage",
+            "sales.view", "sales.manage",
+            "inventory.view", "inventory.manage",
             "reports.view",
-            "expenses.view",
-            "expenses.manage",
+            "expenses.view", "expenses.manage",
+            "credit-management.view",
+            "settings.view",       # Can view settings (but not save system settings)
         ],
         "can_manage_users": False,
         "can_view_reports": True,
@@ -86,18 +86,20 @@ PAKISTANI_ROLES = {
             "dashboard.view",
             "pos.access",
             "products.view",
+            "customers.view",
             "customers.manage",
             "sales.create",
             "sales.view",
-            "reports.view",
-            "inventory.view",
+            "reports.view",         # Added: cashier can view their own sales reports
+            "credit-management.view",
+            "inventory.view",       # Added: cashier can view stock levels
         ],
         "can_manage_users": False,
-        "can_view_reports": False,
+        "can_view_reports": True,
         "can_manage_stock": False,
         "can_manage_products": False,
         "can_manage_customers": True,
-        "can_manage_sales": True,  # Can create sales but not view all
+        "can_manage_sales": True,
         "can_manage_expenses": False,
         "can_manage_settings": False,
         "can_backup_restore": False,
@@ -781,16 +783,6 @@ class AuthenticationManager:
             )
     
     def validate_permission(self, user_role: str, required_permission: str) -> bool:
-        """
-        Check if user role has required permission.
-        
-        Args:
-            user_role: User role
-            required_permission: Required permission string
-            
-        Returns:
-            True if user has permission
-        """
         role_config = PAKISTANI_ROLES.get(user_role, {})
         permissions = role_config.get("permissions", [])
         
@@ -798,15 +790,28 @@ class AuthenticationManager:
         if user_role == "malik":
             return True
         
-        # Check for exact permission or wildcard
+        # Wildcard role permission
+        if "*" in permissions:
+            return True
+        
+        # Exact match
         if required_permission in permissions:
             return True
         
-        # Check for wildcard permissions (e.g., "products.*" for "products.view")
+        # Permission inheritance: X.manage implies X.view and X.create
+        # e.g., if user has "products.manage", they can "products.view"
+        if "." in required_permission:
+            resource, action = required_permission.rsplit(".", 1)
+            if action == "view" and f"{resource}.manage" in permissions:
+                return True
+            if action == "create" and f"{resource}.manage" in permissions:
+                return True
+        
+        # Wildcard match (e.g., "products.*" covers "products.view")
         for perm in permissions:
             if perm.endswith(".*"):
                 prefix = perm[:-2]
-                if required_permission.startswith(prefix):
+                if required_permission.startswith(prefix + "."):
                     return True
         
         return False

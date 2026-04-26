@@ -1,9 +1,13 @@
 /**
  * RBAC Utility for Frontend Permission Management
+ * Fixed: Added observer pattern to handle async user loading
  */
 
 class RBACManager {
     constructor() {
+        this._roleChangeCallbacks = [];
+        this._currentRole = null;
+
         this.rolePermissions = {
             'malik': {
                 name: 'Malik (Owner)',
@@ -22,15 +26,14 @@ class RBACManager {
             'munshi': {
                 name: 'Munshi (Manager)',
                 permissions: [
-                    'dashboard.view',
-                    'pos.access',
-                    'products.manage',
-                    'customers.manage',
-                    'sales.manage',
-                    'inventory.manage',
+                    'dashboard.view', 'pos.access',
+                    'products.view', 'products.manage',
+                    'customers.view', 'customers.manage',
+                    'sales.view', 'sales.manage',
+                    'inventory.view', 'inventory.manage',
                     'reports.view',
-                    'expenses.view',
-                    'expenses.manage'
+                    'expenses.view', 'expenses.manage',
+                    'credit-management.view'
                 ],
                 screens: ['dashboard', 'pos', 'products', 'customers', 'inventory', 'sales', 'reports', 'credit-management', 'expenses'],
                 canManageUsers: false,
@@ -49,13 +52,14 @@ class RBACManager {
                     'dashboard.view',
                     'pos.access',
                     'products.view',
-                    'customers.manage',
-                    'sales.create',
-                    'sales.view'
+                    'customers.view', 'customers.manage',
+                    'sales.create', 'sales.view',
+                    'reports.view',
+                    'credit-management.view'
                 ],
-                screens: ['dashboard', 'pos', 'customers', 'sales'],
+                screens: ['dashboard', 'pos', 'customers', 'sales', 'reports', 'credit-management'],
                 canManageUsers: false,
-                canViewReports: false,
+                canViewReports: true,
                 canManageStock: false,
                 canManageProducts: false,
                 canManageCustomers: true,
@@ -69,7 +73,7 @@ class RBACManager {
                 permissions: [
                     'dashboard.view',
                     'products.view',
-                    'inventory.manage',
+                    'inventory.view', 'inventory.manage',
                     'stock.view'
                 ],
                 screens: ['dashboard', 'products', 'inventory'],
@@ -87,146 +91,120 @@ class RBACManager {
     }
 
     /**
-     * Get current user role
+     * Get current user role — checks multiple sources
      */
     getCurrentUserRole() {
-        if (window.app && window.app.currentUser) {
+        // Source 1: window.app.currentUser (set after login)
+        if (window.app && window.app.currentUser && window.app.currentUser.role) {
             return window.app.currentUser.role;
         }
+        // Source 2: localStorage (available immediately after page refresh)
+        try {
+            const userData = localStorage.getItem('user_data');
+            if (userData) {
+                const parsed = JSON.parse(userData);
+                if (parsed && parsed.role) {
+                    return parsed.role;
+                }
+            }
+        } catch (e) { /* ignore */ }
         return null;
     }
 
     /**
-     * Check if user has specific permission
+     * Register a callback to be called when role becomes available
      */
+    onRoleReady(callback) {
+        const role = this.getCurrentUserRole();
+        if (role) {
+            // Role already available — call immediately
+            callback(role);
+        } else {
+            // Store callback for later
+            this._roleChangeCallbacks.push(callback);
+        }
+    }
+
+    /**
+     * Notify all waiting callbacks that role is now available
+     * Call this after user data is set in app.js
+     */
+    notifyRoleReady() {
+        const role = this.getCurrentUserRole();
+        if (role && this._roleChangeCallbacks.length > 0) {
+            console.log('[RBAC] Notifying', this._roleChangeCallbacks.length, 'callbacks, role:', role);
+            const callbacks = [...this._roleChangeCallbacks];
+            this._roleChangeCallbacks = [];
+            callbacks.forEach(cb => {
+                try { cb(role); } catch (e) { console.error('[RBAC] Callback error:', e); }
+            });
+        }
+    }
+
     hasPermission(permission) {
         const role = this.getCurrentUserRole();
         if (!role) return false;
-        
         const roleConfig = this.rolePermissions[role];
         if (!roleConfig) return false;
-        
-        // Owner has all permissions
         if (role === 'malik') return true;
-        
-        // Check exact permission or wildcard
-        if (roleConfig.permissions.includes(permission) || roleConfig.permissions.includes('*')) {
-            return true;
-        }
-        
-        // Check for wildcard permissions
+        if (roleConfig.permissions.includes('*')) return true;
+        if (roleConfig.permissions.includes(permission)) return true;
+        // Wildcard check: products.manage satisfies products.view
+        const [resource, action] = permission.split('.');
+        if (action === 'view' && roleConfig.permissions.includes(`${resource}.manage`)) return true;
         for (const perm of roleConfig.permissions) {
             if (perm.endsWith('.*')) {
                 const prefix = perm.slice(0, -2);
-                if (permission.startsWith(prefix)) {
-                    return true;
-                }
+                if (permission.startsWith(prefix)) return true;
             }
         }
-        
         return false;
     }
 
-    /**
-     * Check if user can access specific screen
-     */
     canAccessScreen(screenName) {
         const role = this.getCurrentUserRole();
         if (!role) return false;
-        
         const roleConfig = this.rolePermissions[role];
         if (!roleConfig) return false;
-        
         return roleConfig.screens.includes(screenName);
     }
 
-    /**
-     * Get allowed screens for current user
-     */
     getAllowedScreens() {
         const role = this.getCurrentUserRole();
         if (!role) return [];
-        
         const roleConfig = this.rolePermissions[role];
-        return roleConfig ? roleConfig.screens : [];
+        return roleConfig ? [...roleConfig.screens] : [];
     }
 
-    /**
-     * Check specific capabilities
-     */
-    canManageUsers() {
-        const role = this.getCurrentUserRole();
-        return role && this.rolePermissions[role]?.canManageUsers;
-    }
+    canManageUsers() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canManageUsers; }
+    canViewReports() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canViewReports; }
+    canManageStock() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canManageStock; }
+    canManageProducts() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canManageProducts; }
+    canManageCustomers() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canManageCustomers; }
+    canManageSales() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canManageSales; }
+    canManageExpenses() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canManageExpenses; }
+    canManageSettings() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canManageSettings; }
+    canBackupRestore() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canBackupRestore; }
 
-    canViewReports() {
-        const role = this.getCurrentUserRole();
-        return role && this.rolePermissions[role]?.canViewReports;
-    }
-
-    canManageStock() {
-        const role = this.getCurrentUserRole();
-        return role && this.rolePermissions[role]?.canManageStock;
-    }
-
-    canManageProducts() {
-        const role = this.getCurrentUserRole();
-        return role && this.rolePermissions[role]?.canManageProducts;
-    }
-
-    canManageCustomers() {
-        const role = this.getCurrentUserRole();
-        return role && this.rolePermissions[role]?.canManageCustomers;
-    }
-
-    canManageSales() {
-        const role = this.getCurrentUserRole();
-        return role && this.rolePermissions[role]?.canManageSales;
-    }
-
-    canManageExpenses() {
-        const role = this.getCurrentUserRole();
-        return role && this.rolePermissions[role]?.canManageExpenses;
-    }
-
-    canManageSettings() {
-        const role = this.getCurrentUserRole();
-        return role && this.rolePermissions[role]?.canManageSettings;
-    }
-
-    canBackupRestore() {
-        const role = this.getCurrentUserRole();
-        return role && this.rolePermissions[role]?.canBackupRestore;
-    }
-
-    /**
-     * Route guard function
-     */
     routeGuard(screenName) {
         if (!this.canAccessScreen(screenName)) {
             console.warn(`[RBAC] Access denied to screen: ${screenName}`);
-            window.app.showNotification('Access denied. Insufficient permissions.', 'error');
+            if (window.app) window.app.showNotification('Access denied. Insufficient permissions.', 'error');
             return false;
         }
         return true;
     }
 
-    /**
-     * Get role display name
-     */
     getRoleDisplayName() {
         const role = this.getCurrentUserRole();
         if (!role) return 'Unknown';
-        
-        const roleConfig = this.rolePermissions[role];
-        return roleConfig ? roleConfig.name : role;
+        return this.rolePermissions[role]?.name || role;
     }
 }
 
-// Global RBAC instance
+// Global RBAC instance — available immediately
 window.rbac = new RBACManager();
 
-// Export for module usage
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = RBACManager;
 }

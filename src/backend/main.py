@@ -6,6 +6,7 @@ MAIN FASTAPI APPLICATION - Updated
 import os
 import sys
 import mimetypes
+import asyncio
 from pathlib import Path
 from datetime import datetime
 from fastapi import FastAPI
@@ -147,13 +148,73 @@ else:
     logger.warning(f"Frontend directory not found: {frontend_path}")
 
 # Startup event
+async def schedule_hourly_backups():
+    """Schedule automatic backups every hour."""
+    while True:
+        try:
+            await asyncio.sleep(3600)  # Wait 1 hour (3600 seconds)
+
+            from core.database import get_database_manager
+            from core.backup_manager import create_auto_backup
+
+            db_manager = get_database_manager()
+            backup_name = f"auto_hourly_{datetime.now().strftime('%Y%m%d_%H%M')}"
+
+            try:
+                # Create backup
+                backup_path = db_manager.backup_database(backup_name)
+
+                # Also copy to local backups folder for user visibility
+                if backup_path:
+                    local_backups = Path.cwd() / "backups"
+                    local_backups.mkdir(exist_ok=True)
+                    import shutil
+                    backup_file = Path(backup_path)
+                    if backup_file.exists():
+                        shutil.copy2(backup_file, local_backups / f"{backup_name}.db")
+                        logger.info(f"Hourly auto-backup completed: {backup_name}")
+
+            except Exception as e:
+                logger.error(f"Hourly auto-backup failed: {e}")
+
+        except Exception as e:
+            logger.error(f"Hourly backup scheduler error: {e}")
+            await asyncio.sleep(60)  # Wait 1 minute before retrying
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize database and other startup tasks."""
     try:
         # Initialize database
         db_manager.initialize_database()
-        
+
+        # Fix: Correct Indian Rupee symbol to PKR for Pakistani shops
+        try:
+            with db_manager.get_cursor() as cur:
+                cur.execute("""
+                    UPDATE shop_settings
+                    SET currency_symbol = 'PKR'
+                    WHERE currency_symbol = '₹' OR currency_symbol = 'INR'
+                """)
+                if cur.rowcount > 0:
+                    logger.info(f"Startup fix: Corrected currency symbol to PKR")
+        except Exception as e:
+            logger.error(f"Currency fix failed: {e}")
+
+        # Fix: Activate products that were accidentally set inactive
+        try:
+            with db_manager.get_cursor() as cursor:
+                cursor.execute("""
+                    UPDATE products
+                    SET is_active = 1
+                    WHERE is_active = 0 OR is_active IS NULL
+                """)
+                rows = cursor.rowcount
+                if rows > 0:
+                    logger.info(f"Startup fix: Activated {rows} products that were incorrectly set to inactive")
+        except Exception as e:
+            logger.error(f"Startup product activation fix failed: {e}")
+
         # Ensure local backups directory exists (for user visibility)
         local_backups = Path.cwd() / "backups"
         local_backups.mkdir(exist_ok=True)
@@ -193,7 +254,10 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Auto-backup failed: {e}")
             # Don't fail startup just because backup failed
-            
+
+        # Start hourly backup task
+        asyncio.create_task(schedule_hourly_backups())
+
         logger.info("Application startup complete")
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")

@@ -19,7 +19,7 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 logger = logging.getLogger(__name__)
 
 
-@router.get("/shop", dependencies=[Depends(require_permission("settings.view"))])
+@router.get("/shop")
 async def get_shop_settings(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
@@ -176,7 +176,7 @@ async def update_shop_settings(
                     settings_data.get("ntn_number") or settings_data.get("shop_tax_id"),
                     settings_data.get("gst_number"),
                     settings_data.get("gst_rate", 0.17),
-                    settings_data.get("currency", settings_data.get("currency_symbol", "₹")),
+                    settings_data.get("currency", settings_data.get("currency_symbol", "PKR")),
                     settings_data.get("receipt_footer", ""),
                     settings_data.get("logo_path"),
                     settings_data.get("receipt_theme", "modern"),
@@ -202,7 +202,7 @@ async def update_shop_settings(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/printer", dependencies=[Depends(require_permission("settings.view"))])
+@router.get("/printer")
 async def get_printer_settings(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):

@@ -421,5 +421,5 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "authentication",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.datetime.now().isoformat()
     }

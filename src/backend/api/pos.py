@@ -16,10 +16,10 @@ router = APIRouter(prefix="/pos", tags=["pos"])
 logger = logging.getLogger(__name__)
 
 
-@router.post("/transaction")  # Removed permission check for debugging
+@router.post("/transaction")
 async def create_pos_transaction(
     transaction_data: Dict[str, Any] = Body(...),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(require_permission("sales.create"))
 ):
     """Create POS transaction (complete sale)."""
     try:
@@ -144,17 +144,22 @@ async def create_pos_transaction(
                     datetime.datetime.now().isoformat(sep=' ')
                 ))
                 
-                # Update product stock
-                new_stock = current_stock - quantity
+                # Update product stock — floor at 0 to prevent negative inventory
+                new_stock = max(0, current_stock - quantity)
+                if quantity > current_stock:
+                    logger.warning(
+                        f"Oversell: Product {product_id} ({product_name}) — "
+                        f"sold {quantity}, had {current_stock}. Stock clamped to 0."
+                    )
                 cur.execute(
                     "UPDATE products SET current_stock = ? WHERE id = ?",
                     (new_stock, product_id)
                 )
-                
+
                 # Record stock movement
                 cur.execute("""
                     INSERT INTO stock_movements (
-                        product_id, movement_type, quantity, 
+                        product_id, movement_type, quantity,
                         previous_quantity, new_quantity, unit_cost,
                         total_cost, reference_id, reference_type,
                         reason, notes, created_by, created_at
@@ -162,11 +167,11 @@ async def create_pos_transaction(
                 """, (
                     product_id,
                     "sale",
-                    -quantity,
+                    -(current_stock - new_stock),   # actual deducted amount
                     current_stock,
                     new_stock,
                     cost_price,
-                    cost_price * quantity,
+                    cost_price * (current_stock - new_stock),
                     sale_id,
                     "sale",
                     f"POS Sale #{sale_id}",
@@ -218,14 +223,32 @@ async def create_pos_transaction(
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # Create automatic backup after successful transaction
+        # Auto-backup at most once per hour (not on every sale)
         try:
-            create_auto_backup()
-        except Exception as backup_error:
-            logger.error(f"Auto-backup failed: {backup_error}")
+            _hour_tag = datetime.datetime.now().strftime('%Y%m%d%H')
+            _db = get_database_manager()
+            with _db.get_cursor() as _cur:
+                _cur.execute(
+                    "SELECT id FROM backup_history WHERE backup_type='auto' "
+                    "AND notes=? LIMIT 1",
+                    (f"hourly_{_hour_tag}",)
+                )
+                _already_done = _cur.fetchone()
+
+            if not _already_done:
+                create_auto_backup()
+                # Tag this backup with the hour so we skip subsequent ones
+                with _db.get_cursor() as _cur:
+                    _cur.execute(
+                        "UPDATE backup_history SET notes=? WHERE id="
+                        "(SELECT MAX(id) FROM backup_history WHERE backup_type='auto')",
+                        (f"hourly_{_hour_tag}",)
+                    )
+        except Exception as _be:
+            logger.warning(f"Auto-backup check failed (non-critical): {_be}")
 
 
-@router.get("/barcode/{barcode}", dependencies=[Depends(require_permission("pos.sell"))])
+@router.get("/barcode/{barcode}", dependencies=[Depends(require_permission("pos.access"))])
 async def get_product_by_barcode(
     barcode: str,
     current_user: Dict[str, Any] = Depends(get_current_user)
@@ -255,7 +278,7 @@ async def get_product_by_barcode(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/discount/applicable", dependencies=[Depends(require_permission("pos.sell"))])
+@router.get("/discount/applicable", dependencies=[Depends(require_permission("pos.access"))])
 async def get_applicable_discounts(
     customer_id: Optional[int] = Query(None),
     total_amount: float = Query(0),
@@ -288,7 +311,7 @@ async def get_applicable_discounts(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/calculate-bill", dependencies=[Depends(require_permission("pos.sell"))])
+@router.post("/calculate-bill", dependencies=[Depends(require_permission("pos.access"))])
 async def calculate_bill(
     bill_data: Dict[str, Any] = Body(...),
     current_user: Dict[str, Any] = Depends(get_current_user)
@@ -325,7 +348,7 @@ async def calculate_bill(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/session/open", dependencies=[Depends(require_permission("pos.sell"))])
+@router.get("/session/open", dependencies=[Depends(require_permission("pos.access"))])
 async def open_session(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
@@ -354,7 +377,7 @@ async def open_session(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/session/close", dependencies=[Depends(require_permission("pos.sell"))])
+@router.post("/session/close", dependencies=[Depends(require_permission("pos.access"))])
 async def close_session(
     session_data: Dict[str, Any] = Body(...),
     current_user: Dict[str, Any] = Depends(get_current_user)
@@ -386,7 +409,7 @@ async def close_session(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/hold-sale", dependencies=[Depends(require_permission("pos.sell"))])
+@router.post("/hold-sale", dependencies=[Depends(require_permission("pos.access"))])
 async def hold_sale(
     sale_data: Dict[str, Any] = Body(...),
     current_user: Dict[str, Any] = Depends(get_current_user)
@@ -495,19 +518,9 @@ async def hold_sale(
                     datetime.datetime.now().isoformat(sep=' ')
                 ))
             
-            # Update customer's credit balance if this is a credit sale
-            customer_id = sale_data.get("customer_id")
-            if customer_id:
-                payment_method = sale_data.get("payment_type", "credit")  # Default to credit for held sales
-                total_amount = sale_data.get("total_amount", 0)
-                
-                # If payment method is credit, increase the customer's current_balance (outstanding credit)
-                if payment_method.lower() in ["credit", "credit_sale"]:
-                    cur.execute("""
-                        UPDATE customers 
-                        SET current_balance = current_balance + ?, updated_at = ?
-                        WHERE id = ?
-                    """, (total_amount, datetime.datetime.now().isoformat(), customer_id))
+            # NOTE: Customer credit balance is NOT updated for held sales.
+            # The balance is only updated when the held sale is resumed and
+            # completed via /pos/transaction. Updating here would double-charge.
         
         return {
             "success": True,
@@ -520,7 +533,7 @@ async def hold_sale(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/held-sales", dependencies=[Depends(require_permission("pos.sell"))])
+@router.get("/held-sales", dependencies=[Depends(require_permission("pos.access"))])
 async def get_held_sales(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
@@ -528,9 +541,19 @@ async def get_held_sales(
     try:
         db = get_database_manager()
         with db.get_cursor() as cur:
-            cur.execute(
-                "SELECT * FROM sales WHERE sale_status = 'hold' ORDER BY created_at DESC"
-            )
+            user_role = current_user.get("role", "")
+            if user_role in ("malik", "munshi"):
+                # Managers see all held sales
+                cur.execute(
+                    "SELECT * FROM sales WHERE sale_status = 'hold' ORDER BY created_at DESC"
+                )
+            else:
+                # Cashiers only see their own held sales
+                cur.execute(
+                    "SELECT * FROM sales WHERE sale_status = 'hold' "
+                    "AND cashier_id = ? ORDER BY created_at DESC",
+                    (current_user["id"],)
+                )
             raw_sales = cur.fetchall()
             
             # Convert to list of dictionaries to avoid unpacking issues
@@ -550,7 +573,7 @@ async def get_held_sales(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/resume-sale/{sale_id}", dependencies=[Depends(require_permission("pos.sell"))])
+@router.post("/resume-sale/{sale_id}", dependencies=[Depends(require_permission("pos.access"))])
 async def resume_sale(
     sale_id: int,
     current_user: Dict[str, Any] = Depends(get_current_user)
@@ -589,7 +612,7 @@ async def resume_sale(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/held-sale/{sale_id}", dependencies=[Depends(require_permission("pos.sell"))])
+@router.delete("/held-sale/{sale_id}", dependencies=[Depends(require_permission("pos.access"))])
 async def delete_held_sale(
     sale_id: int,
     current_user: Dict[str, Any] = Depends(get_current_user)

@@ -1,427 +1,610 @@
-================================================================================
-AUTO ACCESSORIES POS — COMPREHENSIVE BUG FIX PROMPT FOR AGENT
-================================================================================
+# PROMPT 8 — Receipt Discount Bug Fix, Custom Item Multi-Add Modal & Final Polish (REVISED)
 
-READ THIS ENTIRE FILE BEFORE MAKING ANY CHANGES.
-Do NOT hallucinate code. Read each target file fully before editing it.
-Make surgical, minimal changes — do not refactor unrelated code.
+## ROLE
+You are a senior full-stack developer. Apply ALL changes below exactly as described.
+This prompt covers: the receipt discount printing bug, the custom item multi-add feature,
+and remaining polish issues.
 
-================================================================================
-PRIORITY 1 (CRITICAL): PAYMENT FAILS IN BUILD (.exe) WITH CUSTOM ITEMS
-================================================================================
+---
 
-FILE: src/frontend/screens/pos/script.js
-FUNCTION: completePayment()
+## BUG 1: Receipt prints `Change = -50` instead of showing Discount correctly
 
-ROOT CAUSE (Frontend):
-In completePayment(), the items mapping sends:
-  product_name: i.product.is_custom ? i.product.name : undefined
+### Root Cause (Deep Analysis)
 
-In the built .exe (PyWebView/WebView2), `undefined` values in JSON.stringify()
-are dropped entirely from the serialized object. So custom items arrive at the
-backend WITHOUT a `product_name` field at all, causing the backend INSERT to
-store NULL or throw an error.
+`applyDiscountToCart()` works by modifying `item.total` proportionally:
+```js
+item.total = item.price * item.quantity * discountRatio;   // ← discounted total
+```
 
-FIX: Change the items mapping so product_name is always explicitly set:
+The `updateCartSummary()` uses `item.total` correctly (discounted).
+`completePayment()` also uses `item.total` correctly → sends correct `total_amount` to API.
 
-  items: this.cart.map(i => ({
-    product_id: (i.product.is_custom || !i.product.id) ? null : (i.product.id || i.product[0]),
-    product_name: i.product.is_custom
-      ? (i.product.name || 'Custom Item')
-      : (i.product.name || i.product[1] || null),
-    is_custom: i.product.is_custom || false,
-    quantity: i.quantity,
-    unit_price: i.price,
-    total_price: i.quantity * i.price
-  }))
+**BUT** `prepareReceiptData()` recalculates subtotal as:
+```js
+const subtotal = this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+// ↑ This is BEFORE discount — ignores item.total!
+```
 
-Apply the SAME fix to the holdSale payload (the other cart.map() call in the
-holdSale/holdSaleWithCustomer function, around the lines with payment_type: 'credit'
-and hold_reason). It has the same `product_name: i.product.is_custom ? i.product.name : undefined`
-pattern.
+Then:
+```js
+const discount = this.currentDiscount || 0;  // Often 0 — not stored properly
+const afterDiscount = subtotal - discount;
+const grandTotal = afterDiscount + taxAmount;
+```
 
---------------------------------------------------------------------------------
+Meanwhile `completePayment()` stores:
+```js
+this.lastPaymentDetails = {
+    amount_tendered: amountTendered,  // e.g. 950 (customer paid)
+    change_amount: amountTendered - total,  // total = discounted+tax = 900
+    ...
+};
+```
 
-FILE: src/frontend/app.js
-FUNCTION: loadScreenScript()
+Then `prepareReceiptData()` computes:
+```js
+const amountPaid = this.lastPaymentDetails?.amount_tendered || grandTotal;  // 950
+const change = amountPaid - grandTotal;  // 950 - 1000 (undiscounted!) = -50
+```
 
-ROOT CAUSE (Build - Script Double-Loading):
-In the build (.exe), dynamically created <script> tags have their `.src`
-property stored as a full absolute URL (e.g. http://127.0.0.1:8000/screens/pos/script.js).
-The current deduplication check uses querySelector with data-screen attribute,
-which is ALREADY correct in the current code. VERIFY the current code reads:
+**This is the bug**: receipt `grandTotal` uses undiscounted subtotal, but `amountPaid` uses
+the actual amount the customer paid (after discount). The difference prints as a negative Change.
 
-  const existing = document.querySelector(`script[data-screen="${screenName}"]`);
+### EXACT FIX — `src/frontend/screens/pos/script.js`
 
-If it instead uses an indexOf check like:
-  const existing = Array.from(document.querySelectorAll('script'))
-    .find(s => s.src && s.src.indexOf(srcBase) !== -1);
+#### Step 1: Store `currentDiscount` when discount is applied
 
-...then replace it with the data-attribute version above.
-Also confirm the script tag is marked with the data attribute when created:
-  script.setAttribute('data-screen', screenName);
+In `applyDiscountToCart()`, find where the loop modifies items:
+```js
+        this.cart.forEach(item => {
+            if (item.original_total === undefined) {
+                item.original_total = item.price * item.quantity;
+            }
+            item.discount = item.price * item.quantity * (1 - discountRatio);
+            item.total = item.price * item.quantity * discountRatio;
+        });
 
-Do the same audit for loadComponentScript() — confirm it uses:
-  const existing = document.querySelector(`script[data-component="${componentName}"]`);
-  ...
-  script.setAttribute('data-component', componentName);
+        this.updateCartDisplay();
+        this.app.showNotification('Discount of ' + this.app.formatCurrency(discountAmount) + ' applied', 'success');
+        this.closeDiscountModal();
+```
 
-And for loadComponentCSS() and loadScreenCSS() — confirm they use:
-  document.querySelector(`link[data-css="${componentName}"]`)
-  document.querySelector(`link[data-screen-css="${screenName}"]`)
-with matching data attributes set on the created <link> elements.
+Add `this.currentDiscount = discountAmount;` before `this.updateCartDisplay()`:
+```js
+        this.cart.forEach(item => {
+            if (item.original_total === undefined) {
+                item.original_total = item.price * item.quantity;
+            }
+            item.discount = item.price * item.quantity * (1 - discountRatio);
+            item.total = item.price * item.quantity * discountRatio;
+        });
 
---------------------------------------------------------------------------------
+        this.currentDiscount = discountAmount;   // ← ADD THIS LINE
 
-FILE: src/backend/api/pos.py
-FUNCTION: create_pos_transaction()
+        this.updateCartDisplay();
+        this.app.showNotification('Discount of ' + this.app.formatCurrency(discountAmount) + ' applied', 'success');
+        this.closeDiscountModal();
+```
 
-VERIFY (do not change if already correct):
-The backend already handles custom items correctly with this logic:
-  if is_custom or not product_id:
-    product_name = item.get("product_name") or 'Custom Item'
-    ...INSERT with product_id=None...
+#### Step 2: Initialize `currentDiscount` in constructor
 
-This is correct. However, verify that the sale_items table in the database
-schema has product_id as NULLABLE. Check the CREATE TABLE statement in the
-migration or schema files for sale_items. If product_id has NOT NULL
-constraint, it must be changed to allow NULL.
+In the `PosScreen` class constructor, after `this.searchQuery = '';`, add:
+```js
+        this.currentDiscount = 0;
+        this.lastPaymentDetails = null;
+        this.currentCustomer = null;
+```
 
-FILE: src/backend/migrations/ (or wherever schema is defined)
-ACTION: Find the CREATE TABLE sale_items statement. Ensure:
-  product_id INTEGER  -- no NOT NULL constraint, no non-null default
-  product_name TEXT   -- nullable
-  is_custom INTEGER DEFAULT 0  -- or BOOLEAN
+#### Step 3: Fix `prepareReceiptData()` — use actual discounted subtotal, not raw
 
-If product_id has a NOT NULL constraint, create a migration:
-  ALTER TABLE sale_items RENAME TO sale_items_old;
-  CREATE TABLE sale_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sale_id INTEGER NOT NULL,
-      product_id INTEGER,            -- nullable for custom items
-      product_code TEXT,
-      product_name TEXT,
-      quantity REAL NOT NULL,
-      unit_price REAL NOT NULL,
-      cost_price REAL DEFAULT 0,
-      line_total REAL NOT NULL,
-      line_profit REAL DEFAULT 0,
-      created_at TEXT,
-      FOREIGN KEY (sale_id) REFERENCES sales(id)
-  );
-  INSERT INTO sale_items SELECT * FROM sale_items_old;
-  DROP TABLE sale_items_old;
+Find inside `prepareReceiptData()` (or `printReceipt()` — the one called after `completePayment`):
+```js
+        // Calculate totals
+        const subtotal = this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const discount = this.currentDiscount || 0;
+        const taxRate = ...
+        const afterDiscount = subtotal - discount;
+        const taxAmount = afterDiscount * taxRate;
+        const grandTotal = afterDiscount + taxAmount;
+        const amountPaid = this.lastPaymentDetails?.amount_tendered || grandTotal;
+        const change = amountPaid - grandTotal;
+```
 
-================================================================================
-PRIORITY 2 (HIGH): LOADING SCREEN GETS STUCK — CUSTOMER CRUD
-================================================================================
+Replace with:
+```js
+        // Calculate totals — use item.total (already discounted) not raw price*qty
+        const rawSubtotal = this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const discountedSubtotal = this.cart.reduce((sum, item) => sum + item.total, 0);
+        const discount = this.currentDiscount || (rawSubtotal - discountedSubtotal);
 
-FILE: src/frontend/screens/customers/script.js
-FUNCTION: saveCustomer()
+        const taxRate = (settings.gstRate !== undefined && settings.gstRate !== null)
+            ? settings.gstRate : 0.17;
+        const taxAmount = discountedSubtotal * taxRate;
+        const grandTotal = discountedSubtotal + taxAmount;
+        const amountPaid = this.lastPaymentDetails?.amount_tendered || grandTotal;
+        const change = Math.max(0, amountPaid - grandTotal);   // Never negative
+```
 
-ROOT CAUSE:
-saveCustomer() calls this.app.showLoading('Saving customer...') at the top,
-but NEVER calls this.app.hideLoading() on the SUCCESS path. It only calls
-hideLoading() on one early-return error branch (when response.success is false
-for new customers). On success, it falls through to this.load() without ever
-hiding the loader. The this.load() call is async and does not hide loading either.
+Also update the receipt data object to use `rawSubtotal` for the "subtotal before discount" line:
+```js
+            subtotal: rawSubtotal,        // Show original price before discount
+            discount: discount,           // Show discount amount
+            taxRate: taxRate,
+            taxAmount: taxAmount,
+            grandTotal: grandTotal,       // = discountedSubtotal + tax
+            amountPaid: amountPaid,
+            change: change,
+```
 
-FIX: Add this.app.hideLoading() in the try block BEFORE calling this.load(),
-and also add a finally block to guarantee hideLoading on all paths:
+#### Step 4: Reset `currentDiscount` after each completed sale
 
-  this.app.showLoading('Saving customer...');
-  try {
-      if (id) {
-          await this.app.api.put(`/customers/${id}`, data);
-          this.app.showToast('Customer updated successfully', 'success');
-      } else {
-          const response = await this.app.api.post('/customers', data);
-          if (response && response.success) {
-              this.app.showToast('Customer created successfully', 'success');
-          } else {
-              const errorMsg = response?.error || response?.detail || 'Failed to add customer';
-              this.app.showToast(errorMsg, 'error');
-              return;   // finally will call hideLoading
-          }
-      }
-      document.getElementById('customer-modal').style.display = 'none';
-      this.load();
-  } catch (err) {
-      console.error('[Customers] Failed to save customer:', err);
-      const errorMsg = err.message || err.error || 'Failed to save customer';
-      this.app.showToast(errorMsg, 'error');
-  } finally {
-      this.app.hideLoading();
-  }
+In `completePayment()`, find:
+```js
+                this.cart = [];
+                this.updateCartDisplay();
+                this.closePaymentModal();
+```
 
-FUNCTION: delete()
+Add reset before `this.cart = [];`:
+```js
+                this.currentDiscount = 0;
+                this.lastPaymentDetails = null;
+                this.currentCustomer = null;
+                this.cart = [];
+                this.updateCartDisplay();
+                this.closePaymentModal();
+```
 
-ROOT CAUSE:
-delete() calls showLoading() but does NOT call hideLoading() in a finally
-block. If the API call throws, hideLoading() is never called.
+#### Step 5: Reset discount when cart is cleared
 
-FIX: Add finally block:
-
-  async delete(id) {
-      if (!confirm('Are you sure you want to delete this customer?')) return;
-      this.app.showLoading('Deleting customer...');
-      try {
-          await this.app.api.delete(`/customers/${id}`);
-          this.app.showToast('Customer deleted successfully', 'success');
-          this.load();
-      } catch (err) {
-          this.app.showToast('Failed to delete customer', 'error');
-      } finally {
-          this.app.hideLoading();
-      }
-  }
-
---------------------------------------------------------------------------------
-
-FILE: src/frontend/screens/users/script.js
-FUNCTION: saveUser()
-
-ROOT CAUSE:
-saveUser() has NO showLoading/hideLoading calls at all. When the form is
-submitted, there is no loading overlay, and after success the screen re-renders
-from load() but the user sees no feedback. More critically: if the API is slow,
-there is no indication the app is working, and users may click Save repeatedly.
-
-FIX: Wrap saveUser in showLoading/hideLoading with a finally block:
-
-  async saveUser(e) {
-      e.preventDefault();
-      const id = document.getElementById('user-id').value;
-      const password = document.getElementById('user-password').value;
-
-      const payload = {
-          username: document.getElementById('user-username').value,
-          full_name: document.getElementById('user-fullname').value,
-          role: document.getElementById('user-role').value,
-          status: document.getElementById('user-status').value
-      };
-      if (!id || password) {
-          payload.password = password;
-      }
-
-      this.app.showLoading(id ? 'Updating user...' : 'Creating user...');
-      try {
-          if (id) {
-              await this.app.api.put(`/auth/users/${id}`, payload);
-              this.app.showNotification('User updated successfully', 'success');
-          } else {
-              await this.app.api.post('/auth/users', payload);
-              this.app.showNotification('User created successfully', 'success');
-          }
-          document.getElementById('user-modal').style.display = 'none';
-          this.load();
-      } catch (err) {
-          console.error('Failed save user', err);
-          this.app.showNotification('Failed to save user: ' + (err.message || 'Unknown error'), 'error');
-      } finally {
-          this.app.hideLoading();
-      }
-  }
-
---------------------------------------------------------------------------------
-
-FILE: src/frontend/screens/users/script.js
-FUNCTION: render()  — DUPLICATE METHOD BUG
-
-ROOT CAUSE:
-The render() method is defined TWICE in the class body. The first definition
-ends with `}` followed immediately by a newline and `\n`, then code for a
-second render body starting with `const canManage = ...`. JavaScript will use
-the LAST definition, which checks `can_manage_users` (canManage) instead of
-checking for 'malik' role (isAdmin). This means the first render body (with
-the correct admin check) is silently discarded.
-
-FIX: Remove the SECOND render body entirely. Keep only the FIRST render()
-definition that checks:
-  const isAdmin = this.app && this.app.currentUser &&
-      (this.app.currentUser.role === 'malik' || this.app.currentUser.can_manage_users);
-
-The file currently looks like this (schematically):
-
-  render() {
-      ...
-      const isAdmin = ...malik... || ...can_manage_users...;
-      tbody.innerHTML = ...${isAdmin ? deleteBtn : ''}...;
-  }                          <-- ends here, but then:
-
-      const canManage = ...can_manage_users...;   <-- orphaned code
-      tbody.innerHTML = ...${canManage ? deleteBtn : ''}...;
-  }                          <-- second closing brace
-
-Delete everything from `const canManage` down to and including its closing `}`.
-This orphaned code is syntactically broken and causes a parse error in strict
-JS engines used in the build.
-
-================================================================================
-PRIORITY 3 (MEDIUM): EXTRA / REDUNDANT NOTIFICATIONS — REMOVE THESE
-================================================================================
-
-FILE: src/frontend/app.js
-
-NOTIFICATION 1 — "Welcome back" on every page load:
-  Location: init() function, inside the setTimeout after hideLoading()
-  Code: this.showNotification(`Welcome back, ${this.currentUser.full_name}!`, 'success', 2000);
-  ACTION: REMOVE this line entirely. It fires every time the app loads
-  (every screen navigation that reloads index.html), which is annoying.
-
-NOTIFICATION 2 — "X refreshed" on every manual refresh:
-  Location: refreshCurrentScreen() function
-  Code: this.showNotification(`${this.getScreenDisplayName(this.currentScreen)} refreshed`, 'success');
-  ACTION: REMOVE this line. Each screen already shows its own data refresh
-  feedback. A global "Dashboard refreshed" toast on every F5/refresh button
-  press is redundant noise.
-
-NOTIFICATION 3 — Password expiry warning fires on every load even when not expired:
-  Location: initializeApp(), at the end
-  Code: if (this.currentUser && this.currentUser.password_expired) {
-            this.showNotification('Your password has expired...', 'warning', 10000);
+In `clearCart()`:
+```js
+    clearCart() {
+        if (this.cart.length > 0 && confirm('Clear cart?')) {
+            this.currentDiscount = 0;     // ← ADD
+            this.currentCustomer = null;  // ← ADD
+            this.cart = [];
+            this.updateCartDisplay();
         }
-  This is correct and should be KEPT — only fires when password_expired is true.
-  No change needed here.
+    }
+```
 
-================================================================================
-PRIORITY 4 (MEDIUM): USERS SCREEN — LOADING STATE STUCK AFTER SAVE/DELETE
-================================================================================
+#### Step 6: Fix receipt invoice number — use real invoice from backend
 
-This is a SECONDARY loading issue separate from Priority 2.
+In `completePayment()`, the receipt data is built and passed to PrintDialog:
+```js
+                const receiptData = this.prepareReceiptData();
+                receiptData.invoiceNo = this.lastPaymentDetails.invoice_number;
+                window.PrintDialog.open(receiptData);
+```
 
-FILE: src/frontend/screens/users/script.js
-FUNCTION: load()
+Inside `prepareReceiptData()`, find:
+```js
+            invoiceNo: 'INV-' + Date.now().toString().slice(-8),
+```
 
-ROOT CAUSE:
-load() does NOT call this.app.showLoading() / hideLoading() at all. When
-saveUser() or deleteUser() calls this.load() to refresh the list, the screen
-tbody shows "Loading..." text (from the initial HTML) but there is no overlay.
-This is acceptable. However the MAIN issue is from saveUser() not having
-showLoading/hideLoading (fixed in Priority 2 above).
+Replace with:
+```js
+            invoiceNo: this.lastPaymentDetails?.invoice_number || ('INV-' + Date.now().toString().slice(-8)),
+```
 
-ADDITIONAL FIX for load():
-Add a loading state guard so the tbody shows a loading indicator:
+This way even if `completePayment()` doesn't override, the receipt gets the right number.
 
-  async load() {
-      const tbody = document.getElementById('users-table');
-      if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="loading">Loading...</td></tr>';
-      try {
-          const res = await this.app.api.get('/auth/users');
-          if (res && res.success) {
-              this.users = res.users || res.data || [];
-          } else {
-              this.users = [];
-          }
-          this.render();
-      } catch (e) {
-          console.error('Users load error', e);
-          if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="error">Failed to load users</td></tr>';
-      }
-  }
+---
 
-================================================================================
-PRIORITY 5 (LOW): CUSTOMERS edit() — ID TYPE MISMATCH
-================================================================================
+## FEATURE: Custom Items — Add Multiple Items at Once (Inline Multi-Add Modal)
 
-FILE: src/frontend/screens/customers/script.js
-FUNCTION: edit()
+### What to build
+Currently the "Add Custom Item" modal allows adding only one item at a time and closes.
+Add a **"+ Add Another"** button that keeps the modal open and adds rows, so the user
+can add multiple custom items (e.g. Labour Charge + Car Wash + Wheel Alignment) in one session.
 
-ROOT CAUSE:
-edit() does:
-  const customer = this.customers.find(c => (c.id || c[0]) === id);
+### EXACT IMPLEMENTATION — `src/frontend/screens/pos/script.js`
 
-The id parameter comes from an inline onclick like: app.screens.customers.edit(${id})
-where ${id} in the template literal is a number. BUT (c.id || c[0]) may return
-a string if the API returns string IDs. Strict equality === fails for '5' === 5.
+#### Replace `showCustomItemModal()` entirely:
 
-FIX:
-  edit(id) {
-      const numId = Number(id);
-      const customer = this.customers.find(c => Number(c.id || c[0]) === numId);
-      if (!customer) {
-          console.warn('[Customers] Customer not found for id:', id);
-          return;
-      }
-      // ... rest unchanged
-  }
+```js
+showCustomItemModal() {
+    const existing = document.getElementById('custom-item-modal-overlay');
+    if (existing) existing.remove();
 
-================================================================================
-SUMMARY: FILES TO MODIFY
-================================================================================
+    const html = `
+    <div class="modal-overlay" id="custom-item-modal-overlay" style="display:flex;">
+        <div class="modal" style="min-width:480px; max-width:560px;">
+            <div class="modal-header">
+                <h3>➕ Add Custom Items / Services</h3>
+                <button class="modal-close-btn" onclick="document.getElementById('custom-item-modal-overlay').remove()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:12px;color:#888;margin-bottom:10px;">
+                    Add labour charges, services, or any custom items not in inventory.
+                </p>
 
-1. src/frontend/screens/pos/script.js
-   - Fix items mapping in completePayment() — always set product_name explicitly
-   - Fix items mapping in holdSale payload — same pattern
+                <!-- Items List -->
+                <div id="custom-items-list">
+                    <!-- Rows added here -->
+                </div>
 
-2. src/frontend/app.js
-   - Remove "Welcome back" notification from init()
-   - Remove "X refreshed" notification from refreshCurrentScreen()
-   - Verify/fix loadScreenScript(), loadComponentScript(), loadComponentCSS(),
-     loadScreenCSS() to use data-attributes for deduplication (not indexOf)
+                <!-- Add Row Button -->
+                <button
+                    class="btn btn-secondary"
+                    style="width:100%;margin-top:8px;border:2px dashed #aaa;background:#f9f9f9;"
+                    onclick="window.app.screens.pos.addCustomItemRow()">
+                    + Add Another Item
+                </button>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="document.getElementById('custom-item-modal-overlay').remove()">Cancel</button>
+                <button class="btn btn-success" onclick="window.app.screens.pos.addAllCustomItems()">
+                    ✔ Add All to Cart
+                </button>
+            </div>
+        </div>
+    </div>`;
 
-3. src/frontend/screens/customers/script.js
-   - Add finally { this.app.hideLoading(); } to saveCustomer()
-   - Add finally { this.app.hideLoading(); } to delete()
-   - Fix edit() ID comparison to use Number()
+    document.body.insertAdjacentHTML('beforeend', html);
 
-4. src/frontend/screens/users/script.js
-   - Remove the DUPLICATE render() body (the second one starting with `const canManage`)
-   - Add showLoading/hideLoading with finally to saveUser()
-   - Add loading indicator to load()
+    // Add first row automatically
+    this.addCustomItemRow();
 
-5. src/backend/migrations/ or schema definition
-   - Verify sale_items.product_id is NULLABLE — fix if NOT NULL constraint exists
+    // Focus on the first description field
+    setTimeout(() => {
+        const firstInput = document.querySelector('#custom-items-list .custom-row-name');
+        if (firstInput) firstInput.focus();
+    }, 50);
+}
+```
 
-================================================================================
-TESTING CHECKLIST AFTER ALL FIXES
-================================================================================
+#### Add `addCustomItemRow()` method:
 
-IN DEVELOPMENT MODE:
-[ ] Add a custom item (e.g. "Car Wash" 1x PKR 500) to cart → complete payment → SUCCESS
-[ ] Add a regular product + a custom item to cart → complete payment → SUCCESS
-[ ] Add customer → loading shows briefly → hides when done → customer in list
-[ ] Edit customer → loading shows briefly → hides when done → changes saved
-[ ] Delete customer → loading shows briefly → hides when done → customer removed
-[ ] Add user → loading shows → hides → user in list (NO stuck loading screen)
-[ ] Edit user → loading shows → hides → changes reflected
-[ ] Delete user → confirmation → user removed
-[ ] Navigate between screens — NO "Welcome back" notification every time
-[ ] Click refresh button — NO "X refreshed" toast notification
-[ ] Custom item modal → add item → it appears in cart correctly
+```js
+addCustomItemRow() {
+    const list = document.getElementById('custom-items-list');
+    if (!list) return;
 
-IN BUILD MODE (.exe):
-[ ] All of the above tests pass in the built executable
-[ ] Custom item payment specifically must succeed in build
-[ ] Loading screens do not get stuck after any CRUD operation
+    const rowId = 'custom-row-' + Date.now();
+    const rowHtml = `
+    <div class="custom-item-row" id="${rowId}"
+         style="display:flex;gap:8px;align-items:center;margin-bottom:8px;padding:8px;
+                background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0;">
+        <div style="flex:3;">
+            <input
+                type="text"
+                class="input-field custom-row-name"
+                placeholder="Description (e.g. Labour Charge)"
+                style="width:100%;font-size:13px;"
+                onkeydown="if(event.key==='Enter') window.app.screens.pos.addCustomItemRow()"
+            >
+        </div>
+        <div style="flex:1;">
+            <input
+                type="number"
+                class="input-field custom-row-qty"
+                value="1"
+                min="0.01"
+                step="0.01"
+                placeholder="Qty"
+                style="width:100%;font-size:13px;text-align:center;"
+            >
+        </div>
+        <div style="flex:2;">
+            <input
+                type="number"
+                class="input-field custom-row-price"
+                value=""
+                min="0"
+                step="1"
+                placeholder="Unit Price"
+                style="width:100%;font-size:13px;"
+            >
+        </div>
+        <button
+            onclick="document.getElementById('${rowId}').remove()"
+            style="background:none;border:none;color:#e53935;font-size:18px;cursor:pointer;
+                   padding:4px 8px;flex-shrink:0;"
+            title="Remove this row">✕</button>
+    </div>`;
 
-================================================================================
-IMPORTANT NOTES FOR AGENT
-================================================================================
+    list.insertAdjacentHTML('beforeend', rowHtml);
 
-1. The backend pos.py ALREADY handles custom items correctly. Do NOT rewrite it.
-   Only verify the sale_items schema allows NULL product_id.
+    // Focus the newly added row's description field
+    const newRow = document.getElementById(rowId);
+    if (newRow) {
+        const input = newRow.querySelector('.custom-row-name');
+        if (input) input.focus();
+    }
+}
+```
 
-2. The users/index.html button handlers (app.screens.users.showAddUserModal() and
-   app.screens.users.saveUser(event)) are ALREADY correct. Do NOT change index.html.
+#### Add `addAllCustomItems()` method:
 
-3. When fixing the duplicate render() in users/script.js, be careful: the file
-   has a `}` that closes the FIRST render, then immediately orphaned code lines
-   before a second `}`. Delete the orphaned lines AND the second closing brace.
-   The class should have exactly ONE render() method.
+```js
+addAllCustomItems() {
+    const rows = document.querySelectorAll('#custom-items-list .custom-item-row');
+    if (rows.length === 0) {
+        this.app.showNotification('No items to add', 'error');
+        return;
+    }
 
-4. Do NOT change the existing correct deleteUser() in users/script.js — it
-   already has showLoading/hideLoading with a finally block. Only saveUser()
-   is missing this pattern.
+    let addedCount = 0;
+    let errors = [];
 
-5. In PyWebView builds, undefined JSON values are silently dropped. Always
-   use null explicitly instead of undefined in API payloads. This is the
-   core reason payment works in dev (Chrome is more lenient) but fails in build.
+    rows.forEach((row, index) => {
+        const nameInput = row.querySelector('.custom-row-name');
+        const qtyInput  = row.querySelector('.custom-row-qty');
+        const priceInput = row.querySelector('.custom-row-price');
 
-6. The loadScreenScript function in app.js already appears to use the
-   data-screen attribute approach. Verify this is the case before making
-   changes — if it's already correct, leave it alone.
+        const name  = (nameInput?.value || '').trim();
+        const qty   = parseFloat(qtyInput?.value) || 0;
+        const price = parseFloat(priceInput?.value) || 0;
 
-================================================================================
-END OF PROMPT
-================================================================================
+        // Skip completely empty rows silently
+        if (!name && !price) return;
+
+        // Validate
+        if (!name) {
+            errors.push(`Row ${index + 1}: Description is required`);
+            nameInput?.classList.add('error-border');
+            return;
+        }
+        if (qty <= 0) {
+            errors.push(`"${name}": Quantity must be > 0`);
+            qtyInput?.classList.add('error-border');
+            return;
+        }
+        if (price < 0) {
+            errors.push(`"${name}": Price cannot be negative`);
+            priceInput?.classList.add('error-border');
+            return;
+        }
+
+        // Add to cart
+        const cartId = 'custom-' + Date.now() + '-' + addedCount;
+        this.cart.push({
+            product: { id: null, _cartId: cartId, name: name, is_custom: true },
+            quantity: qty,
+            price: price,
+            discount: 0,
+            original_total: price * qty,
+            total: price * qty
+        });
+        addedCount++;
+    });
+
+    if (errors.length > 0) {
+        this.app.showNotification(errors.join('\n'), 'error');
+        return; // Don't close modal so user can fix errors
+    }
+
+    if (addedCount === 0) {
+        this.app.showNotification('Please fill in at least one item', 'error');
+        return;
+    }
+
+    // Close modal and update cart
+    document.getElementById('custom-item-modal-overlay').remove();
+    this.updateCartDisplay();
+    this.app.showNotification(
+        `Added ${addedCount} custom item${addedCount > 1 ? 's' : ''} to cart`,
+        'success'
+    );
+}
+```
+
+#### Keep `addCustomItemToCart()` for backward compatibility:
+
+The old single-item method can remain unchanged since it may be referenced elsewhere.
+The new `showCustomItemModal()` replaces the UI but the old method stays as a fallback.
+
+#### Add CSS for the error state:
+
+In `src/frontend/screens/pos/style.css`, add:
+```css
+.error-border {
+    border-color: #e53935 !important;
+    background: #fff5f5 !important;
+}
+
+.custom-item-row {
+    transition: background 0.2s;
+}
+
+.custom-item-row:hover {
+    background: #f0f4ff !important;
+}
+```
+
+---
+
+## BUG 2: Receipt `Change` field shows negative when discount applied — Print Service fix
+
+The `print_service.js` `generatePreviewText()` and `generateClassicESCPOS()` already
+correctly show `Change:` when `data.change` is provided. The fix in BUG 1 Step 3 ensures
+`change = Math.max(0, amountPaid - grandTotal)` so it's never negative.
+
+However, also add a guard in `print_service.js` for all three themes:
+
+In `generateClassicESCPOS()`, `generateModernESCPOS()`, and `generateMinimalESCPOS()`,
+find the change line:
+```js
+        commands.push(...encoder.encode(twoCol('Change:', money(data.change)) + '\n'));
+```
+
+Change to:
+```js
+        const changeAmt = Math.max(0, parseFloat(data.change || 0));
+        commands.push(...encoder.encode(twoCol('Change:', money(changeAmt)) + '\n'));
+```
+
+And in `generatePreviewText()`:
+```js
+            lines.push(rightRow('Change:'.padEnd(20), 'Rs. ' + parseFloat(data.change || 0).toFixed(2)));
+```
+Change to:
+```js
+            const chg = Math.max(0, parseFloat(data.change || 0));
+            lines.push(rightRow('Change:'.padEnd(20), 'Rs. ' + chg.toFixed(2)));
+```
+
+---
+
+## BUG 3: POS barcode lookup calls wrong endpoint URL
+
+### Root Cause
+`src/frontend/screens/pos/script.js`:
+```js
+const response = await this.api.get(`/products/code/${barcode}`);
+```
+But the actual backend endpoint is `GET /pos/barcode/{barcode}`.
+`/products/code/{barcode}` doesn't exist → barcode scanning always fails silently.
+
+### EXACT FIX — `src/frontend/screens/pos/script.js`
+
+Find `handleBarcodeScanned()`:
+```js
+        const response = await this.api.get(`/products/code/${barcode}`);
+```
+
+Replace with:
+```js
+        const response = await this.api.get(`/pos/barcode/${barcode}`);
+```
+
+---
+
+## BUG 4: Dashboard profit uses hardcoded 30% margin — wrong for every shop
+
+### Root Cause
+```js
+// Profit (30% assumption)
+this.data.todayProfit = todaySales * 0.30;
+```
+The real profit is stored in `sale_items.line_profit`. Use it.
+
+### EXACT FIX — `src/frontend/screens/dashboard/script.js`
+
+Find:
+```js
+            // Profit (30% assumption)
+            this.data.todayProfit = todaySales * 0.30;
+            this.updateStatCard('todayProfit', this.app.formatCurrency(this.data.todayProfit));
+```
+
+Replace with:
+```js
+            // Actual profit from today's sales
+            let actualProfit = 0;
+            try {
+                const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                const profitResp = await this.app.api.get(
+                    `/reports/profit-loss?start_date=${today}&end_date=${today}`
+                );
+                if (profitResp && profitResp.success) {
+                    actualProfit = profitResp.total_profit || profitResp.net_profit || 0;
+                }
+            } catch (e) {
+                // Fallback estimate if profit endpoint unavailable
+                actualProfit = todaySales * 0.20;
+                console.warn('[Dashboard] Profit API unavailable, using 20% estimate');
+            }
+            this.data.todayProfit = actualProfit;
+            this.updateStatCard('todayProfit', this.app.formatCurrency(this.data.todayProfit));
+```
+
+---
+
+## BUG 5: API request logging floods console — slows DevTools in production
+
+### Root Cause
+`src/frontend/api_client.js` logs every request with full body:
+```js
+console.log('[APIClient] Request:', method, url, data ? { body: data } : {});
+```
+With 70+ products loading on POS init, this dumps huge objects to console.
+
+### EXACT FIX — `src/frontend/api_client.js`
+
+Find:
+```js
+        console.log('[APIClient] Request:', method, url, data ? { body: data } : {});
+```
+Replace with:
+```js
+        if (window.__DEBUG_API__) {
+            console.log('[APIClient] Request:', method, url, data ? { body: data } : {});
+        }
+```
+
+Find:
+```js
+        console.log('[APIClient] Response status:', response.status, response.statusText);
+```
+Replace with:
+```js
+        if (response.status >= 400 || window.__DEBUG_API__) {
+            console.log('[APIClient] Response:', response.status, response.statusText, url);
+        }
+```
+
+---
+
+## BUG 6: `loadRecentSales` uses trailing slash `/sales/?limit=10` — routing issue
+
+### Root Cause
+`src/frontend/screens/dashboard/script.js` calls `/sales/?limit=10` with a trailing
+slash before `?`. FastAPI's `redirect_slashes=True` causes a 307 redirect from `/sales/`
+to `/sales`, which may drop query parameters.
+
+### EXACT FIX — `src/frontend/screens/dashboard/script.js`
+
+Find:
+```js
+const response = await this.app.api.get('/sales/?limit=10');
+```
+Replace with:
+```js
+const response = await this.app.api.get('/sales?limit=10&skip=0');
+```
+
+Find any other `/sales/?` patterns and remove the trailing slash:
+```js
+// Before:
+this.app.api.get(`/sales/?start_date=...`)
+// After:
+this.app.api.get(`/sales?start_date=...`)
+```
+
+---
+
+## FINAL MASTER CHECKLIST — All 8 Prompts Combined
+
+### Must fix before client use (P1)
+- [ ] All 70+ products load in POS
+- [ ] POS search works across full catalog  
+- [ ] Receipts show correct Discount line, not negative Change
+- [ ] All 4 roles work: malik, munshi, shop_boy, stock_boy
+- [ ] Cashiers can complete sales — no 403
+- [ ] Custom items work — product_id=-1 stays as-is
+- [ ] Multi-item custom modal works — add 3 services at once
+- [ ] Reports date filter works — no SQL crash
+- [ ] Currency shows PKR not ₹
+
+### Fix this week (P2)
+- [ ] Stock doesn't go negative
+- [ ] Hold sale doesn't double-charge customer
+- [ ] Barcode scanning calls correct URL
+- [ ] Settings page loads for malik only; all others see blocked
+- [ ] Cashier only sees own held sales
+- [ ] Auto-backup runs hourly not per-sale
+- [ ] Inventory search & filter work
+- [ ] New inventory items appear on POS
+
+### Fix before month end (P3)
+- [ ] Dashboard shows real profit not 30% guess
+- [ ] Invoice number on receipt matches backend record
+- [ ] Token refresh loop fixed
+- [ ] Login redirect works in EXE
+- [ ] Password validation shows 6-char minimum
+- [ ] Console log spam removed
+- [ ] Date queries use DATE() wrapper
+- [ ] DB indexes created for performance

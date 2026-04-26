@@ -255,7 +255,7 @@ class ProductRepository:
     # ==================== PRODUCT OPERATIONS ====================
     
     def get_all_products(self, filters: Optional[Dict[str, Any]] = None, 
-                        page: int = 1, page_size: int = 50) -> Dict[str, Any]:
+                        page: int = 1, page_size: int = 500) -> Dict[str, Any]:
         """Get all products with filtering and pagination."""
         try:
             with self.db_manager.get_cursor() as cursor:
@@ -293,9 +293,13 @@ class ProductRepository:
                         search_term = f"%{filters['search']}%"
                         query_params.extend([search_term, search_term, search_term])
                     
-                    if filters.get('is_active') is not None:
+                    # Default to showing only active products unless explicitly requested otherwise
+                    if 'is_active' in filters:
                         where_clauses.append("p.is_active = ?")
                         query_params.append(filters['is_active'])
+                    else:
+                        # By default, only show active products in POS and other screens
+                        where_clauses.append("p.is_active = 1")
                     
                     if filters.get('low_stock'):
                         where_clauses.append("p.current_stock <= p.min_stock")
@@ -319,7 +323,10 @@ class ProductRepository:
                 
                 # Apply pagination
                 offset = (page - 1) * page_size
-                query += f" ORDER BY p.created_at DESC LIMIT {page_size} OFFSET {offset}"
+                if page_size >= 9999:
+                    query += f" ORDER BY p.created_at DESC"
+                else:
+                    query += f" ORDER BY p.created_at DESC LIMIT {page_size} OFFSET {offset}"
                 
                 cursor.execute(query, query_params)
                 products = [dict(row) for row in cursor.fetchall()]

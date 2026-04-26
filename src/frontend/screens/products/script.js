@@ -14,7 +14,7 @@ class ProductsScreen {
         this.brands = [];
         this.selectedProducts = new Set();
         this.currentPage = 1;
-        this.pageSize = 50;
+        this.pageSize = 200;
         this.totalPages = 1;
         this.filters = {};
 
@@ -29,6 +29,14 @@ class ProductsScreen {
         this.loadProducts();
         this.setupEventListeners();
     }
+
+    debounce(fn, delay) {
+        let timer;
+        return (...args) => {
+            clearTimeout(timer);
+            timer = setTimeout(() => fn.apply(this, args), delay);
+        };
+    }
     
     closeModal() {
         const modalContainer = document.getElementById('product-modal');
@@ -38,21 +46,26 @@ class ProductsScreen {
     }
     
     checkPermissions() {
-        // Hide buttons that user doesn't have permission for
-        const addProductBtn = document.getElementById('add-product-btn');
-        const bulkImportBtn = document.getElementById('bulk-import-btn');
-        
-        if (addProductBtn) {
-            if (!this.app.currentUser.can_manage_products) {
-                addProductBtn.style.display = 'none';
-            }
-        }
-        
-        if (bulkImportBtn) {
-            if (!this.app.currentUser.can_manage_products) {
-                bulkImportBtn.style.display = 'none';
-            }
-        }
+        const user = this.app.currentUser;
+        if (!user) return;
+
+        // Use both RBAC module and user object to determine permissions
+        const canManage = (window.rbac && window.rbac.canManageProducts()) ||
+                          user.can_manage_products === true ||
+                          user.role === 'malik' ||
+                          user.role === 'munshi';
+
+        // Add product button
+        const addBtn = document.getElementById('add-product-btn');
+        if (addBtn) addBtn.style.display = canManage ? 'flex' : 'none';
+
+        // Bulk action buttons
+        const bulkActions = document.getElementById('bulk-actions');
+        if (bulkActions) bulkActions.style.display = canManage ? 'flex' : 'none';
+
+        // Import/Export buttons
+        const importBtn = document.getElementById('import-products-btn');
+        if (importBtn) importBtn.style.display = canManage ? 'flex' : 'none';
     }
 
     refresh() {
@@ -63,11 +76,15 @@ class ProductsScreen {
         // Search input
         const searchInput = document.getElementById('product-search');
         if (searchInput) {
-            searchInput.addEventListener('input', this.debounce(() => {
-                this.filters.search = searchInput.value;
-                this.currentPage = 1;
-                this.loadProducts();
-            }, 500));
+            let searchTimer = null;
+            searchInput.addEventListener('input', (e) => {
+                clearTimeout(searchTimer);
+                searchTimer = setTimeout(() => {
+                    this.filters.search = e.target.value.trim();
+                    this.currentPage = 1;
+                    this.loadProducts();
+                }, 400);
+            });
         }
 
         // Filter dropdowns
@@ -375,6 +392,8 @@ class ProductsScreen {
                 params.append('out_of_stock', 'true');
             }
 
+            params.append('show_all', 'true');  // Products management shows ALL products
+
             const response = await this.api.get(`/products?${params.toString()}`);
 
             // Handle API response properly - ensure products is always an array
@@ -397,6 +416,9 @@ class ProductsScreen {
     renderProducts() {
         const tbody = document.getElementById('products-tbody');
         if (!tbody) return;
+
+        const canManage = (window.rbac && window.rbac.canManageProducts()) ||
+                          (this.app.currentUser && (this.app.currentUser.role === 'malik' || this.app.currentUser.role === 'munshi'));
 
         const escapeHtml = (text) => {
             const div = document.createElement('div');
@@ -454,13 +476,13 @@ class ProductsScreen {
                         <button class="btn-action btn-view" data-product-id="${product.id}" title="View">
                             👁️
                         </button>
-                        <button class="btn-action btn-edit" data-product-id="${product.id}" title="Edit">
+                        <button class="btn-action btn-edit" ${canManage ? '' : 'style="display:none"'} data-product-id="${product.id}" title="Edit">
                             ✏️
                         </button>
                         <button class="btn-action btn-stock" data-product-id="${product.id}" title="Adjust Stock">
                             📦
                         </button>
-                        <button class="btn-action btn-delete" data-product-id="${product.id}" title="Delete">
+                        <button class="btn-action btn-delete" ${canManage ? '' : 'style="display:none"'} data-product-id="${product.id}" title="Delete">
                             🗑️
                         </button>
                     </div>

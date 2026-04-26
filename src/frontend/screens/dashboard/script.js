@@ -170,7 +170,7 @@ class DashboardScreen {
             this.updateStatCard('todayCustomers', todayCustomers.size.toString());
 
             // Products stats
-            const productsResponse = await this.app.api.get('/products?limit=1000');
+            const productsResponse = await this.app.api.get('/products?page=1&page_size=9999');
             
             let totalProducts = 0;
             let lowStockCount = 0;
@@ -204,8 +204,22 @@ class DashboardScreen {
             this.updateStatCard('totalProducts', totalProducts.toString());
             this.updateStatCard('lowStockCount', lowStockCount.toString());
 
-            // Profit (30% assumption)
-            this.data.todayProfit = todaySales * 0.30;
+            // Actual profit from today's sales
+            let actualProfit = 0;
+            try {
+                const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                const profitResp = await this.app.api.get(
+                    `/reports/profit-loss?start_date=${today}&end_date=${today}`
+                );
+                if (profitResp && profitResp.success) {
+                    actualProfit = profitResp.total_profit || profitResp.net_profit || 0;
+                }
+            } catch (e) {
+                // Fallback estimate if profit endpoint unavailable
+                actualProfit = todaySales * 0.20;
+                console.warn('[Dashboard] Profit API unavailable, using 20% estimate');
+            }
+            this.data.todayProfit = actualProfit;
             this.updateStatCard('todayProfit', this.app.formatCurrency(this.data.todayProfit));
 
             // Pending Credit
@@ -329,7 +343,7 @@ class DashboardScreen {
 
     async loadRecentSales() {
         try {
-            const response = await this.app.api.get('/sales/?limit=10');
+            const response = await this.app.api.get('/sales?limit=10&skip=0');
             const tbody = document.getElementById('recentSalesBody');
 
             if (!tbody) return;
@@ -418,109 +432,35 @@ class DashboardScreen {
 
     async loadLowStockItems() {
         try {
-            const response = await this.app.api.get('/products');
+            const response = await this.app.api.get('/products?low_stock=true&page_size=9999');
             const tbody = document.getElementById('lowStockBody');
-
             if (!tbody) return;
 
-            let allProducts = [];
-            if (response && response.success) {
-                allProducts = response.products || response.data || [];
-            } else {
-                console.warn('Low Stock Products API returned no data or error:', response);
-                allProducts = [];
-            }
-
-            // Filter for low stock items
-            const lowStockProducts = allProducts.filter(product => {
-                // Handle both object and array formats
-                let currentStock, minStock;
-                if (typeof product === 'object' && product !== null) {
-                    // Object format
-                    currentStock = product.current_stock || product.stock || 0;
-                    minStock = product.min_stock || 10;
-                } else if (Array.isArray(product)) {
-                    // Array format - use indices
-                    currentStock = product[13] || 0; // current_stock
-                    minStock = product[14] || 10; // min_stock
-                } else {
-                    currentStock = 0;
-                    minStock = 10;
-                }
-                return parseInt(currentStock) < parseInt(minStock);
-            }).slice(0, 10);
-
-            if (lowStockProducts.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center">All items in stock</td></tr>';
+            if (!response || !response.success) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center">Unable to load low stock items</td></tr>';
                 return;
             }
 
-            // Clear existing content
-            tbody.innerHTML = '';
-            
-            lowStockProducts.forEach(product => {
-                // Handle both object and array formats
-                let productCode, productName, currentStock, minStock;
-                
-                if (typeof product === 'object' && product !== null) {
-                    // Object format
-                    productCode = product.product_code || product.code || 'N/A';
-                    productName = product.name || 'Unknown';
-                    currentStock = product.current_stock || product.stock || 0;
-                    minStock = product.min_stock || 10;
-                } else if (Array.isArray(product)) {
-                    // Array format - use indices
-                    productCode = product[2] || product[0] || 'N/A'; // product_code or id
-                    productName = product[3] || product[1] || 'Unknown'; // name
-                    currentStock = product[13] || 0; // current_stock
-                    minStock = product[14] || 10; // min_stock
-                } else {
-                    productCode = 'N/A';
-                    productName = 'Unknown';
-                    currentStock = 0;
-                    minStock = 10;
-                }
-                
-                // Create row element safely
-                const row = document.createElement('tr');
-                
-                const cells = [
-                    productCode || 'N/A',
-                    productName || 'Unknown',
-                    currentStock || 0,
-                    minStock || 10,
-                    'Low Stock', // status
-                    '' // button cell
-                ];
-                
-                cells.forEach((cellData, index) => {
-                    const cell = document.createElement('td');
-                    if (index === 4) { // status cell
-                        const span = document.createElement('span');
-                        span.className = 'status-badge danger';
-                        span.textContent = cellData;
-                        cell.appendChild(span);
-                    } else if (index === 5) { // button cell
-                        const button = document.createElement('button');
-                        button.className = 'btn btn-small btn-primary btn-restock-item';
-                        button.textContent = 'Restock';
-                        button.addEventListener('click', () => {
-                            this.app.loadScreen('inventory');
-                        });
-                        cell.appendChild(button);
-                    } else {
-                        cell.textContent = cellData;
-                    }
-                    row.appendChild(cell);
-                });
-                
-                tbody.appendChild(row);
-            });
+            const products = response.products || response.data || [];
+            if (products.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No low stock items</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = products.map(p => `
+                <tr>
+                    <td>${p.name || 'N/A'}</td>
+                    <td>${p.product_code || 'N/A'}</td>
+                    <td class="text-danger">${p.current_stock || 0}</td>
+                    <td>${p.min_stock || 10}</td>
+                </tr>
+            `).join('');
+
         } catch (error) {
             console.error('Error loading low stock items:', error);
             const tbody = document.getElementById('lowStockBody');
             if (tbody) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center error">Error loading products</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load</td></tr>';
             }
         }
     }

@@ -1,8 +1,17 @@
 // Sidebar Component JavaScript
 
-// Make RBAC filtering available globally for manual triggering
+// Expose globally for manual refresh
 window.refreshSidebarRBAC = function () {
     console.log('[Sidebar] Manual RBAC refresh triggered');
+    renderSidebarByRole();
+};
+
+window.initSidebarRBAC = function () {
+    console.log('[Sidebar] RBAC init triggered after login');
+    // Notify the RBAC manager that role is now ready
+    if (window.rbac) {
+        window.rbac.notifyRoleReady();
+    }
     renderSidebarByRole();
 };
 
@@ -12,100 +21,60 @@ document.addEventListener('DOMContentLoaded', function () {
     updateSidebarStatus();
     setInterval(updateSidebarStatus, 5000);
 
-    // Initialize RBAC-based sidebar rendering
-    renderSidebarByRole();
-
-    // Show/hide Users menu based on permissions
-    checkUserManagementPermission();
-
-    // Debug: Check if credit-management button exists
-    const creditBtn = document.querySelector('[data-screen="credit-management"]');
-    if (creditBtn) {
-        console.log('[Sidebar] Credit Management button found in DOM');
-    } else {
-        console.error('[Sidebar] Credit Management button NOT found in DOM');
-        console.log('[Sidebar] Available buttons:', Array.from(document.querySelectorAll('.sidebar-btn[data-screen]')).map(btn => btn.getAttribute('data-screen')));
+    // Do NOT call renderSidebarByRole() here — it's too early.
+    // The app.js will call window.refreshSidebarRBAC() after user loads.
+    // BUT: as a fallback, register with RBAC's onRoleReady
+    if (window.rbac) {
+        window.rbac.onRoleReady(() => {
+            console.log('[Sidebar] Role ready via onRoleReady, rendering sidebar');
+            renderSidebarByRole();
+        });
     }
 });
 
-function renderSidebarByRole(maxRetries = 10, retryCount = 0) {
-    // Wait for RBAC to be available
+function renderSidebarByRole() {
     if (!window.rbac) {
-        if (retryCount < maxRetries) {
-            console.log(`[Sidebar] RBAC not ready, retrying in 100ms... (attempt ${retryCount + 1}/${maxRetries})`);
-            setTimeout(() => renderSidebarByRole(maxRetries, retryCount + 1), 100);
-        } else {
-            console.error('[Sidebar] RBAC failed to initialize after maximum retries');
-        }
+        console.error('[Sidebar] RBAC not available');
         return;
     }
 
-    // Wait for user to be authenticated
-    if (!window.app || !window.app.currentUser) {
-        if (retryCount < maxRetries) {
-            console.log(`[Sidebar] User not authenticated yet, retrying in 100ms... (attempt ${retryCount + 1}/${maxRetries})`);
-            setTimeout(() => renderSidebarByRole(maxRetries, retryCount + 1), 100);
-        } else {
-            console.error('[Sidebar] User authentication failed after maximum retries');
-        }
+    const role = window.rbac.getCurrentUserRole();
+    if (!role) {
+        console.warn('[Sidebar] No role available yet for RBAC filtering');
         return;
     }
 
-    // Wait for sidebar buttons to be in DOM
     const sidebarBtns = document.querySelectorAll('.sidebar-btn[data-screen]');
     if (sidebarBtns.length === 0) {
-        if (retryCount < maxRetries) {
-            console.log(`[Sidebar] Sidebar buttons not found, retrying in 100ms... (attempt ${retryCount + 1}/${maxRetries})`);
-            setTimeout(() => renderSidebarByRole(maxRetries, retryCount + 1), 100);
-        } else {
-            console.error('[Sidebar] Sidebar buttons not found after maximum retries');
-        }
+        console.warn('[Sidebar] No sidebar buttons found in DOM');
         return;
     }
 
     const allowedScreens = window.rbac.getAllowedScreens();
-    console.log(`[Sidebar] User role: ${window.rbac.getCurrentUserRole()}, Allowed screens:`, allowedScreens);
-    console.log(`[Sidebar] Found ${sidebarBtns.length} sidebar buttons`);
+    console.log(`[Sidebar] Role: ${role}, Allowed screens:`, allowedScreens);
 
-    // Process all sidebar buttons
     sidebarBtns.forEach(btn => {
         const screenName = btn.getAttribute('data-screen');
-
-        // Hide buttons for screens user doesn't have access to
-        if (!allowedScreens.includes(screenName)) {
-            btn.style.display = 'none';
-            console.log(`[Sidebar] Hiding button for screen: ${screenName}`);
-        } else {
+        if (allowedScreens.includes(screenName)) {
             btn.style.display = 'flex';
-            console.log(`[Sidebar] Showing button for screen: ${screenName}`);
+        } else {
+            btn.style.display = 'none';
         }
     });
 
-    // Special handling for users menu
+    // Users button — only for malik
     const usersBtn = document.querySelector('[data-screen="users"]');
     if (usersBtn) {
-        if (window.rbac.canManageUsers()) {
-            usersBtn.style.display = 'flex';
-            console.log('[Sidebar] Showing Users menu button');
-        } else {
-            usersBtn.style.display = 'none';
-            console.log('[Sidebar] Hiding Users menu button');
-        }
+        usersBtn.style.display = window.rbac.canManageUsers() ? 'flex' : 'none';
     }
 
-    // Special handling for settings menu
+    // Settings button — only for malik
     const settingsBtn = document.querySelector('[data-screen="settings"]');
     if (settingsBtn) {
-        if (window.rbac.canManageSettings()) {
-            settingsBtn.style.display = 'flex';
-            console.log('[Sidebar] Showing Settings menu button');
-        } else {
-            settingsBtn.style.display = 'none';
-            console.log('[Sidebar] Hiding Settings menu button');
-        }
+        settingsBtn.style.display = window.rbac.canManageSettings() ? 'flex' : 'none';
     }
 
-    console.log('[Sidebar] RBAC filtering completed');
+    console.log('[Sidebar] RBAC filtering completed for role:', role);
 }
 
 function setupSidebarEvents() {
@@ -196,11 +165,7 @@ function setSidebarActiveScreen(screenName) {
     });
 }
 
-// NEW: Function to initialize RBAC filtering after user login
-window.initSidebarRBAC = function () {
-    console.log('[Sidebar] Initializing RBAC filtering after user login');
-    renderSidebarByRole();
-};
+
 
 // Expose setSidebarActiveScreen globally
 window.setSidebarActiveScreen = setSidebarActiveScreen;

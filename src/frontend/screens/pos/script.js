@@ -42,6 +42,9 @@ class PosScreen {
         this.searchQuery = '';
         this.isScannerActive = false;
         this.selectedProduct = null;
+        this.currentDiscount = 0;
+        this.lastPaymentDetails = null;
+        this.currentCustomer = null;
 
         // Keyboard shortcuts mapping
         this.shortcuts = {
@@ -175,6 +178,15 @@ class PosScreen {
                 } catch (error) {
                     console.error('Error handling search keydown:', error);
                     this.app.showNotification('Search error occurred', 'error');
+                }
+            });
+
+            // Clear search and restore category filter on Escape
+            searchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    this.searchQuery = '';
+                    searchInput.value = '';
+                    this.filterProducts();
                 }
             });
         }
@@ -341,32 +353,34 @@ class PosScreen {
         }
     }
 
-    renderCategories() {
-        const container = document.getElementById('categories-container');
-        if (!container) return;
+    // Build client-side count per category from loaded products
+    const countByCategory = {};
+    this.products.forEach(p => {
+        const cid = String(p.category_id || '');
+        countByCategory[cid] = (countByCategory[cid] || 0) + 1;
+    });
 
-        container.innerHTML = `
-            <button class="category-btn ${!this.currentCategory ? 'active' : ''}" data-category-id="">
-                <span>All Categories</span>
-                <span class="category-count">${this.products.length}</span>
-            </button>
-        ` + this.categories.map(category => `
-            <button class="category-btn ${this.currentCategory == category.id ? 'active' : ''}" data-category-id="${category.id}">
-                <span>${category.name}</span>
-                <span class="category-count">${category.product_count || '-'}</span>
-            </button>
-        `).join('');
-        // Ensure delegation bindings for newly rendered elements
-        this.ensureDelegationBindings();
-    }
+    container.innerHTML = `
+        <button class="category-btn ${!this.currentCategory ? 'active' : ''}" data-category-id="">
+            <span>All Categories</span>
+            <span class="category-count">${this.products.length}</span>
+        </button>
+    ` + this.categories.map(category => `
+        <button class="category-btn ${this.currentCategory == category.id ? 'active' : ''}" data-category-id="${category.id}">
+            <span>${category.name}</span>
+            <span class="category-count">${countByCategory[String(category.id)] || 0}</span>
+        </button>
+    `).join('');
+    // Ensure delegation bindings for newly rendered elements
+    this.ensureDelegationBindings();
+}
 
     async loadProducts(categoryId = null) {
         try {
             this.app.showLoading('Loading products...');
-            let url = '/products';
-            if (categoryId) url += `?category_id=${categoryId}`;
-
-            const response = await this.api.get(url);
+            // Always load ALL products — category filtering is done client-side
+            const params = new URLSearchParams({ page: 1, page_size: 9999 });
+            const response = await this.api.get(`/products?${params.toString()}`);
 
             if (response && response.success) {
                 this.products = response.products || response.data || [];
@@ -375,10 +389,13 @@ class PosScreen {
                 this.products = [];
             }
 
+            // Re-render categories to show accurate counts
+            this.renderCategories();
             this.renderProducts();
         } catch (error) {
             console.error('Failed to load products:', error);
             this.products = [];
+            this.renderCategories();
             this.renderProducts();
             this.app.showNotification('Failed to load products', 'error');
         } finally {
@@ -387,13 +404,25 @@ class PosScreen {
     }
 
     getFilteredProducts() {
-        if (!this.searchQuery) return this.products;
-        const q = this.searchQuery.toLowerCase();
-        return this.products.filter(p =>
-            (p.name || p[1])?.toLowerCase().includes(q) ||
-            (p.product_code || p.code || p[2])?.toLowerCase().includes(q) ||
-            (p.barcode || p[3])?.includes(q)
-        );
+        let products = this.products;
+
+        // Apply category filter (client-side when search is active)
+        if (this.currentCategory) {
+            products = products.filter(p =>
+                String(p.category_id) === String(this.currentCategory)
+            );
+        }
+
+        if (!this.searchQuery || this.searchQuery.trim() === '') return products;
+
+        const q = this.searchQuery.trim().toLowerCase();
+        return products.filter(p => {
+            const name = (p.name || '').toLowerCase();
+            const code = (p.product_code || p.code || '').toLowerCase();
+            const barcode = (p.barcode || '').toLowerCase();
+            const description = (p.description || '').toLowerCase();
+            return name.includes(q) || code.includes(q) || barcode.includes(q) || description.includes(q);
+        });
     }
 
     renderProducts() {
@@ -467,13 +496,11 @@ class PosScreen {
     }
 
     selectCategory(categoryId) {
-        this.currentCategory = categoryId;
-        this.loadProducts(categoryId);
+        this.currentCategory = categoryId || null;
 
         // Update active state in UI
         const btns = document.querySelectorAll('.category-btn');
         btns.forEach(b => b.classList.remove('active'));
-
         const activeBtn = document.querySelector('.category-btn[data-category-id="' + (categoryId || '') + '"]');
         if (activeBtn) activeBtn.classList.add('active');
 
@@ -483,6 +510,9 @@ class PosScreen {
             const cat = this.categories.find(c => c.id == categoryId);
             categoryTitle.textContent = cat ? cat.name : 'All Products';
         }
+
+        // Always filter client-side — no API call needed since all products are loaded
+        this.renderProducts();
     }
 
     selectProduct(productId) {
@@ -520,7 +550,7 @@ class PosScreen {
     async handleBarcodeScanned(barcode) {
         this.app.showLoading('Looking up product...');
         try {
-            const response = await this.api.get(`/products/code/${barcode}`);
+            const response = await this.api.get(`/pos/barcode/${barcode}`);
             if (response.success && response.product) {
                 this.addProductToCart(response.product);
                 this.app.showNotification('Found: ' + response.product.name, 'success');
@@ -580,56 +610,179 @@ class PosScreen {
     showCustomItemModal() {
         const existing = document.getElementById('custom-item-modal-overlay');
         if (existing) existing.remove();
+
         const html = `
         <div class="modal-overlay" id="custom-item-modal-overlay" style="display:flex;">
-            <div class="modal">
+            <div class="modal" style="min-width:480px; max-width:560px;">
                 <div class="modal-header">
-                    <h3>Add Custom Item / Service</h3>
+                    <h3>➕ Add Custom Items / Services</h3>
                     <button class="modal-close-btn" onclick="document.getElementById('custom-item-modal-overlay').remove()">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <div class="form-group">
-                        <label>Description *</label>
-                        <input type="text" id="custom-item-name" class="input-field" placeholder="e.g. Car Wash, Labour Charge...">
+                    <p style="font-size:12px;color:#888;margin-bottom:10px;">
+                        Add labour charges, services, or any custom items not in inventory.
+                    </p>
+
+                    <!-- Items List -->
+                    <div id="custom-items-list">
+                        <!-- Rows added here -->
                     </div>
-                    <div class="form-group">
-                        <label>Quantity *</label>
-                        <input type="number" id="custom-item-qty" class="input-field" value="1" min="0.01" step="0.01">
-                    </div>
-                    <div class="form-group">
-                        <label>Unit Price *</label>
-                        <input type="number" id="custom-item-price" class="input-field" value="0" min="0" step="0.01">
-                    </div>
+
+                    <!-- Add Row Button -->
+                    <button
+                        class="btn btn-secondary"
+                        style="width:100%;margin-top:8px;border:2px dashed #aaa;background:#f9f9f9;"
+                        onclick="window.app.screens.pos.addCustomItemRow()">
+                        + Add Another Item
+                    </button>
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" onclick="document.getElementById('custom-item-modal-overlay').remove()">Cancel</button>
-                    <button class="btn btn-success" onclick="window.app.screens.pos.addCustomItemToCart()">Add to Cart</button>
+                    <button class="btn btn-success" onclick="window.app.screens.pos.addAllCustomItems()">
+                        ✔ Add All to Cart
+                    </button>
                 </div>
             </div>
         </div>`;
+
         document.body.insertAdjacentHTML('beforeend', html);
-        document.getElementById('custom-item-name').focus();
+
+        // Add first row automatically
+        this.addCustomItemRow();
+
+        // Focus on the first description field
+        setTimeout(() => {
+            const firstInput = document.querySelector('#custom-items-list .custom-row-name');
+            if (firstInput) firstInput.focus();
+        }, 50);
     }
 
-    addCustomItemToCart() {
-        const name = document.getElementById('custom-item-name').value.trim();
-        const qty = parseFloat(document.getElementById('custom-item-qty').value) || 0;
-        const price = parseFloat(document.getElementById('custom-item-price').value) || 0;
-        if (!name) { this.app.showNotification('Please enter a description', 'error'); return; }
-        if (qty <= 0) { this.app.showNotification('Quantity must be greater than 0', 'error'); return; }
-        if (price < 0) { this.app.showNotification('Price cannot be negative', 'error'); return; }
-        const cartId = 'custom-' + Date.now();
-        this.cart.push({
-            product: { id: null, _cartId: cartId, name: name, is_custom: true },
-            quantity: qty,
-            price: price,
-            discount: 0,
-            original_total: price * qty,
-            total: price * qty
+    addCustomItemRow() {
+        const list = document.getElementById('custom-items-list');
+        if (!list) return;
+
+        const rowId = 'custom-row-' + Date.now();
+        const rowHtml = `
+        <div class="custom-item-row" id="${rowId}"
+             style="display:flex;gap:8px;align-items:center;margin-bottom:8px;padding:8px;
+                    background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0;">
+            <div style="flex:3;">
+                <input
+                    type="text"
+                    class="input-field custom-row-name"
+                    placeholder="Description (e.g. Labour Charge)"
+                    style="width:100%;font-size:13px;"
+                    onkeydown="if(event.key==='Enter') window.app.screens.pos.addCustomItemRow()"
+                >
+            </div>
+            <div style="flex:1;">
+                <input
+                    type="number"
+                    class="input-field custom-row-qty"
+                    value="1"
+                    min="0.01"
+                    step="0.01"
+                    placeholder="Qty"
+                    style="width:100%;font-size:13px;text-align:center;"
+                >
+            </div>
+            <div style="flex:2;">
+                <input
+                    type="number"
+                    class="input-field custom-row-price"
+                    value=""
+                    min="0"
+                    step="1"
+                    placeholder="Unit Price"
+                    style="width:100%;font-size:13px;"
+                >
+            </div>
+            <button
+                onclick="document.getElementById('${rowId}').remove()"
+                style="background:none;border:none;color:#e53935;font-size:18px;cursor:pointer;
+                       padding:4px 8px;flex-shrink:0;"
+                title="Remove this row">✕</button>
+        </div>`;
+
+        list.insertAdjacentHTML('beforeend', rowHtml);
+
+        // Focus the newly added row's description field
+        const newRow = document.getElementById(rowId);
+        if (newRow) {
+            const input = newRow.querySelector('.custom-row-name');
+            if (input) input.focus();
+        }
+    }
+
+    addAllCustomItems() {
+        const rows = document.querySelectorAll('#custom-items-list .custom-item-row');
+        if (rows.length === 0) {
+            this.app.showNotification('No items to add', 'error');
+            return;
+        }
+
+        let addedCount = 0;
+        let errors = [];
+
+        rows.forEach((row, index) => {
+            const nameInput = row.querySelector('.custom-row-name');
+            const qtyInput  = row.querySelector('.custom-row-qty');
+            const priceInput = row.querySelector('.custom-row-price');
+
+            const name  = (nameInput?.value || '').trim();
+            const qty   = parseFloat(qtyInput?.value) || 0;
+            const price = parseFloat(priceInput?.value) || 0;
+
+            // Skip completely empty rows silently
+            if (!name && !price) return;
+
+            // Validate
+            if (!name) {
+                errors.push(`Row ${index + 1}: Description is required`);
+                nameInput?.classList.add('error-border');
+                return;
+            }
+            if (qty <= 0) {
+                errors.push(`"${name}": Quantity must be > 0`);
+                qtyInput?.classList.add('error-border');
+                return;
+            }
+            if (price < 0) {
+                errors.push(`"${name}": Price cannot be negative`);
+                priceInput?.classList.add('error-border');
+                return;
+            }
+
+            // Add to cart
+            const cartId = 'custom-' + Date.now() + '-' + addedCount;
+            this.cart.push({
+                product: { id: null, _cartId: cartId, name: name, is_custom: true },
+                quantity: qty,
+                price: price,
+                discount: 0,
+                original_total: price * qty,
+                total: price * qty
+            });
+            addedCount++;
         });
+
+        if (errors.length > 0) {
+            this.app.showNotification(errors.join('\n'), 'error');
+            return; // Don't close modal so user can fix errors
+        }
+
+        if (addedCount === 0) {
+            this.app.showNotification('Please fill in at least one item', 'error');
+            return;
+        }
+
+        // Close modal and update cart
         document.getElementById('custom-item-modal-overlay').remove();
         this.updateCartDisplay();
-        this.app.showNotification(`Added: ${name}`, 'success');
+        this.app.showNotification(
+            `Added ${addedCount} custom item${addedCount > 1 ? 's' : ''} to cart`,
+            'success'
+        );
     }
 
     _getCartItemId(item) {
@@ -1307,7 +1460,7 @@ class PosScreen {
 
             // Validate credit sales for walk-in customers
             if (paymentMethod === 'credit' && !selectedCustomerId) {
-                this.app.showToast('Credit sales require a registered customer. Please select a customer first.', 'error');
+                this.app.showNotification('Credit sales require a registered customer. Please select a customer first.', 'error');
                 this.app.hideLoading();
                 return;
             }
@@ -1322,14 +1475,14 @@ class PosScreen {
                         const currentBalance = customer.current_balance || 0;
                         
                         if (creditLimit <= 0) {
-                            this.app.showToast('Customer has zero credit limit. Credit sale not allowed.', 'error');
+                            this.app.showNotification('Customer has zero credit limit. Credit sale not allowed.', 'error');
                             this.app.hideLoading();
                             return;
                         }
                         
                         const availableCredit = creditLimit - currentBalance;
                         if (total > availableCredit) {
-                            this.app.showToast(`Credit limit exceeded! Available: ${this.app.formatCurrency(availableCredit)}, Required: ${this.app.formatCurrency(total)}`, 'error');
+                            this.app.showNotification(`Credit limit exceeded! Available: ${this.app.formatCurrency(availableCredit)}, Required: ${this.app.formatCurrency(total)}`, 'error');
                             this.app.hideLoading();
                             return;
                         }
@@ -2029,10 +2182,8 @@ class PosScreen {
                 this.app.showNotification('Held sale cancelled successfully', 'success');
                 // Close the modal and refresh the held sales list
                 this.closeHeldSalesModal();
-                // Reload held sales if we're viewing them
-                if (document.getElementById('held-sales-modal-overlay')) {
-                    this.showHeldSales();
-                }
+                // Always refresh the held sales list to show remaining held sales
+                this.showHeldSales();
             } else {
                 throw new Error(response.message || 'Failed to cancel held sale');
             }
@@ -2135,6 +2286,8 @@ class PosScreen {
             item.total = item.price * item.quantity * discountRatio;
         });
 
+        this.currentDiscount = discountAmount;
+
         this.updateCartDisplay();
         this.app.showNotification('Discount of ' + this.app.formatCurrency(discountAmount) + ' applied', 'success');
         this.closeDiscountModal();
@@ -2161,14 +2314,17 @@ class PosScreen {
         const showCustomer = settings.receiptShowCustomer !== 0;
         const terms = settings.receiptTerms || '';
         const receiptTheme = settings.receiptTheme || 'modern';
-        const subtotal = this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const discount = this.currentDiscount || 0;
-        const taxRate = (settings.gstRate !== undefined && settings.gstRate !== null) ? settings.gstRate : 0.17;
-        const afterDiscount = subtotal - discount;
-        const taxAmount = afterDiscount * taxRate;
-        const grandTotal = afterDiscount + taxAmount;
+        // Calculate totals — use item.total (already discounted) not raw price*qty
+        const rawSubtotal = this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const discountedSubtotal = this.cart.reduce((sum, item) => sum + item.total, 0);
+        const discount = this.currentDiscount || (rawSubtotal - discountedSubtotal);
+
+        const taxRate = (settings.gstRate !== undefined && settings.gstRate !== null)
+            ? settings.gstRate : 0.17;
+        const taxAmount = discountedSubtotal * taxRate;
+        const grandTotal = discountedSubtotal + taxAmount;
         const amountPaid = this.lastPaymentDetails?.amount_tendered || grandTotal;
-        const change = amountPaid - grandTotal;
+        const change = Math.max(0, amountPaid - grandTotal);   // Never negative
         
         return {
             shopName: shopName,
@@ -2188,7 +2344,7 @@ class PosScreen {
                 total: item.price * item.quantity,
                 is_custom: item.product.is_custom || false
             })),
-            subtotal: subtotal,
+            subtotal: rawSubtotal,
             discount: discount,
             taxRate: taxRate,
             taxAmount: taxAmount,

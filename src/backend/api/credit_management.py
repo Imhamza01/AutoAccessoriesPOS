@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 @router.get("/customers-with-credit", dependencies=[Depends(require_permission("customers.view"))])
 async def get_customers_with_credit(
+    skip: int = Query(0),
+    limit: int = Query(1000, ge=1, le=100000),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Get all customers with outstanding credit balances."""
@@ -31,9 +33,19 @@ async def get_customers_with_credit(
                 FROM customers c
                 WHERE c.current_balance > 0 OR EXISTS(SELECT 1 FROM sales WHERE customer_id = c.id AND payment_status = 'pending')
                 ORDER BY c.current_balance DESC, c.full_name ASC
+                LIMIT ? OFFSET ?
             """
             
-            cur.execute(query)
+            # Get total count
+            count_query = """
+                SELECT COUNT(*) FROM customers c
+                WHERE c.current_balance > 0 OR EXISTS(SELECT 1 FROM sales WHERE customer_id = c.id AND payment_status = 'pending')
+            """
+            cur.execute(count_query)
+            total_result = cur.fetchone()
+            total = total_result[0] if total_result else 0
+
+            cur.execute(query, (limit, skip))
             raw_customers = cur.fetchall()
             customers = []
             for row in raw_customers:
@@ -49,7 +61,9 @@ async def get_customers_with_credit(
         return {
             "success": True,
             "customers": customers,
-            "total_customers": len(customers)
+            "total": total,
+            "skip": skip,
+            "limit": limit
         }
     except Exception as e:
         logger.error(f"Failed to get customers with credit: {e}")

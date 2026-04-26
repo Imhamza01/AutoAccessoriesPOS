@@ -210,11 +210,12 @@ async def create_brand(
 @router.get("", dependencies=[Depends(require_permission("products.view"))])
 async def get_products(
     page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
+    page_size: int = Query(100, ge=1, le=10000, description="Items per page"),
     category_id: Optional[int] = Query(None, description="Filter by category"),
     brand_id: Optional[int] = Query(None, description="Filter by brand"),
     search: Optional[str] = Query(None, description="Search term"),
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
+    show_all: Optional[bool] = Query(False, description="Show all products including inactive (admin only)"),
     low_stock: Optional[bool] = Query(None, description="Show low stock items"),
     out_of_stock: Optional[bool] = Query(None, description="Show out of stock items"),
     current_user: Dict[str, Any] = Depends(get_current_user)
@@ -233,8 +234,14 @@ async def get_products(
             filters['brand_id'] = brand_id
         if search:
             filters['search'] = search
-        if is_active is not None:
+        if show_all:
+            # Don't filter by is_active — show everything
+            pass
+        elif is_active is not None:
             filters['is_active'] = is_active
+        else:
+            # Default: only show active products
+            filters['is_active'] = True
         if low_stock:
             filters['low_stock'] = True
         if out_of_stock:
@@ -255,7 +262,7 @@ async def get_products(
 @router.get("/search", dependencies=[Depends(require_permission("products.view"))])
 async def search_products(
     q: str = Query(..., description="Search term"),
-    limit: int = Query(50, ge=1, le=100, description="Maximum results"),
+    limit: int = Query(500, ge=1, le=10000, description="Maximum results"),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """

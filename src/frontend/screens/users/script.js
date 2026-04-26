@@ -7,6 +7,14 @@ class UsersScreen {
     }
 
     init() {
+        // Check permission
+        if (!window.rbac || !window.rbac.canManageUsers()) {
+            const container = document.getElementById('users-container') || document.querySelector('.screen-content');
+            if (container) {
+                container.innerHTML = '<div class="access-denied"><h2>Access Denied</h2><p>You do not have permission to manage users.</p></div>';
+            }
+            return;
+        }
         this.app.screens = this.app.screens || {};
         this.app.screens.users = this;
         this.load();

@@ -144,7 +144,8 @@ const PrintService = {
         if (data.amountPaid !== undefined) {
             commands.push(0x0A);
             commands.push(...encoder.encode(twoCol('Amount Paid:', money(data.amountPaid)) + '\n'));
-            commands.push(...encoder.encode(twoCol('Change:', money(data.change)) + '\n'));
+            const changeAmt = Math.max(0, parseFloat(data.change || 0));
+        commands.push(...encoder.encode(twoCol('Change:', money(changeAmt)) + '\n'));
         }
 
         if (data.showBarcode !== false && data.invoiceNo) {
@@ -281,7 +282,8 @@ const PrintService = {
         if (data.amountPaid !== undefined) {
             commands.push(0x0A);
             commands.push(...encoder.encode(twoCol('Paid:', money(data.amountPaid)) + '\n'));
-            commands.push(...encoder.encode(twoCol('Change:', money(data.change)) + '\n'));
+            const changeAmt = Math.max(0, parseFloat(data.change || 0));
+        commands.push(...encoder.encode(twoCol('Change:', money(changeAmt)) + '\n'));
         }
         
         if (data.showBarcode !== false && data.invoiceNo) {
@@ -397,7 +399,8 @@ const PrintService = {
         if (data.amountPaid !== undefined) {
             commands.push(0x0A);
             commands.push(...encoder.encode(twoCol('Paid:', money(data.amountPaid)) + '\n'));
-            commands.push(...encoder.encode(twoCol('Change:', money(data.change)) + '\n'));
+            const changeAmt = Math.max(0, parseFloat(data.change || 0));
+        commands.push(...encoder.encode(twoCol('Change:', money(changeAmt)) + '\n'));
         }
         
         if (data.showFooter !== false) {
@@ -490,7 +493,8 @@ const PrintService = {
             lines.push('');
             lines.push(dash);
             lines.push(rightRow('Amount Paid:'.padEnd(20), 'Rs. ' + parseFloat(data.amountPaid || 0).toFixed(2)));
-            lines.push(rightRow('Change:'.padEnd(20), 'Rs. ' + parseFloat(data.change || 0).toFixed(2)));
+            const chg = Math.max(0, parseFloat(data.change || 0));
+            lines.push(rightRow('Change:'.padEnd(20), 'Rs. ' + chg.toFixed(2)));
         }
 
         if (data.showBarcode !== false && data.invoiceNo) {

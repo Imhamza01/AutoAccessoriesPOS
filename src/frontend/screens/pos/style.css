@@ -136,22 +136,21 @@
 /* Main POS Area */
 .pos-main {
   display: flex;
-  flex: 1;
+  height: calc(100vh - 120px); /* subtract header + methods height */
   overflow: hidden;
-  gap: 15px;
-  padding: 15px;
+  gap: 0;
 }
 
 /* Left Panel - Categories & Search */
 .pos-left-panel {
-  width: 25%;
-  background: white;
-  border-radius: 10px;
-  padding: 15px;
+  width: 200px;
+  min-width: 180px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+  height: 100%;
   overflow: hidden;
+  border-right: 1px solid #e0e0e0;
 }
 
 .pos-search-section {
@@ -181,8 +180,10 @@
 }
 
 #categories-container {
-  overflow-y: auto;
   flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
 }
 
 .category-btn {
@@ -224,14 +225,12 @@
 
 /* Center Panel - Products */
 .pos-center-panel {
-  width: 50%;
-  background: white;
-  border-radius: 10px;
-  padding: 15px;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+  height: 100%;
   overflow: hidden;
+  min-width: 0;
 }
 
 .pos-products-header {
@@ -258,6 +257,17 @@
 .pos-products-section {
   flex: 1;
   overflow-y: auto;
+}
+
+#products-container {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  align-content: start;
 }
 
 .products-grid {
@@ -363,14 +373,15 @@
 
 /* Right Panel - Cart */
 .pos-right-panel {
-  width: 25%;
-  background: white;
-  border-radius: 10px;
-  padding: 15px;
+  width: 300px;
+  min-width: 280px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+  height: 100%;
   overflow: hidden;
+  border-left: 1px solid #e0e0e0;
+  background: #fff;
 }
 
 .pos-cart-section {
@@ -408,7 +419,9 @@
 .cart-items {
   flex: 1;
   overflow-y: auto;
-  margin-bottom: 15px;
+  overflow-x: hidden;
+  padding: 8px;
+  min-height: 0; /* CRITICAL: allows flex child to shrink */
 }
 
 .cart-item {
@@ -514,10 +527,9 @@
 }
 
 .cart-summary {
-  background: #f8f9fa;
-  padding: 15px;
-  border-radius: 8px;
-  margin-bottom: 15px;
+  flex-shrink: 0;
+  border-top: 2px solid #e0e0e0;
+  padding: 10px;
 }
 
 .cart-row {
@@ -537,9 +549,17 @@
 }
 
 .cart-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  flex-shrink: 0;
+  padding: 10px;
+  background: #f8f9fa;
+  border-top: 1px solid #e0e0e0;
+}
+
+/* Ensure checkout/print buttons are always visible */
+#checkout-btn,
+#process-payment {
+  width: 100%;
+  margin-bottom: 6px;
 }
 
 .cart-actions .btn {
@@ -918,4 +938,18 @@
     justify-content: center;
     gap: 8px;
   }
+}
+
+/* Custom Item Modal Styles */
+.error-border {
+    border-color: #e53935 !important;
+    background: #fff5f5 !important;
+}
+
+.custom-item-row {
+    transition: background 0.2s;
+}
+
+.custom-item-row:hover {
+    background: #f0f4ff !important;
 }

@@ -64,6 +64,10 @@ class AutoAccessoriesPOS {
         try {
             this.currentUser = JSON.parse(userData);
             console.log(`[Auth] User loaded from cache in ${Date.now() - startTime}ms:`, this.currentUser.username);
+            // Notify RBAC that user role is now available
+            if (window.rbac && window.rbac.notifyRoleReady) {
+                window.rbac.notifyRoleReady();
+            }
         } catch (e) {
             console.error('[Auth] Failed to parse user data:', e);
             this.clearAuthData();
@@ -146,6 +150,15 @@ class AutoAccessoriesPOS {
         try {
             // Load structure first (needed for UI)
             await this.loadAppStructure();
+
+            // Ensure RBAC is applied after structure loads
+            if (window.rbac && window.refreshSidebarRBAC) {
+                // Give the sidebar scripts a moment to execute
+                setTimeout(() => {
+                    window.rbac.notifyRoleReady();
+                    window.refreshSidebarRBAC();
+                }, 200);
+            }
 
             // Initialize non-blocking features
             this.initClock();
@@ -692,9 +705,18 @@ class AutoAccessoriesPOS {
     }
 
     async loadScreen(screenName) {
+        // RBAC guard — check permission before loading
+        if (window.rbac && this.currentUser) {
+            if (!window.rbac.canAccessScreen(screenName)) {
+                this.showNotification('Access denied. You do not have permission to view this screen.', 'error');
+                console.warn(`[App] RBAC denied screen: ${screenName} for role: ${this.currentUser.role}`);
+                return;
+            }
+        }
+
         console.log(`[App] ===== LOADING SCREEN: ${screenName} =====`);
         this.showLoading(`Loading ${this.getScreenDisplayName(screenName)}...`);
-        
+
         // If already on this screen, just refresh instead of skipping
         if (this.currentScreen === screenName && this.screens[screenName]) {
             console.log(`[App] Screen ${screenName} already active, refreshing...`);
@@ -740,15 +762,6 @@ class AutoAccessoriesPOS {
             }
 
             // Load screen content
-            // RBAC Route Guard - Check permissions before loading
-            if (window.rbac && !window.rbac.routeGuard(screenName)) {
-                // Access denied - redirect to dashboard
-                if (screenName !== 'dashboard') {
-                    console.log(`[App] Redirecting to dashboard due to RBAC restriction`);
-                    this.loadScreen('dashboard');
-                    return;
-                }
-            }
             if (!this.screens[screenName]) {
                 console.log(`[App] Screen ${screenName} not in cache, fetching from server...`);
                 const response = await fetch(`screens/${screenName}/index.html`);
@@ -1105,7 +1118,7 @@ class AutoAccessoriesPOS {
     // ==================== UTILITY METHODS ====================
 
     formatCurrency(amount) {
-        if (amount === null || amount === undefined) return '₹0.00';
+        if (amount === null || amount === undefined) return 'PKR0.00';
         return new Intl.NumberFormat('en-PK', {
             style: 'currency',
             currency: 'PKR',
