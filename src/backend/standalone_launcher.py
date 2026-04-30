@@ -81,21 +81,27 @@ def start_server():
         log_level='warning'
     )
 
-def wait_for_server(max_wait=15):
-    """Wait for server to be ready"""
+def wait_for_server(max_wait=20):
+    """Wait for server to be ready by polling the /health endpoint."""
     import urllib.request
-    
-    print('[Launcher] Waiting for server...')
+    import urllib.error
+
+    print('[Launcher] Waiting for server to be ready...')
     for i in range(max_wait):
         try:
-            response = urllib.request.urlopen('http://127.0.0.1:8000', timeout=1)
+            response = urllib.request.urlopen(
+                'http://127.0.0.1:8000/health', timeout=2
+            )
             if response.status == 200:
-                print('[Launcher] ✓ Server is ready!')
+                print(f'[Launcher] ✓ Server ready after {i + 1}s')
                 return True
-        except:
-            time.sleep(1)
-    
-    print('[Launcher] ✗ Server failed to start')
+        except urllib.error.URLError:
+            pass  # Server not up yet
+        except Exception as e:
+            print(f'[Launcher] Health check error: {e}')
+        time.sleep(1)
+
+    print('[Launcher] ✗ Server did not start within 20 seconds')
     return False
 
 def open_browser():

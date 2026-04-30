@@ -12,16 +12,12 @@ class SalesScreen {
 
     init() {
         console.log('[Sales] Initializing Sales Screen');
-        console.log('[Sales] this.app:', this.app);
-        console.log('[Sales] this.api:', this.api);
-        console.log('[Sales] Init called!');  // Removed alert for better UX
         try {
             this.setupEventListeners();
             console.log('[Sales] ✓ Event listeners set up');
         } catch (e) {
             console.error('[Sales] Error setting up event listeners:', e);
         }
-        
         try {
             this.load();
             console.log('[Sales] ✓ Load called');
@@ -30,32 +26,10 @@ class SalesScreen {
         }
     }
 
-refresh() {
+    refresh() {
         console.log('[Sales] Refreshing sales...');
         this.setupEventListeners();
         return this.load();
-    }
-
-    init() {
-        console.log('[Sales] Initializing Sales Screen');
-        console.log('[Sales] this.app:', this.app);
-        console.log('[Sales] this.api:', this.api);
-        console.log('[Sales] Init called!');  // Removed alert for better UX
-        try {
-            this.setupEventListeners();
-            console.log('[Sales] ✓ Event listeners set up');
-        } catch (e) {
-            console.error('[Sales] Error setting up event listeners:', e);
-        }
-        
-        try {
-            this.load();
-            console.log('[Sales] ✓ Load called');
-        } catch (e) {
-            console.error('[Sales] Error calling load:', e);
-        }
-
-        setTimeout(() => this.setupEventListeners(), 200);
     }
 
     setupEventListeners() {
@@ -90,7 +64,7 @@ refresh() {
         
         try {
             // Build query string
-            let url = '/sales/';
+            let url = '/sales';
             const params = new URLSearchParams();
             if (this.filters.start_date) params.append('start_date', this.filters.start_date);
             if (this.filters.end_date) params.append('end_date', this.filters.end_date);

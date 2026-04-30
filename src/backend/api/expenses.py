@@ -31,11 +31,11 @@ async def list_expenses(
             params = []
             
             if start_date:
-                query += " AND expense_date >= ?"
+                query += " AND DATE(expense_date) >= ?"
                 params.append(start_date)
-            
+
             if end_date:
-                query += " AND expense_date <= ?"
+                query += " AND DATE(expense_date) <= ?"
                 params.append(end_date)
             
             if category:
@@ -52,10 +52,10 @@ async def list_expenses(
             count_query = "SELECT COUNT(*) FROM expenses WHERE 1=1"
             count_params = []
             if start_date:
-                count_query += " AND expense_date >= ?"
+                count_query += " AND DATE(expense_date) >= ?"
                 count_params.append(start_date)
             if end_date:
-                count_query += " AND expense_date <= ?"
+                count_query += " AND DATE(expense_date) <= ?"
                 count_params.append(end_date)
             if category:
                 count_query += " AND category = ?"
@@ -91,7 +91,7 @@ async def create_expense(
                     payment_method, paid_to, reference_number, created_by, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                expense_data.get("expense_number", f"EXP-{int(datetime.datetime.now().timestamp())}"),
+                expense_data.get("expense_number") or f"EXP-{datetime.datetime.now().strftime('%Y%m%d%H%M%S%f')[:18]}",
                 expense_data.get("date", datetime.datetime.now().strftime('%Y-%m-%d')),
                 expense_data.get("category"),
                 expense_data.get("description"),
@@ -102,9 +102,9 @@ async def create_expense(
                 current_user["id"],
                 datetime.datetime.now().strftime('%Y-%m-%d')
             ))
-            
+
             expense_id = cur.lastrowid
-        
+
         return {
             "success": True,
             "message": "Expense created successfully",
@@ -115,6 +115,60 @@ async def create_expense(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ← MOVE analytics BEFORE /{expense_id}
+@router.get("/analytics/summary", dependencies=[Depends(require_permission("expenses.view"))])
+async def expense_summary(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get expense summary and analytics."""
+    try:
+        db = get_database_manager()
+        with db.get_cursor() as cur:
+            # Total by category
+            query = "SELECT category, COUNT(*), SUM(amount) FROM expenses WHERE 1=1"
+            params = []
+
+            if start_date:
+                query += " AND DATE(expense_date) >= ?"
+                params.append(start_date)
+            if end_date:
+                query += " AND DATE(expense_date) <= ?"
+                params.append(end_date)
+
+            query += " GROUP BY category ORDER BY SUM(amount) DESC"
+
+            cur.execute(query, params)
+            by_category = cur.fetchall()
+
+            # Grand total
+            total_query = "SELECT SUM(amount) FROM expenses WHERE 1=1"
+            total_params = []
+            if start_date:
+                total_query += " AND DATE(expense_date) >= ?"
+                total_params.append(start_date)
+            if end_date:
+                total_query += " AND DATE(expense_date) <= ?"
+                total_params.append(end_date)
+
+            cur.execute(total_query, total_params)
+            total = cur.fetchone()[0] or 0
+
+        return {
+            "success": True,
+            "total_expenses": total,
+            "by_category": [
+                {"category": c[0], "count": c[1], "amount": c[2]}
+                for c in by_category
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Failed to get expense summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ← THEN the dynamic routes
 @router.get("/{expense_id}", dependencies=[Depends(require_permission("expenses.view"))])
 async def get_expense(
     expense_id: int,
@@ -183,80 +237,4 @@ async def update_expense(
         raise
     except Exception as e:
         logger.error(f"Failed to update expense: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.delete("/{expense_id}", dependencies=[Depends(require_permission("expenses.manage"))])
-async def delete_expense(
-    expense_id: int,
-    current_user: Dict[str, Any] = Depends(get_current_user)
-):
-    """Soft delete expense."""
-    try:
-        db = get_database_manager()
-        with db.get_cursor() as cur:
-            # Actually delete the record since soft delete column doesn't exist
-            cur.execute(
-                "DELETE FROM expenses WHERE id = ?",
-                (expense_id,)
-            )
-        
-        return {
-            "success": True,
-            "message": "Expense deleted successfully"
-        }
-    except Exception as e:
-        logger.error(f"Failed to delete expense: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/analytics/summary", dependencies=[Depends(require_permission("expenses.view"))])
-async def expense_summary(
-    start_date: Optional[str] = Query(None),
-    end_date: Optional[str] = Query(None),
-    current_user: Dict[str, Any] = Depends(get_current_user)
-):
-    """Get expense summary and analytics."""
-    try:
-        db = get_database_manager()
-        with db.get_cursor() as cur:
-            # Total by category
-            query = "SELECT category, COUNT(*), SUM(amount) FROM expenses WHERE 1=1"
-            params = []
-            
-            if start_date:
-                query += " AND DATE(created_at) >= ?"
-                params.append(start_date)
-            if end_date:
-                query += " AND DATE(created_at) <= ?"
-                params.append(end_date)
-            
-            query += " GROUP BY category ORDER BY SUM(amount) DESC"
-            
-            cur.execute(query, params)
-            by_category = cur.fetchall()
-            
-            # Grand total
-            total_query = "SELECT SUM(amount) FROM expenses WHERE 1=1"
-            total_params = []
-            if start_date:
-                total_query += " AND DATE(created_at) >= ?"
-                total_params.append(start_date)
-            if end_date:
-                total_query += " AND DATE(created_at) <= ?"
-                total_params.append(end_date)
-            
-            cur.execute(total_query, total_params)
-            total = cur.fetchone()[0] or 0
-        
-        return {
-            "success": True,
-            "total_expenses": total,
-            "by_category": [
-                {"category": c[0], "count": c[1], "amount": c[2]}
-                for c in by_category
-            ]
-        }
-    except Exception as e:
-        logger.error(f"Failed to get expense summary: {e}")
         raise HTTPException(status_code=500, detail=str(e))

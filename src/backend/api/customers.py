@@ -32,9 +32,9 @@ async def list_customers(
             params = []
             
             if search:
-                query += " AND (full_name LIKE ? OR email LIKE ?)"
+                query += " AND (full_name LIKE ? OR phone LIKE ? OR email LIKE ? OR customer_code LIKE ?)"
                 search_term = f"%{search}%"
-                params.extend([search_term, search_term])
+                params.extend([search_term, search_term, search_term, search_term])
             
             if phone:
                 query += " AND phone LIKE ?"
@@ -57,8 +57,8 @@ async def list_customers(
             count_query = "SELECT COUNT(*) FROM customers WHERE 1=1"
             count_params = []
             if search:
-                count_query += " AND (full_name LIKE ? OR email LIKE ?)"
-                count_params.extend([f"%{search}%", f"%{search}%"])
+                count_query += " AND (full_name LIKE ? OR phone LIKE ? OR email LIKE ? OR customer_code LIKE ?)"
+                count_params.extend([f"%{search}%", f"%{search}%", f"%{search}%", f"%{search}%"])
             if phone:
                 count_query += " AND phone LIKE ?"
                 count_params.append(f"%{phone}%")
@@ -165,11 +165,12 @@ async def create_customer(
         db = get_database_manager()
         with db.get_cursor() as cur:
             # Check if phone number already exists
-            phone = customer_data.get("phone")
-            if phone:
-                cur.execute("SELECT id FROM customers WHERE phone = ?", (phone,))
-                if cur.fetchone():
-                    raise HTTPException(status_code=400, detail="A customer with this phone number already exists")
+            phone = customer_data.get("phone") or customer_data.get("mobile")
+            # Ensure phone is not None for NOT NULL constraint
+            if not phone:
+                # Generate a unique placeholder for customers without phone
+                import time
+                phone = f"0000-{int(time.time())}"
             
             # Check if email already exists (if provided)
             email = customer_data.get("email")

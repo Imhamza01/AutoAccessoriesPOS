@@ -266,7 +266,7 @@ class SettingsScreen {
 
     async loadUsersSettings() {
         try {
-            const res = await this.app.api.get('/settings/users');
+            const res = await this.app.api.get('/auth/users');
 
             let users = [];
             if (Array.isArray(res)) {
@@ -1516,7 +1516,7 @@ class SettingsScreen {
 
     async editUser(id) {
         try {
-            const res = await this.app.api.get('/settings/users');
+            const res = await this.app.api.get('/auth/users');
             let users = [];
             if (res && res.users) {
                 users = res.users;
@@ -1712,7 +1712,7 @@ class SettingsScreen {
             };
 
             console.log('Creating user with role:', userData.role);
-            const response = await this.app.api.post('/settings/users', userData);
+            const response = await this.app.api.post('/auth/users', userData);
 
             if (response && response.success === false) {
                 throw new Error(response.message || 'Server returned error');
@@ -1754,7 +1754,7 @@ class SettingsScreen {
                 userData.password = passwordEl.value;
             }
 
-            const response = await this.app.api.put(`/settings/users/${userIdEl.value}`, userData);
+            const response = await this.app.api.put(`/auth/users/${userIdEl.value}`, userData);
 
             if (response && response.success === false) {
                 throw new Error(response.message || 'Server returned error');
@@ -1774,7 +1774,7 @@ class SettingsScreen {
         if (!confirm('Are you sure you want to delete this user?')) return;
 
         try {
-            await this.app.api.delete(`/settings/users/${id}`);
+            await this.app.api.delete(`/auth/users/${id}`);
             this.app.showNotification('User deleted successfully', 'success');
             this.loadUsersSettings(); // Refresh the user list
         } catch (e) {

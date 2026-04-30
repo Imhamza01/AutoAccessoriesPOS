@@ -12,7 +12,7 @@ const PrintDialog = {
         paperSize: '80mm',
         orientation: 'portrait',
         scale: 100,
-        copies: 2,
+        copies: 1,
         margins: true,
         showLogo: true,
         showHeader: true,
@@ -676,9 +676,8 @@ const PrintDialog = {
                         // Enrich: dialog settings ALWAYS win — spread receiptData first,
                         // then overlay dialog settings so they cannot be overridden
                         const shopSettings = window.shopSettings ? window.shopSettings.getAllSettings() : {};
-                        const copyLabel = i === 0 ? 'CUSTOMER COPY' : 'SHOP COPY';
                         const enrichedReceipt = Object.assign({}, receiptData, {
-                            shopName:      (i === 0 ? shopSettings.shopName : 'SHOP COPY - ' + (shopSettings.shopName || shopSettings.shop_name || receiptData.shopName)) || receiptData.shopName,
+                            shopName:      shopSettings.shopName      || shopSettings.shop_name      || receiptData.shopName,
                             shopAddress:   shopSettings.shopAddress   || shopSettings.shop_address   || receiptData.shopAddress,
                             shopPhone:     shopSettings.shopPhone     || shopSettings.shop_phone     || receiptData.shopPhone,
                             taxNumber:     shopSettings.taxNumber     || shopSettings.ntn_number,
@@ -693,8 +692,7 @@ const PrintDialog = {
                             showHeader:    this.settings.showHeader !== false,
                             showFooter:    this.settings.showFooter !== false,
                             showBarcode:   this.settings.showBarcode !== false,
-                            showTaxId:     shopSettings.showTaxId !== false,
-                            copyLabel:     copyLabel
+                            showTaxId:     shopSettings.showTaxId !== false
                         });
                         
                         // Generate ESC/POS commands

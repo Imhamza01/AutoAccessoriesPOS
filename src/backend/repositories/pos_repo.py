@@ -25,11 +25,11 @@ class ProductRepository:
         try:
             with self.db_manager.get_cursor() as cursor:
                 query = '''
-                    SELECT c.*, 
-                           COUNT(p.id) as product_count,
+                    SELECT c.*,
+                           COUNT(CASE WHEN p.is_active = 1 THEN p.id END) as product_count,
                            parent.name as parent_name
                     FROM categories c
-                    LEFT JOIN products p ON c.id = p.category_id
+                    LEFT JOIN products p ON c.id = p.category_id AND p.is_active = 1
                     LEFT JOIN categories parent ON c.parent_id = parent.id
                 '''
                 
@@ -39,7 +39,14 @@ class ProductRepository:
                 query += " GROUP BY c.id ORDER BY c.display_order, c.name"
                 
                 cursor.execute(query)
-                categories = [dict(row) for row in cursor.fetchall()]
+                raw_categories = cursor.fetchall()
+                categories = []
+                for row in raw_categories:
+                    if hasattr(row, 'keys'):
+                        categories.append(dict(row))
+                    else:
+                        columns = [desc[0] for desc in cursor.description]
+                        categories.append(dict(zip(columns, row)))
                 
                 # Build tree structure
                 return self._build_category_tree(categories)
@@ -64,7 +71,7 @@ class ProductRepository:
         try:
             with self.db_manager.get_cursor() as cursor:
                 cursor.execute('''
-                    SELECT c.*, 
+                    SELECT c.*,
                            COUNT(p.id) as product_count,
                            parent.name as parent_name
                     FROM categories c
@@ -73,9 +80,15 @@ class ProductRepository:
                     WHERE c.id = ?
                     GROUP BY c.id
                 ''', (category_id,))
-                
+
                 row = cursor.fetchone()
-                return dict(row) if row else None
+                if row:
+                    if hasattr(row, 'keys'):
+                        return dict(row)
+                    else:
+                        columns = [desc[0] for desc in cursor.description]
+                        return dict(zip(columns, row))
+                return None
                 
         except Exception as e:
             logger.error(f"Failed to get category: {e}")
@@ -179,7 +192,15 @@ class ProductRepository:
                 query += " GROUP BY b.id ORDER BY b.name"
                 
                 cursor.execute(query)
-                return [dict(row) for row in cursor.fetchall()]
+                raw_brands = cursor.fetchall()
+                brands = []
+                for row in raw_brands:
+                    if hasattr(row, 'keys'):
+                        brands.append(dict(row))
+                    else:
+                        columns = [desc[0] for desc in cursor.description]
+                        brands.append(dict(zip(columns, row)))
+                return brands
                 
         except Exception as e:
             logger.error(f"Failed to get brands: {e}")
@@ -196,9 +217,15 @@ class ProductRepository:
                     WHERE b.id = ?
                     GROUP BY b.id
                 ''', (brand_id,))
-                
+
                 row = cursor.fetchone()
-                return dict(row) if row else None
+                if row:
+                    if hasattr(row, 'keys'):
+                        return dict(row)
+                    else:
+                        columns = [desc[0] for desc in cursor.description]
+                        return dict(zip(columns, row))
+                return None
                 
         except Exception as e:
             logger.error(f"Failed to get brand: {e}")
@@ -261,18 +288,13 @@ class ProductRepository:
             with self.db_manager.get_cursor() as cursor:
                 # Base query
                 query = '''
-                    SELECT p.*, 
+                    SELECT p.*,
                            c.name as category_name,
                            c.category_code as category_code,
-                           b.name as brand_name,
-                           u.full_name as created_by_name,
-                           SUM(CASE WHEN sm.movement_type = 'purchase' THEN sm.quantity ELSE 0 END) as total_purchased,
-                           SUM(CASE WHEN sm.movement_type = 'sale' THEN sm.quantity ELSE 0 END) as total_sold
+                           b.name as brand_name
                     FROM products p
                     LEFT JOIN categories c ON p.category_id = c.id
                     LEFT JOIN brands b ON p.brand_id = b.id
-                    LEFT JOIN users u ON p.created_by = u.id
-                    LEFT JOIN stock_movements sm ON p.id = sm.product_id
                 '''
                 
                 # Apply filters
@@ -309,12 +331,13 @@ class ProductRepository:
                 
                 if where_clauses:
                     query += " WHERE " + " AND ".join(where_clauses)
-                
-                # Group by product
-                query += " GROUP BY p.id"
-                
+
                 # Count total records
-                count_query = f"SELECT COUNT(DISTINCT p.id) FROM products p"
+                count_query = (
+                    "SELECT COUNT(*) FROM products p"
+                    " LEFT JOIN categories c ON p.category_id = c.id"
+                    " LEFT JOIN brands b ON p.brand_id = b.id"
+                )
                 if where_clauses:
                     count_query += " WHERE " + " AND ".join(where_clauses)
                 
@@ -323,13 +346,20 @@ class ProductRepository:
                 
                 # Apply pagination
                 offset = (page - 1) * page_size
-                if page_size >= 9999:
-                    query += f" ORDER BY p.created_at DESC"
-                else:
-                    query += f" ORDER BY p.created_at DESC LIMIT {page_size} OFFSET {offset}"
+                query += " ORDER BY p.created_at DESC"
+                if page_size < 9999:
+                    query += f" LIMIT {page_size} OFFSET {offset}"
                 
                 cursor.execute(query, query_params)
-                products = [dict(row) for row in cursor.fetchall()]
+                raw_products = cursor.fetchall()
+                products = []
+                for row in raw_products:
+                    if hasattr(row, 'keys'):
+                        products.append(dict(row))
+                    else:
+                        # Handle tuple result - need column names
+                        columns = [desc[0] for desc in cursor.description]
+                        products.append(dict(zip(columns, row)))
                 
                 return {
                     'products': products,
@@ -369,12 +399,19 @@ class ProductRepository:
                 
                 # Get variants
                 cursor.execute('''
-                    SELECT * FROM product_variants 
+                    SELECT * FROM product_variants
                     WHERE product_id = ? AND is_active = 1
                     ORDER BY variant_name
                 ''', (product_id,))
-                
-                variants = [dict(row) for row in cursor.fetchall()]
+
+                raw_variants = cursor.fetchall()
+                variants = []
+                for row in raw_variants:
+                    if hasattr(row, 'keys'):
+                        variants.append(dict(row))
+                    else:
+                        columns = [desc[0] for desc in cursor.description]
+                        variants.append(dict(zip(columns, row)))
                 product_dict['variants'] = variants
                 
                 # Get stock movements
@@ -386,8 +423,15 @@ class ProductRepository:
                     ORDER BY sm.created_at DESC
                     LIMIT 100
                 ''', (product_id,))
-                
-                movements = [dict(row) for row in cursor.fetchall()]
+
+                raw_movements = cursor.fetchall()
+                movements = []
+                for row in raw_movements:
+                    if hasattr(row, 'keys'):
+                        movements.append(dict(row))
+                    else:
+                        columns = [desc[0] for desc in cursor.description]
+                        movements.append(dict(zip(columns, row)))
                 product_dict['stock_movements'] = movements
                 
                 # Get sales history
@@ -402,8 +446,15 @@ class ProductRepository:
                     ORDER BY s.invoice_date DESC
                     LIMIT 50
                 ''', (product_id,))
-                
-                sales = [dict(row) for row in cursor.fetchall()]
+
+                raw_sales = cursor.fetchall()
+                sales = []
+                for row in raw_sales:
+                    if hasattr(row, 'keys'):
+                        sales.append(dict(row))
+                    else:
+                        columns = [desc[0] for desc in cursor.description]
+                        sales.append(dict(zip(columns, row)))
                 product_dict['sales_history'] = sales
                 
                 return product_dict
@@ -417,7 +468,7 @@ class ProductRepository:
         try:
             with self.db_manager.get_cursor() as cursor:
                 cursor.execute('''
-                    SELECT p.*, 
+                    SELECT p.*,
                            c.name as category_name,
                            b.name as brand_name
                     FROM products p
@@ -425,9 +476,15 @@ class ProductRepository:
                     LEFT JOIN brands b ON p.brand_id = b.id
                     WHERE p.product_code = ? OR p.barcode = ?
                 ''', (product_code, product_code))
-                
+
                 row = cursor.fetchone()
-                return dict(row) if row else None
+                if row:
+                    if hasattr(row, 'keys'):
+                        return dict(row)
+                    else:
+                        columns = [desc[0] for desc in cursor.description]
+                        return dict(zip(columns, row))
+                return None
                 
         except Exception as e:
             logger.error(f"Failed to get product by code: {e}")
@@ -714,12 +771,20 @@ class ProductRepository:
         try:
             with self.db_manager.get_cursor() as cursor:
                 cursor.execute('''
-                    SELECT * FROM product_variants 
+                    SELECT * FROM product_variants
                     WHERE product_id = ? AND is_active = 1
                     ORDER BY variant_name
                 ''', (product_id,))
-                
-                return [dict(row) for row in cursor.fetchall()]
+
+                raw_variants = cursor.fetchall()
+                variants = []
+                for row in raw_variants:
+                    if hasattr(row, 'keys'):
+                        variants.append(dict(row))
+                    else:
+                        columns = [desc[0] for desc in cursor.description]
+                        variants.append(dict(zip(columns, row)))
+                return variants
                 
         except Exception as e:
             logger.error(f"Failed to get product variants: {e}")
@@ -821,7 +886,15 @@ class ProductRepository:
                 query += " ORDER BY p.current_stock ASC"
                 
                 cursor.execute(query, params)
-                return [dict(row) for row in cursor.fetchall()]
+                raw_products = cursor.fetchall()
+                products = []
+                for row in raw_products:
+                    if hasattr(row, 'keys'):
+                        products.append(dict(row))
+                    else:
+                        columns = [desc[0] for desc in cursor.description]
+                        products.append(dict(zip(columns, row)))
+                return products
                 
         except Exception as e:
             logger.error(f"Failed to get low stock products: {e}")
@@ -839,8 +912,16 @@ class ProductRepository:
                     WHERE p.is_active = 1 AND p.current_stock <= 0
                     ORDER BY p.name
                 ''')
-                
-                return [dict(row) for row in cursor.fetchall()]
+
+                raw_products = cursor.fetchall()
+                products = []
+                for row in raw_products:
+                    if hasattr(row, 'keys'):
+                        products.append(dict(row))
+                    else:
+                        columns = [desc[0] for desc in cursor.description]
+                        products.append(dict(zip(columns, row)))
+                return products
                 
         except Exception as e:
             logger.error(f"Failed to get out of stock products: {e}")
@@ -895,7 +976,14 @@ class ProductRepository:
                 query += f" LIMIT {page_size} OFFSET {(page - 1) * page_size}"
                 
                 cursor.execute(query, query_params)
-                movements = [dict(row) for row in cursor.fetchall()]
+                raw_movements = cursor.fetchall()
+                movements = []
+                for row in raw_movements:
+                    if hasattr(row, 'keys'):
+                        movements.append(dict(row))
+                    else:
+                        columns = [desc[0] for desc in cursor.description]
+                        movements.append(dict(zip(columns, row)))
                 
                 return {
                     'movements': movements,

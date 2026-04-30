@@ -16,10 +16,10 @@ router = APIRouter(prefix="/pos", tags=["pos"])
 logger = logging.getLogger(__name__)
 
 
-@router.post("/transaction")
+@router.post("/transaction", dependencies=[Depends(require_permission("pos.access"))])
 async def create_pos_transaction(
     transaction_data: Dict[str, Any] = Body(...),
-    current_user: Dict[str, Any] = Depends(require_permission("sales.create"))
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Create POS transaction (complete sale)."""
     try:
@@ -39,25 +39,43 @@ async def create_pos_transaction(
         with db.get_cursor() as cur:
             # Create sale
             # Generate invoice number based on current timestamp to ensure uniqueness
-            invoice_number = f"POS-{datetime.datetime.now().strftime('%Y%m%d')}{int(datetime.datetime.now().timestamp() * 1000) % 100000}"
+            import secrets as _sec
+            invoice_number = f"POS-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}-{_sec.token_hex(3).upper()}"
             
             # Get cashier name from current user
             cashier_name = current_user.get("name") or current_user.get("username") or f"User {current_user['id']}"
-            
+
             # Determine payment status based on payment method
             payment_method = transaction_data.get("payment_type", "cash")
             payment_status = "pending" if payment_method.lower() in ["credit", "credit_sale"] else "paid"
-            
+
+            # Determine payment status and balance_due based on payment method
+            total_amount = transaction_data.get("total_amount", 0)
+            amount_paid = transaction_data.get("amount_paid", 0)
+
+            # For credit sales: balance_due = full amount (customer owes it all)
+            # For cash/card/bank: balance_due = 0 (fully paid)
+            if payment_status == "pending":
+                balance_due = total_amount
+                amount_paid_final = 0
+            elif payment_status == "partial":
+                balance_due = total_amount - amount_paid
+                amount_paid_final = amount_paid
+            else:
+                balance_due = 0
+                amount_paid_final = total_amount
+
             cur.execute("""
                 INSERT INTO sales (
                     invoice_number, customer_id, grand_total, subtotal, discount_amount,
                     gst_amount, payment_method, payment_status, notes,
-                    cashier_id, cashier_name, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    cashier_id, cashier_name, balance_due, amount_paid,
+                    sale_status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 invoice_number,
                 transaction_data.get("customer_id"),
-                transaction_data.get("total_amount", 0),
+                total_amount,
                 transaction_data.get("subtotal", 0),
                 transaction_data.get("discount_amount", 0),
                 transaction_data.get("gst_amount", 0),
@@ -66,6 +84,9 @@ async def create_pos_transaction(
                 transaction_data.get("notes"),
                 current_user["id"],  # cashier_id
                 cashier_name,  # cashier_name
+                balance_due,
+                amount_paid_final,
+                "completed",        # sale_status
                 datetime.datetime.now().isoformat(),
                 datetime.datetime.now().isoformat()
             ))
@@ -197,11 +218,42 @@ async def create_pos_transaction(
             if customer_id:
                 payment_method = transaction_data.get("payment_type", "cash")
                 total_amount = transaction_data.get("total_amount", 0)
-                
-                # If payment method is credit, increase the customer's current_balance (outstanding credit)
+
                 if payment_method.lower() in ["credit", "credit_sale"]:
+                    # Verify customer is allowed to use credit
+                    cur.execute(
+                        "SELECT current_balance, credit_limit, is_credit_allowed FROM customers WHERE id = ?",
+                        (customer_id,)
+                    )
+                    cust_row = cur.fetchone()
+                    if cust_row:
+                        cust = dict(cust_row) if hasattr(cust_row, 'keys') else {
+                            'current_balance': cust_row[0],
+                            'credit_limit': cust_row[1],
+                            'is_credit_allowed': cust_row[2]
+                        }
+
+                        if not cust.get('is_credit_allowed'):
+                            raise HTTPException(
+                                status_code=400,
+                                detail="This customer is not enabled for credit sales. "
+                                       "Enable credit for this customer first."
+                            )
+
+                        credit_limit = float(cust.get('credit_limit') or 0)
+                        current_balance = float(cust.get('current_balance') or 0)
+                        new_balance = current_balance + total_amount
+
+                        if credit_limit > 0 and new_balance > credit_limit:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Credit limit exceeded. Limit: {credit_limit}, "
+                                       f"Current balance: {current_balance}, "
+                                       f"This sale: {total_amount}"
+                            )
+
                     cur.execute("""
-                        UPDATE customers 
+                        UPDATE customers
                         SET current_balance = current_balance + ?, updated_at = ?
                         WHERE id = ?
                     """, (total_amount, datetime.datetime.now().isoformat(), customer_id))
@@ -420,7 +472,8 @@ async def hold_sale(
         
         with db.get_cursor() as cur:
             # Generate invoice number based on current timestamp to ensure uniqueness
-            invoice_number = f"HOLD-{datetime.datetime.now().strftime('%Y%m%d')}{int(datetime.datetime.now().timestamp() * 1000) % 100000}"
+            import secrets as _sec
+            invoice_number = f"HOLD-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}-{_sec.token_hex(3).upper()}"
             
             # Get cashier name from current user
             cashier_name = current_user.get("name") or current_user.get("username") or f"User {current_user['id']}"

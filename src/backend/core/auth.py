@@ -28,7 +28,52 @@ logger = logging.getLogger(__name__)
 # ==================== CONFIGURATION ====================
 
 # JWT Configuration
-JWT_SECRET = "auto_accessories_pos_secret_key_change_in_production_2024"
+import os as _os
+
+def _get_jwt_secret() -> str:
+    """
+    Load JWT secret from environment or generate+persist a secure one.
+    Never use a hardcoded secret in production.
+    """
+    # 1. Check environment variable (set by deployment/installer)
+    env_secret = _os.environ.get("POS_JWT_SECRET")
+    if env_secret and len(env_secret) >= 32:
+        return env_secret
+
+    # 2. Check for a persisted secret file in the app data directory
+    try:
+        from pathlib import Path
+        secret_dir = Path(_os.environ.get("APPDATA", Path.home())) / "AutoAccessoriesPOS"
+        secret_dir.mkdir(parents=True, exist_ok=True)
+        secret_file = secret_dir / ".jwt_secret"
+
+        if secret_file.exists():
+            stored = secret_file.read_text().strip()
+            if len(stored) >= 32:
+                return stored
+
+        # 3. Generate a new secure secret and persist it
+        import secrets as _secrets
+        new_secret = _secrets.token_hex(32)  # 64-char hex string
+        secret_file.write_text(new_secret)
+        secret_file.chmod(0o600)  # Read/write for owner only
+        import logging as _log
+        _log.getLogger(__name__).info(
+            f"Generated new JWT secret and stored at {secret_file}"
+        )
+        return new_secret
+
+    except Exception as e:
+        # Fallback: generate in-memory (tokens won't survive restart)
+        import logging as _log
+        _log.getLogger(__name__).warning(
+            f"Could not persist JWT secret ({e}). "
+            "Sessions will not survive server restart."
+        )
+        import secrets as _secrets
+        return _secrets.token_hex(32)
+
+JWT_SECRET = _get_jwt_secret()
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 hours work day
 REFRESH_TOKEN_EXPIRE_DAYS = 7
@@ -236,24 +281,37 @@ class AuthenticationManager:
     @staticmethod
     def verify_password(password: str, hashed_password: str) -> bool:
         """
-        Verify password against hash.
-        
-        Args:
-            password: Plain text password
-            hashed_password: Hashed password string
-            
-        Returns:
-            True if password matches
+        Verify password against stored hash.
+        Supports both SHA-256 (legacy auth.py format) and bcrypt (users.py format).
         """
+        if not hashed_password:
+            return False
         try:
-            algorithm, salt, hash_value = hashed_password.split('$')
-            if algorithm != 'sha256':
+            # Detect bcrypt hash (starts with $2b$ or $2a$)
+            if hashed_password.startswith('$2b$') or hashed_password.startswith('$2a$'):
+                try:
+                    import bcrypt
+                    return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
+                except Exception as e:
+                    logger.warning(f"bcrypt verification failed: {e}")
+                    return False
+
+            # Handle SHA-256 format: "sha256$salt$hexdigest"
+            parts = hashed_password.split('$')
+            if len(parts) != 3:
+                logger.warning(f"Unknown password hash format (parts={len(parts)})")
                 return False
-            
+
+            algorithm, salt, hash_value = parts
+            if algorithm != 'sha256':
+                logger.warning(f"Unsupported hash algorithm: {algorithm}")
+                return False
+
             test_hash = hashlib.sha256(f"{password}{salt}".encode()).hexdigest()
-            return test_hash == hash_value
-            
-        except ValueError:
+            return secrets.compare_digest(test_hash, hash_value)
+
+        except Exception as e:
+            logger.error(f"Password verification error: {e}")
             return False
     
     @staticmethod

@@ -353,29 +353,27 @@ class PosScreen {
         }
     }
 
-    // Build client-side count per category from loaded products
-    const countByCategory = {};
-    this.products.forEach(p => {
-        const cid = String(p.category_id || '');
-        countByCategory[cid] = (countByCategory[cid] || 0) + 1;
-    });
+    renderCategories() {
+        const container = document.getElementById('categories-container');
+        if (!container) return;
 
-    container.innerHTML = `
-        <button class="category-btn ${!this.currentCategory ? 'active' : ''}" data-category-id="">
-            <span>All Categories</span>
-            <span class="category-count">${this.products.length}</span>
-        </button>
-    ` + this.categories.map(category => `
-        <button class="category-btn ${this.currentCategory == category.id ? 'active' : ''}" data-category-id="${category.id}">
-            <span>${category.name}</span>
-            <span class="category-count">${countByCategory[String(category.id)] || 0}</span>
-        </button>
-    `).join('');
-    // Ensure delegation bindings for newly rendered elements
-    this.ensureDelegationBindings();
-}
+        // Build client-side count per category from loaded products
+        const countByCategory = {};
+        this.products.forEach(function(p) {
+            const cid = String(p.category_id || '');
+            countByCategory[cid] = (countByCategory[cid] || 0) + 1;
+        });
 
-    async loadProducts(categoryId = null) {
+        const self = this;
+        container.innerHTML = '<button class="category-btn ' + (!this.currentCategory ? 'active' : '') + '" data-category-id=""><span>All Categories</span><span class="category-count">' + this.products.length + '</span></button>' +
+            this.categories.map(function(category) {
+                return '<button class="category-btn ' + (self.currentCategory == category.id ? 'active' : '') + '" data-category-id="' + category.id + '"><span>' + category.name + '</span><span class="category-count">' + (countByCategory[String(category.id)] || 0) + '</span></button>';
+            }).join('');
+
+        this.ensureDelegationBindings();
+    }
+
+    async loadProducts(categoryId) {
         try {
             this.app.showLoading('Loading products...');
             // Always load ALL products — category filtering is done client-side
@@ -402,7 +400,7 @@ class PosScreen {
             this.app.hideLoading();
         }
     }
-
+    
     getFilteredProducts() {
         let products = this.products;
 
@@ -729,9 +727,9 @@ class PosScreen {
             const qtyInput  = row.querySelector('.custom-row-qty');
             const priceInput = row.querySelector('.custom-row-price');
 
-            const name  = (nameInput?.value || '').trim();
-            const qty   = parseFloat(qtyInput?.value) || 0;
-            const price = parseFloat(priceInput?.value) || 0;
+            const name  = ((nameInput ? nameInput.value : '') || '').trim();
+            const qty   = parseFloat((qtyInput ? qtyInput.value : '')) || 0;
+            const price = parseFloat((priceInput ? priceInput.value : '')) || 0;
 
             // Skip completely empty rows silently
             if (!name && !price) return;
@@ -739,17 +737,17 @@ class PosScreen {
             // Validate
             if (!name) {
                 errors.push(`Row ${index + 1}: Description is required`);
-                nameInput?.classList.add('error-border');
+                if(nameInput){ nameInput.classList.add('error-border'); }
                 return;
             }
             if (qty <= 0) {
                 errors.push(`"${name}": Quantity must be > 0`);
-                qtyInput?.classList.add('error-border');
+                if(qtyInput){ qtyInput.classList.add('error-border'); }
                 return;
             }
             if (price < 0) {
                 errors.push(`"${name}": Price cannot be negative`);
-                priceInput?.classList.add('error-border');
+                if(priceInput){ priceInput.classList.add('error-border'); }
                 return;
             }
 
@@ -2323,7 +2321,7 @@ class PosScreen {
             ? settings.gstRate : 0.17;
         const taxAmount = discountedSubtotal * taxRate;
         const grandTotal = discountedSubtotal + taxAmount;
-        const amountPaid = this.lastPaymentDetails?.amount_tendered || grandTotal;
+        const amountPaid = (this.lastPaymentDetails && this.lastPaymentDetails.amount_tendered ? this.lastPaymentDetails.amount_tendered : 0) || grandTotal;
         const change = Math.max(0, amountPaid - grandTotal);   // Never negative
         
         return {
@@ -2335,8 +2333,8 @@ class PosScreen {
             invoiceNo: 'INV-' + Date.now().toString().slice(-8),
             date: new Date().toLocaleDateString('en-PK'),
             time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-            customer: showCustomer ? (this.currentCustomer?.full_name || '') : '',
-            payment_method: this.lastPaymentDetails?.payment_method || 'cash',
+            customer: showCustomer ? (this.currentCustomer && this.currentCustomer.full_name ? this.currentCustomer.full_name : '') : '',
+            payment_method: (this.lastPaymentDetails && this.lastPaymentDetails.payment_method ? this.lastPaymentDetails.payment_method : 'cash'),
             items: this.cart.map(item => ({
                 name: item.product.name || item.product[1] || 'Unknown Product',
                 quantity: item.quantity,
@@ -2417,7 +2415,7 @@ class PosScreen {
         const afterDiscount = subtotal - discount;
         const taxAmount = afterDiscount * taxRate;
         const grandTotal = afterDiscount + taxAmount;
-        const amountPaid = this.lastPaymentDetails?.amount_tendered || grandTotal;
+        const amountPaid = (this.lastPaymentDetails && this.lastPaymentDetails.amount_tendered ? this.lastPaymentDetails.amount_tendered : 0) || grandTotal;
         const change = amountPaid - grandTotal;
     
         // Build receipt data object WITH ALL SETTINGS
@@ -2430,7 +2428,7 @@ class PosScreen {
             invoiceNo: 'INV-' + Date.now().toString().slice(-8),
             date: new Date().toLocaleDateString('en-PK'),
             time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-            customer: showCustomer ? (this.currentCustomer?.full_name || '') : '',
+            customer: showCustomer ? (this.currentCustomer && this.currentCustomer.full_name ? this.currentCustomer.full_name : '') : '',
             items: this.cart.map(item => ({
                 name: item.product.name || item.product[1] || 'Unknown Product',
                 quantity: item.quantity,

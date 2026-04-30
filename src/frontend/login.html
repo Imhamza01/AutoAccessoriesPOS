@@ -525,8 +525,7 @@
                     localStorage.setItem('session_token', data.user.session_token);
 
                     console.log('[Login] Redirecting immediately...');
-                    // Redirect immediately - no delay needed
-                    window.location.replace('index.html');
+                    window.location.replace('/index.html');
 
                 } catch (error) {
                     console.error('[Login] Error:', error);
@@ -587,19 +586,17 @@
         document.addEventListener('DOMContentLoaded', () => {
             window.loginManager = new LoginManager();
             
-            // INSTANT login - check token without API call
+            // Only redirect if we have BOTH a token AND user data
             const accessToken = localStorage.getItem('access_token');
-            if (accessToken) {
-                // Token exists - redirect immediately (validate on main page if needed)
-                console.log('[Login] Token found, redirecting instantly');
-                window.location.replace('index.html');
-                return; // Stop further execution
+            const userData = localStorage.getItem('user_data');
+            if (accessToken && userData) {
+                console.log('[Login] Valid session found, redirecting to app');
+                window.location.replace('/index.html');
+                return;
             }
             
-            // No token - show login form immediately
-            console.log('[Login] No token, showing login form');
+            console.log('[Login] No session, showing login form');
             
-            // Check server status in background (non-blocking, doesn't delay login)
             window.loginManager.checkServerStatus().then(isRunning => {
                 if (!isRunning) {
                     window.loginManager.showStatus(
@@ -607,9 +604,7 @@
                         'warning'
                     );
                 }
-            }).catch(() => {
-                // Ignore server check errors - don't block login
-            });
+            }).catch(() => {});
         });
 
         // Add sound effect for login button (optional)

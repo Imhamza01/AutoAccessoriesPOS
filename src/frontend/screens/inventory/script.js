@@ -126,30 +126,17 @@ class InventoryScreen {
         try {
             this.app.showLoading('Loading inventory...');
 
-            const params = new URLSearchParams({
-                page: this.currentPage,
-                page_size: this.pageSize
-            });
+            const params = new URLSearchParams({ page: 1, page_size: 9999 });
+            if (this.filters.search) params.append('search', this.filters.search.trim());
+            if (this.filters.category_id) params.append('category_id', this.filters.category_id);
+            if (this.filters.low_stock) params.append('low_stock', 'true');
+            if (this.filters.out_of_stock) params.append('out_of_stock', 'true');
 
-            if (this.filters.category_id) {
-                params.append('category_id', this.filters.category_id);
-            }
-            if (this.filters.search) {
-                params.append('search', this.filters.search);
-            }
-            if (this.filters.low_stock) {
-                params.append('low_stock', 'true');
-            }
-            if (this.filters.out_of_stock) {
-                params.append('out_of_stock', 'true');
-            }
-            params.append('show_all', 'true');  // Inventory screen shows ALL products including inactive
+            const response = await this.api.get(`/inventory/stock?${params.toString()}`);
 
-            const response = await this.api.get(`/products?${params.toString()}`);
+            this.products = Array.isArray(response) ? response :
+                (response.products || response.data || []);
 
-            this.products = Array.isArray(response) ? response : (response.products || response.data || []);
-
-            console.log(`Loaded ${this.products.length} products`);
             this.render();
         } catch (error) {
             console.error('Failed to load products:', error);
@@ -284,9 +271,11 @@ class InventoryScreen {
 
     debounce(func, wait) {
         let timeout;
-        return (...args) => {
+        var self = this;
+        return function() {
+            var args = arguments;
             clearTimeout(timeout);
-            timeout = setTimeout(() => func.apply(this, args), wait);
+            timeout = setTimeout(function() { func.apply(self, args); }, wait);
         };
     }
 }

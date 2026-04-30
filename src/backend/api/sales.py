@@ -18,7 +18,7 @@ router = APIRouter(prefix="/sales", tags=["sales"])
 logger = logging.getLogger(__name__)
 
 
-@router.get("/", dependencies=[Depends(require_permission("sales.view")), Depends(sales_auth)])
+@router.get("", dependencies=[Depends(require_permission("sales.view"))])
 async def list_sales(
     skip: int = Query(0),
     limit: int = Query(500, ge=1, le=100000),
@@ -209,9 +209,7 @@ async def create_sale(
             raise HTTPException(status_code=400, detail="Sale items required")
         
         db = get_database_manager()
-        with db.get_transaction() as conn:
-            cur = conn.cursor()
-            
+        with db.get_cursor() as cur:
             # Insert sale record
             cur.execute('''
                 INSERT INTO sales (
@@ -290,25 +288,23 @@ async def create_sale(
                     datetime.datetime.now().isoformat()
                 ))
                 
-                # Update product stock
+                # Update product stock — prevent negative
                 if item.get("product_id"):
                     cur.execute('''
-                        UPDATE products 
-                        SET current_stock = current_stock - ?,
+                        UPDATE products
+                        SET current_stock = MAX(0, current_stock - ?),
                             last_stock_update = CURRENT_TIMESTAMP
                         WHERE id = ?
                     ''', (qty, item.get("product_id")))
-            
+
             # Update customer balance if credit sale
             if sale_data.get("payment_status") == "pending" and sale_data.get("customer_id"):
                 cur.execute('''
-                    UPDATE customers 
+                    UPDATE customers
                     SET current_balance = current_balance + ?,
                         last_purchase_date = DATE('now')
                     WHERE id = ?
                 ''', (sale_data.get("balance_due", 0), sale_data.get("customer_id")))
-            
-            conn.commit()
             
             return {
                 "success": True,

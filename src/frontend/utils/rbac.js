@@ -176,15 +176,16 @@ class RBACManager {
         return roleConfig ? [...roleConfig.screens] : [];
     }
 
-    canManageUsers() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canManageUsers; }
-    canViewReports() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canViewReports; }
-    canManageStock() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canManageStock; }
-    canManageProducts() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canManageProducts; }
-    canManageCustomers() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canManageCustomers; }
-    canManageSales() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canManageSales; }
-    canManageExpenses() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canManageExpenses; }
-    canManageSettings() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canManageSettings; }
-    canBackupRestore() { return !!this.rolePermissions[this.getCurrentUserRole()]?.canBackupRestore; }
+    _roleConfig() { var r = this.getCurrentUserRole(); return (r && this.rolePermissions[r]) || {}; }
+    canManageUsers() { return !!this._roleConfig().canManageUsers; }
+    canViewReports() { return !!this._roleConfig().canViewReports; }
+    canManageStock() { return !!this._roleConfig().canManageStock; }
+    canManageProducts() { return !!this._roleConfig().canManageProducts; }
+    canManageCustomers() { return !!this._roleConfig().canManageCustomers; }
+    canManageSales() { return !!this._roleConfig().canManageSales; }
+    canManageExpenses() { return !!this._roleConfig().canManageExpenses; }
+    canManageSettings() { return !!this._roleConfig().canManageSettings; }
+    canBackupRestore() { return !!this._roleConfig().canBackupRestore; }
 
     routeGuard(screenName) {
         if (!this.canAccessScreen(screenName)) {
@@ -198,7 +199,8 @@ class RBACManager {
     getRoleDisplayName() {
         const role = this.getCurrentUserRole();
         if (!role) return 'Unknown';
-        return this.rolePermissions[role]?.name || role;
+        var cfg = this.rolePermissions[role];
+        return (cfg && cfg.name) || role;
     }
 }
 

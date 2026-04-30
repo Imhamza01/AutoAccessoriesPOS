@@ -1,610 +1,765 @@
-# PROMPT 8 — Receipt Discount Bug Fix, Custom Item Multi-Add Modal & Final Polish (REVISED)
+# PROMPT 11 — Hardcoded JWT Secret, Credit System balance_due Bug, Inventory Filter Params, Session Permissions & More
 
 ## ROLE
 You are a senior full-stack developer. Apply ALL changes below exactly as described.
-This prompt covers: the receipt discount printing bug, the custom item multi-add feature,
-and remaining polish issues.
+These bugs were found in the deepest audit pass — several affect financial data integrity.
 
 ---
 
-## BUG 1: Receipt prints `Change = -50` instead of showing Discount correctly
+## BUG 1 (CRITICAL — SECURITY): JWT Secret hardcoded in source code
 
-### Root Cause (Deep Analysis)
+### Root Cause
+`src/backend/core/auth.py`:
+```python
+JWT_SECRET = "auto_accessories_pos_secret_key_change_in_production_2024"
+```
+This is committed to the source repository. Anyone who reads the code can forge valid JWT
+tokens for ANY user including `malik`, giving them full admin access with no password.
 
-`applyDiscountToCart()` works by modifying `item.total` proportionally:
-```js
-item.total = item.price * item.quantity * discountRatio;   // ← discounted total
+### EXACT FIX — `src/backend/core/auth.py`
+
+Find:
+```python
+JWT_SECRET = "auto_accessories_pos_secret_key_change_in_production_2024"
 ```
 
-The `updateCartSummary()` uses `item.total` correctly (discounted).
-`completePayment()` also uses `item.total` correctly → sends correct `total_amount` to API.
+Replace with:
+```python
+import os as _os
 
-**BUT** `prepareReceiptData()` recalculates subtotal as:
-```js
-const subtotal = this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-// ↑ This is BEFORE discount — ignores item.total!
+def _get_jwt_secret() -> str:
+    """
+    Load JWT secret from environment or generate+persist a secure one.
+    Never use a hardcoded secret in production.
+    """
+    # 1. Check environment variable (set by deployment/installer)
+    env_secret = _os.environ.get("POS_JWT_SECRET")
+    if env_secret and len(env_secret) >= 32:
+        return env_secret
+
+    # 2. Check for a persisted secret file in the app data directory
+    try:
+        from pathlib import Path
+        secret_dir = Path(_os.environ.get("APPDATA", Path.home())) / "AutoAccessoriesPOS"
+        secret_dir.mkdir(parents=True, exist_ok=True)
+        secret_file = secret_dir / ".jwt_secret"
+
+        if secret_file.exists():
+            stored = secret_file.read_text().strip()
+            if len(stored) >= 32:
+                return stored
+
+        # 3. Generate a new secure secret and persist it
+        import secrets as _secrets
+        new_secret = _secrets.token_hex(32)  # 64-char hex string
+        secret_file.write_text(new_secret)
+        secret_file.chmod(0o600)  # Read/write for owner only
+        import logging as _log
+        _log.getLogger(__name__).info(
+            f"Generated new JWT secret and stored at {secret_file}"
+        )
+        return new_secret
+
+    except Exception as e:
+        # Fallback: generate in-memory (tokens won't survive restart)
+        import logging as _log
+        _log.getLogger(__name__).warning(
+            f"Could not persist JWT secret ({e}). "
+            "Sessions will not survive server restart."
+        )
+        import secrets as _secrets
+        return _secrets.token_hex(32)
+
+JWT_SECRET = _get_jwt_secret()
 ```
 
-Then:
-```js
-const discount = this.currentDiscount || 0;  // Often 0 — not stored properly
-const afterDiscount = subtotal - discount;
-const grandTotal = afterDiscount + taxAmount;
+---
+
+## BUG 2 (CRITICAL — FINANCIAL DATA): Credit sales never set `balance_due` — entire credit management shows PKR 0
+
+### Root Cause
+`src/backend/api/pos.py` `create_pos_transaction()` — the INSERT into `sales` does NOT include `balance_due`:
+
+```python
+cur.execute("""
+    INSERT INTO sales (
+        invoice_number, customer_id, grand_total, subtotal, discount_amount,
+        gst_amount, payment_method, payment_status, notes,
+        cashier_id, cashier_name, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+""", (...))
 ```
 
-Meanwhile `completePayment()` stores:
+`balance_due` defaults to `0`. So every credit sale in the system shows `balance_due = 0`.
+
+This breaks:
+- Credit management screen: "Amount Due" column always shows PKR 0 for every credit sale
+- `_process_general_credit_payment()` distributes payment across `balance_due` fields that are all 0
+- Reports: outstanding credit amounts are all zero
+- Customer history: all transactions look fully paid
+
+### EXACT FIX — `src/backend/api/pos.py`
+
+Find the INSERT into `sales` in `create_pos_transaction()`:
+
+```python
+            cur.execute("""
+                INSERT INTO sales (
+                    invoice_number, customer_id, grand_total, subtotal, discount_amount,
+                    gst_amount, payment_method, payment_status, notes,
+                    cashier_id, cashier_name, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                invoice_number,
+                transaction_data.get("customer_id"),
+                transaction_data.get("total_amount", 0),
+                transaction_data.get("subtotal", 0),
+                transaction_data.get("discount_amount", 0),
+                transaction_data.get("gst_amount", 0),
+                payment_method,
+                payment_status,
+                transaction_data.get("notes"),
+                current_user["id"],
+                cashier_name,
+                datetime.datetime.now().isoformat(),
+                datetime.datetime.now().isoformat()
+            ))
+```
+
+Replace with:
+```python
+            total_amount = transaction_data.get("total_amount", 0)
+            amount_paid = transaction_data.get("amount_paid", 0)
+
+            # For credit sales: balance_due = full amount (customer owes it all)
+            # For cash/card/bank: balance_due = 0 (fully paid)
+            if payment_status == "pending":
+                balance_due = total_amount
+                amount_paid_final = 0
+            elif payment_status == "partial":
+                balance_due = total_amount - amount_paid
+                amount_paid_final = amount_paid
+            else:
+                balance_due = 0
+                amount_paid_final = total_amount
+
+            cur.execute("""
+                INSERT INTO sales (
+                    invoice_number, customer_id, grand_total, subtotal, discount_amount,
+                    gst_amount, payment_method, payment_status, notes,
+                    cashier_id, cashier_name, balance_due, amount_paid,
+                    sale_status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                invoice_number,
+                transaction_data.get("customer_id"),
+                total_amount,
+                transaction_data.get("subtotal", 0),
+                transaction_data.get("discount_amount", 0),
+                transaction_data.get("gst_amount", 0),
+                payment_method,
+                payment_status,
+                transaction_data.get("notes"),
+                current_user["id"],
+                cashier_name,
+                balance_due,
+                amount_paid_final,
+                "completed",        # sale_status
+                datetime.datetime.now().isoformat(),
+                datetime.datetime.now().isoformat()
+            ))
+```
+
+### STARTUP MIGRATION — Fix existing credit sales with balance_due = 0
+
+In `src/backend/main.py`, in `startup_event()`, after `db_manager.initialize_database()`:
+
+```python
+# Fix: Set balance_due = grand_total for credit sales that were saved with balance_due = 0
+try:
+    with db_manager.get_cursor() as cur:
+        cur.execute("""
+            UPDATE sales
+            SET balance_due = grand_total,
+                amount_paid = 0
+            WHERE payment_status = 'pending'
+              AND balance_due = 0
+              AND grand_total > 0
+        """)
+        fixed = cur.rowcount
+        if fixed > 0:
+            logger.info(
+                f"Startup fix: Corrected balance_due for {fixed} credit sales "
+                f"that were incorrectly stored as 0."
+            )
+except Exception as e:
+    logger.error(f"balance_due fix failed: {e}")
+```
+
+---
+
+## BUG 3 (CRITICAL): `GET /inventory/stock` ignores search and category_id parameters
+
+### Root Cause
+`src/backend/api/inventory.py` `get_stock_levels()`:
+```python
+@router.get("/stock", ...)
+async def get_stock_levels(current_user: ...):
+    query = "SELECT ... FROM products WHERE is_active = 1 ORDER BY name ASC"
+    cur.execute(query)
+```
+
+The route has NO `search` or `category_id` query parameters. The inventory screen appends
+`?search=brake&category_id=3` but these are silently ignored — full unfiltered list returned.
+
+### EXACT FIX — `src/backend/api/inventory.py`
+
+Replace the `get_stock_levels` function entirely:
+
+```python
+@router.get("/stock", dependencies=[Depends(require_permission("products.view"))])
+async def get_stock_levels(
+    search: Optional[str] = Query(None),
+    category_id: Optional[int] = Query(None),
+    low_stock: Optional[bool] = Query(None),
+    out_of_stock: Optional[bool] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(500, ge=1, le=10000),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get all products with stock levels — supports search, category, and stock filters."""
+    try:
+        db = get_database_manager()
+        with db.get_cursor() as cur:
+            query = """
+                SELECT p.id, p.product_code, p.name, p.category_id,
+                       c.name as category_name,
+                       p.current_stock, p.min_stock, p.reorder_level,
+                       p.cost_price, p.sale_price, p.image_path,
+                       p.barcode, p.is_active
+                FROM products p
+                LEFT JOIN categories c ON p.category_id = c.id
+                WHERE p.is_active = 1
+            """
+            params = []
+
+            if search:
+                query += " AND (p.name LIKE ? OR p.product_code LIKE ? OR p.barcode LIKE ?)"
+                s = f"%{search}%"
+                params.extend([s, s, s])
+
+            if category_id:
+                query += " AND p.category_id = ?"
+                params.append(category_id)
+
+            if low_stock:
+                query += " AND p.current_stock <= p.min_stock AND p.current_stock > 0"
+
+            if out_of_stock:
+                query += " AND p.current_stock <= 0"
+
+            # Count
+            count_query = f"SELECT COUNT(*) FROM ({query}) sub"
+            cur.execute(count_query, params)
+            total = cur.fetchone()[0]
+
+            query += f" ORDER BY p.name ASC LIMIT ? OFFSET ?"
+            params.extend([page_size, (page - 1) * page_size])
+
+            cur.execute(query, params)
+            rows = cur.fetchall()
+
+            products = []
+            for p in rows:
+                if hasattr(p, 'keys'):
+                    products.append(dict(p))
+                else:
+                    products.append({
+                        "id": p[0], "product_code": p[1], "name": p[2],
+                        "category_id": p[3], "category_name": p[4],
+                        "current_stock": p[5], "min_stock": p[6],
+                        "reorder_level": p[7], "cost_price": p[8],
+                        "sale_price": p[9], "image_path": p[10],
+                        "barcode": p[11], "is_active": p[12]
+                    })
+
+        return {
+            "success": True,
+            "products": products,
+            "total": total,
+            "page": page,
+            "page_size": page_size
+        }
+    except Exception as e:
+        logger.error(f"Failed to get stock levels: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+```
+
+Also update `get_inventory()` (the `GET /inventory` endpoint without `/stock`) with the same parameters so both work consistently.
+
+### EXACT FIX — `src/frontend/screens/inventory/script.js`
+
+The inventory screen currently handles both array and object responses:
 ```js
-this.lastPaymentDetails = {
-    amount_tendered: amountTendered,  // e.g. 950 (customer paid)
-    change_amount: amountTendered - total,  // total = discounted+tax = 900
+this.products = Array.isArray(response) ? response :
+    (response.products || response.data || []);
+```
+
+Update `loadProducts()` to use the correct URL with proper params:
+
+Find:
+```js
+            let url = '/inventory/stock';
+            if (this.filters.search) {
+                url += `?search=${encodeURIComponent(this.filters.search)}`;
+            }
+            if (this.filters.category_id) {
+                url += (url.includes('?') ? '&' : '?') + `category_id=${this.filters.category_id}`;
+            }
+```
+
+Replace with:
+```js
+            const params = new URLSearchParams({ page: 1, page_size: 9999 });
+            if (this.filters.search) params.append('search', this.filters.search.trim());
+            if (this.filters.category_id) params.append('category_id', this.filters.category_id);
+            if (this.filters.low_stock) params.append('low_stock', 'true');
+            if (this.filters.out_of_stock) params.append('out_of_stock', 'true');
+
+            const url = `/inventory/stock?${params.toString()}`;
+```
+
+---
+
+## BUG 4 (CRITICAL): POS session open/close uses `pos.sell` — cashiers cannot open sessions
+
+### Root Cause
+Confirmed in `src/backend/api/pos.py`:
+```python
+@router.get("/session/open", dependencies=[Depends(require_permission("pos.sell"))])
+@router.post("/session/close", dependencies=[Depends(require_permission("pos.sell"))])
+```
+
+`pos.sell` doesn't exist in any role. `shop_boy` gets 403 on session open → POS session
+never starts → if POS checks for an open session before allowing sales, ALL cashier sales fail.
+
+### EXACT FIX — `src/backend/api/pos.py`
+
+Find:
+```python
+@router.get("/session/open", dependencies=[Depends(require_permission("pos.sell"))])
+```
+Replace with:
+```python
+@router.get("/session/open", dependencies=[Depends(require_permission("pos.access"))])
+```
+
+Find:
+```python
+@router.post("/session/close", dependencies=[Depends(require_permission("pos.sell"))])
+```
+Replace with:
+```python
+@router.post("/session/close", dependencies=[Depends(require_permission("pos.access"))])
+```
+
+---
+
+## BUG 5: `_process_general_credit_payment` has no rollback on partial failure
+
+### Root Cause
+In `src/backend/api/credit_management.py`, `_process_general_credit_payment()` does:
+1. UPDATE sales (multiple rows)
+2. UPDATE customers
+3. INSERT into customer_payments
+
+If step 2 or 3 fails after step 1 completes, sales are marked as paid but the customer
+balance is not reduced and no payment record exists. The `get_cursor()` context manager
+does commit on success, but if an exception is raised mid-function, it depends on whether
+the context manager does rollback.
+
+### EXACT FIX — `src/backend/core/database.py`
+
+Verify `get_cursor()` context manager does rollback on exception:
+
+Find the `get_cursor()` context manager:
+```python
+@contextmanager
+def get_cursor(self):
+    conn = self._get_connection()
+    try:
+        cursor = conn.cursor()
+        yield cursor
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        ...
+```
+
+If it's missing the `conn.rollback()` on exception, add it. This is the primary fix.
+
+If the context manager already has rollback, then the partial failure scenario is prevented
+by the transaction boundary. Verify this is the case.
+
+### Also fix `_process_payment_for_specific_sales` in `credit_management.py`
+
+This async function is called with `cur` passed as a parameter from inside a
+`with db.get_cursor() as cur:` block. The function does additional DB writes using that
+same `cur`. Since it's all within the same cursor context, rollback will cover all writes.
+
+However: the function returns a response **without** the `with` block completing first
+(because it's `await`ed and `async`). Verify the flow:
+
+```python
+with db.get_cursor() as cur:    # ← context opens
     ...
-};
+    return await _process_payment_for_specific_sales(cur, ...)
+    # ← After return, context exits and commits
 ```
 
-Then `prepareReceiptData()` computes:
-```js
-const amountPaid = this.lastPaymentDetails?.amount_tendered || grandTotal;  // 950
-const change = amountPaid - grandTotal;  // 950 - 1000 (undiscounted!) = -50
-```
-
-**This is the bug**: receipt `grandTotal` uses undiscounted subtotal, but `amountPaid` uses
-the actual amount the customer paid (after discount). The difference prints as a negative Change.
-
-### EXACT FIX — `src/frontend/screens/pos/script.js`
-
-#### Step 1: Store `currentDiscount` when discount is applied
-
-In `applyDiscountToCart()`, find where the loop modifies items:
-```js
-        this.cart.forEach(item => {
-            if (item.original_total === undefined) {
-                item.original_total = item.price * item.quantity;
-            }
-            item.discount = item.price * item.quantity * (1 - discountRatio);
-            item.total = item.price * item.quantity * discountRatio;
-        });
-
-        this.updateCartDisplay();
-        this.app.showNotification('Discount of ' + this.app.formatCurrency(discountAmount) + ' applied', 'success');
-        this.closeDiscountModal();
-```
-
-Add `this.currentDiscount = discountAmount;` before `this.updateCartDisplay()`:
-```js
-        this.cart.forEach(item => {
-            if (item.original_total === undefined) {
-                item.original_total = item.price * item.quantity;
-            }
-            item.discount = item.price * item.quantity * (1 - discountRatio);
-            item.total = item.price * item.quantity * discountRatio;
-        });
-
-        this.currentDiscount = discountAmount;   // ← ADD THIS LINE
-
-        this.updateCartDisplay();
-        this.app.showNotification('Discount of ' + this.app.formatCurrency(discountAmount) + ' applied', 'success');
-        this.closeDiscountModal();
-```
-
-#### Step 2: Initialize `currentDiscount` in constructor
-
-In the `PosScreen` class constructor, after `this.searchQuery = '';`, add:
-```js
-        this.currentDiscount = 0;
-        this.lastPaymentDetails = null;
-        this.currentCustomer = null;
-```
-
-#### Step 3: Fix `prepareReceiptData()` — use actual discounted subtotal, not raw
-
-Find inside `prepareReceiptData()` (or `printReceipt()` — the one called after `completePayment`):
-```js
-        // Calculate totals
-        const subtotal = this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const discount = this.currentDiscount || 0;
-        const taxRate = ...
-        const afterDiscount = subtotal - discount;
-        const taxAmount = afterDiscount * taxRate;
-        const grandTotal = afterDiscount + taxAmount;
-        const amountPaid = this.lastPaymentDetails?.amount_tendered || grandTotal;
-        const change = amountPaid - grandTotal;
-```
-
-Replace with:
-```js
-        // Calculate totals — use item.total (already discounted) not raw price*qty
-        const rawSubtotal = this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const discountedSubtotal = this.cart.reduce((sum, item) => sum + item.total, 0);
-        const discount = this.currentDiscount || (rawSubtotal - discountedSubtotal);
-
-        const taxRate = (settings.gstRate !== undefined && settings.gstRate !== null)
-            ? settings.gstRate : 0.17;
-        const taxAmount = discountedSubtotal * taxRate;
-        const grandTotal = discountedSubtotal + taxAmount;
-        const amountPaid = this.lastPaymentDetails?.amount_tendered || grandTotal;
-        const change = Math.max(0, amountPaid - grandTotal);   // Never negative
-```
-
-Also update the receipt data object to use `rawSubtotal` for the "subtotal before discount" line:
-```js
-            subtotal: rawSubtotal,        // Show original price before discount
-            discount: discount,           // Show discount amount
-            taxRate: taxRate,
-            taxAmount: taxAmount,
-            grandTotal: grandTotal,       // = discountedSubtotal + tax
-            amountPaid: amountPaid,
-            change: change,
-```
-
-#### Step 4: Reset `currentDiscount` after each completed sale
-
-In `completePayment()`, find:
-```js
-                this.cart = [];
-                this.updateCartDisplay();
-                this.closePaymentModal();
-```
-
-Add reset before `this.cart = [];`:
-```js
-                this.currentDiscount = 0;
-                this.lastPaymentDetails = null;
-                this.currentCustomer = null;
-                this.cart = [];
-                this.updateCartDisplay();
-                this.closePaymentModal();
-```
-
-#### Step 5: Reset discount when cart is cleared
-
-In `clearCart()`:
-```js
-    clearCart() {
-        if (this.cart.length > 0 && confirm('Clear cart?')) {
-            this.currentDiscount = 0;     // ← ADD
-            this.currentCustomer = null;  // ← ADD
-            this.cart = [];
-            this.updateCartDisplay();
-        }
-    }
-```
-
-#### Step 6: Fix receipt invoice number — use real invoice from backend
-
-In `completePayment()`, the receipt data is built and passed to PrintDialog:
-```js
-                const receiptData = this.prepareReceiptData();
-                receiptData.invoiceNo = this.lastPaymentDetails.invoice_number;
-                window.PrintDialog.open(receiptData);
-```
-
-Inside `prepareReceiptData()`, find:
-```js
-            invoiceNo: 'INV-' + Date.now().toString().slice(-8),
-```
-
-Replace with:
-```js
-            invoiceNo: this.lastPaymentDetails?.invoice_number || ('INV-' + Date.now().toString().slice(-8)),
-```
-
-This way even if `completePayment()` doesn't override, the receipt gets the right number.
+This is correct — `return` causes the `with` block to exit, which commits. ✓ No change needed
+as long as `get_cursor()` has rollback on exception.
 
 ---
 
-## FEATURE: Custom Items — Add Multiple Items at Once (Inline Multi-Add Modal)
+## BUG 6: Reports screen `filterInventoryReport()` — date params not sent to API
 
-### What to build
-Currently the "Add Custom Item" modal allows adding only one item at a time and closes.
-Add a **"+ Add Another"** button that keeps the modal open and adds rows, so the user
-can add multiple custom items (e.g. Labour Charge + Car Wash + Wheel Alignment) in one session.
-
-### EXACT IMPLEMENTATION — `src/frontend/screens/pos/script.js`
-
-#### Replace `showCustomItemModal()` entirely:
-
+### Root Cause
+`src/frontend/screens/reports/script.js`:
 ```js
-showCustomItemModal() {
-    const existing = document.getElementById('custom-item-modal-overlay');
-    if (existing) existing.remove();
-
-    const html = `
-    <div class="modal-overlay" id="custom-item-modal-overlay" style="display:flex;">
-        <div class="modal" style="min-width:480px; max-width:560px;">
-            <div class="modal-header">
-                <h3>➕ Add Custom Items / Services</h3>
-                <button class="modal-close-btn" onclick="document.getElementById('custom-item-modal-overlay').remove()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <p style="font-size:12px;color:#888;margin-bottom:10px;">
-                    Add labour charges, services, or any custom items not in inventory.
-                </p>
-
-                <!-- Items List -->
-                <div id="custom-items-list">
-                    <!-- Rows added here -->
-                </div>
-
-                <!-- Add Row Button -->
-                <button
-                    class="btn btn-secondary"
-                    style="width:100%;margin-top:8px;border:2px dashed #aaa;background:#f9f9f9;"
-                    onclick="window.app.screens.pos.addCustomItemRow()">
-                    + Add Another Item
-                </button>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="document.getElementById('custom-item-modal-overlay').remove()">Cancel</button>
-                <button class="btn btn-success" onclick="window.app.screens.pos.addAllCustomItems()">
-                    ✔ Add All to Cart
-                </button>
-            </div>
-        </div>
-    </div>`;
-
-    document.body.insertAdjacentHTML('beforeend', html);
-
-    // Add first row automatically
-    this.addCustomItemRow();
-
-    // Focus on the first description field
-    setTimeout(() => {
-        const firstInput = document.querySelector('#custom-items-list .custom-row-name');
-        if (firstInput) firstInput.focus();
-    }, 50);
+async loadInventoryReport(startDate = null, endDate = null) {
+    const res = await this.app.api.get('/reports/inventory-valuation');
+    // startDate and endDate are parameters but NEVER appended to URL!
 }
 ```
 
-#### Add `addCustomItemRow()` method:
+The date filter inputs exist in the rendered HTML but are never passed to the API call.
 
+### EXACT FIX — `src/frontend/screens/reports/script.js`
+
+Find:
 ```js
-addCustomItemRow() {
-    const list = document.getElementById('custom-items-list');
-    if (!list) return;
-
-    const rowId = 'custom-row-' + Date.now();
-    const rowHtml = `
-    <div class="custom-item-row" id="${rowId}"
-         style="display:flex;gap:8px;align-items:center;margin-bottom:8px;padding:8px;
-                background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0;">
-        <div style="flex:3;">
-            <input
-                type="text"
-                class="input-field custom-row-name"
-                placeholder="Description (e.g. Labour Charge)"
-                style="width:100%;font-size:13px;"
-                onkeydown="if(event.key==='Enter') window.app.screens.pos.addCustomItemRow()"
-            >
-        </div>
-        <div style="flex:1;">
-            <input
-                type="number"
-                class="input-field custom-row-qty"
-                value="1"
-                min="0.01"
-                step="0.01"
-                placeholder="Qty"
-                style="width:100%;font-size:13px;text-align:center;"
-            >
-        </div>
-        <div style="flex:2;">
-            <input
-                type="number"
-                class="input-field custom-row-price"
-                value=""
-                min="0"
-                step="1"
-                placeholder="Unit Price"
-                style="width:100%;font-size:13px;"
-            >
-        </div>
-        <button
-            onclick="document.getElementById('${rowId}').remove()"
-            style="background:none;border:none;color:#e53935;font-size:18px;cursor:pointer;
-                   padding:4px 8px;flex-shrink:0;"
-            title="Remove this row">✕</button>
-    </div>`;
-
-    list.insertAdjacentHTML('beforeend', rowHtml);
-
-    // Focus the newly added row's description field
-    const newRow = document.getElementById(rowId);
-    if (newRow) {
-        const input = newRow.querySelector('.custom-row-name');
-        if (input) input.focus();
-    }
-}
+async loadInventoryReport(startDate = null, endDate = null) {
+    try {
+        const res = await this.app.api.get('/reports/inventory-valuation');
 ```
 
-#### Add `addAllCustomItems()` method:
-
+Replace with:
 ```js
-addAllCustomItems() {
-    const rows = document.querySelectorAll('#custom-items-list .custom-item-row');
-    if (rows.length === 0) {
-        this.app.showNotification('No items to add', 'error');
+async loadInventoryReport(startDate = null, endDate = null) {
+    try {
+        const params = new URLSearchParams();
+        if (startDate) params.append('start_date', startDate);
+        if (endDate) params.append('end_date', endDate);
+        const query = params.toString() ? '?' + params.toString() : '';
+        const res = await this.app.api.get(`/reports/inventory-valuation${query}`);
+```
+
+Also in `filterInventoryReport()`, guard against null elements:
+```js
+filterInventoryReport() {
+    const startEl = document.getElementById('inventory-start-date');
+    const endEl = document.getElementById('inventory-end-date');
+    if (!startEl || !endEl) {
+        this.app.showNotification('Please load the inventory report first', 'info');
         return;
     }
-
-    let addedCount = 0;
-    let errors = [];
-
-    rows.forEach((row, index) => {
-        const nameInput = row.querySelector('.custom-row-name');
-        const qtyInput  = row.querySelector('.custom-row-qty');
-        const priceInput = row.querySelector('.custom-row-price');
-
-        const name  = (nameInput?.value || '').trim();
-        const qty   = parseFloat(qtyInput?.value) || 0;
-        const price = parseFloat(priceInput?.value) || 0;
-
-        // Skip completely empty rows silently
-        if (!name && !price) return;
-
-        // Validate
-        if (!name) {
-            errors.push(`Row ${index + 1}: Description is required`);
-            nameInput?.classList.add('error-border');
-            return;
-        }
-        if (qty <= 0) {
-            errors.push(`"${name}": Quantity must be > 0`);
-            qtyInput?.classList.add('error-border');
-            return;
-        }
-        if (price < 0) {
-            errors.push(`"${name}": Price cannot be negative`);
-            priceInput?.classList.add('error-border');
-            return;
-        }
-
-        // Add to cart
-        const cartId = 'custom-' + Date.now() + '-' + addedCount;
-        this.cart.push({
-            product: { id: null, _cartId: cartId, name: name, is_custom: true },
-            quantity: qty,
-            price: price,
-            discount: 0,
-            original_total: price * qty,
-            total: price * qty
-        });
-        addedCount++;
-    });
-
-    if (errors.length > 0) {
-        this.app.showNotification(errors.join('\n'), 'error');
-        return; // Don't close modal so user can fix errors
-    }
-
-    if (addedCount === 0) {
-        this.app.showNotification('Please fill in at least one item', 'error');
-        return;
-    }
-
-    // Close modal and update cart
-    document.getElementById('custom-item-modal-overlay').remove();
-    this.updateCartDisplay();
-    this.app.showNotification(
-        `Added ${addedCount} custom item${addedCount > 1 ? 's' : ''} to cart`,
-        'success'
-    );
+    this.loadInventoryReport(startEl.value || null, endEl.value || null);
 }
 ```
 
-#### Keep `addCustomItemToCart()` for backward compatibility:
-
-The old single-item method can remain unchanged since it may be referenced elsewhere.
-The new `showCustomItemModal()` replaces the UI but the old method stays as a fallback.
-
-#### Add CSS for the error state:
-
-In `src/frontend/screens/pos/style.css`, add:
-```css
-.error-border {
-    border-color: #e53935 !important;
-    background: #fff5f5 !important;
+Apply same null-guard to ALL `filter*Report()` methods:
+```js
+filterSalesReport() {
+    const startEl = document.getElementById('sales-start-date');
+    const endEl = document.getElementById('sales-end-date');
+    if (!startEl) { return; }  // Report not loaded yet
+    this.loadSalesReport(startEl.value || null, endEl.value || null);
 }
 
-.custom-item-row {
-    transition: background 0.2s;
+filterGSTReport() {
+    const startEl = document.getElementById('gst-start-date');
+    const endEl = document.getElementById('gst-end-date');
+    if (!startEl) { return; }
+    this.loadGSTReport(startEl.value || null, endEl.value || null);
 }
 
-.custom-item-row:hover {
-    background: #f0f4ff !important;
+filterProfitLossReport() {
+    const startEl = document.getElementById('pl-start-date');
+    const endEl = document.getElementById('pl-end-date');
+    if (!startEl) { return; }
+    this.loadProfitLossReport(startEl.value || null, endEl.value || null);
 }
 ```
 
 ---
 
-## BUG 2: Receipt `Change` field shows negative when discount applied — Print Service fix
+## BUG 7: `/pos/transaction` has permission check REMOVED for debugging — left in production
 
-The `print_service.js` `generatePreviewText()` and `generateClassicESCPOS()` already
-correctly show `Change:` when `data.change` is provided. The fix in BUG 1 Step 3 ensures
-`change = Math.max(0, amountPaid - grandTotal)` so it's never negative.
-
-However, also add a guard in `print_service.js` for all three themes:
-
-In `generateClassicESCPOS()`, `generateModernESCPOS()`, and `generateMinimalESCPOS()`,
-find the change line:
-```js
-        commands.push(...encoder.encode(twoCol('Change:', money(data.change)) + '\n'));
+### Root Cause
+```python
+@router.post("/transaction")  # Removed permission check for debugging
+async def create_pos_transaction(
+    transaction_data: Dict[str, Any] = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
 ```
 
-Change to:
-```js
-        const changeAmt = Math.max(0, parseFloat(data.change || 0));
-        commands.push(...encoder.encode(twoCol('Change:', money(changeAmt)) + '\n'));
+The developer removed `dependencies=[Depends(require_permission("pos.access"))]` for
+debugging and forgot to restore it. While `get_current_user` still requires a valid token,
+there's no role check — any authenticated user (including `stock_boy`) can create sales.
+
+### EXACT FIX — `src/backend/api/pos.py`
+
+Find:
+```python
+@router.post("/transaction")  # Removed permission check for debugging
 ```
 
-And in `generatePreviewText()`:
+Replace with:
+```python
+@router.post("/transaction", dependencies=[Depends(require_permission("pos.access"))])
+```
+
+---
+
+## BUG 8: `is_credit_allowed DEFAULT 0` — new customers can't use credit, existing ones work silently
+
+### Root Cause
+`customers` table: `is_credit_allowed BOOLEAN DEFAULT 0`. Every newly created customer
+has credit disabled. But `pos.py` transaction never checks `is_credit_allowed` — it allows
+credit for anyone who selects "Credit" payment, regardless of this flag.
+
+This is a business logic gap: the setting exists but is never enforced.
+
+### EXACT FIX A — `src/backend/api/pos.py` — Enforce `is_credit_allowed` in transaction
+
+Find in `create_pos_transaction()` the credit balance update block:
+```python
+            if customer_id:
+                payment_method = transaction_data.get("payment_type", "cash")
+                total_amount = transaction_data.get("total_amount", 0)
+                
+                if payment_method.lower() in ["credit", "credit_sale"]:
+                    cur.execute("""
+                        UPDATE customers 
+                        SET current_balance = current_balance + ?, updated_at = ?
+                        WHERE id = ?
+                    """, (total_amount, datetime.datetime.now().isoformat(), customer_id))
+```
+
+Replace with:
+```python
+            if customer_id:
+                payment_method = transaction_data.get("payment_type", "cash")
+                total_amount = transaction_data.get("total_amount", 0)
+
+                if payment_method.lower() in ["credit", "credit_sale"]:
+                    # Verify customer is allowed to use credit
+                    cur.execute(
+                        "SELECT current_balance, credit_limit, is_credit_allowed FROM customers WHERE id = ?",
+                        (customer_id,)
+                    )
+                    cust_row = cur.fetchone()
+                    if cust_row:
+                        cust = dict(cust_row) if hasattr(cust_row, 'keys') else {
+                            'current_balance': cust_row[0],
+                            'credit_limit': cust_row[1],
+                            'is_credit_allowed': cust_row[2]
+                        }
+
+                        if not cust.get('is_credit_allowed'):
+                            raise HTTPException(
+                                status_code=400,
+                                detail="This customer is not enabled for credit sales. "
+                                       "Enable credit for this customer first."
+                            )
+
+                        credit_limit = float(cust.get('credit_limit') or 0)
+                        current_balance = float(cust.get('current_balance') or 0)
+                        new_balance = current_balance + total_amount
+
+                        if credit_limit > 0 and new_balance > credit_limit:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Credit limit exceeded. Limit: {credit_limit}, "
+                                       f"Current balance: {current_balance}, "
+                                       f"This sale: {total_amount}"
+                            )
+
+                    cur.execute("""
+                        UPDATE customers
+                        SET current_balance = current_balance + ?, updated_at = ?
+                        WHERE id = ?
+                    """, (total_amount, datetime.datetime.now().isoformat(), customer_id))
+```
+
+### EXACT FIX B — Startup migration: enable credit for customers who already have credit balance
+
+In `src/backend/main.py`, `startup_event()`:
+```python
+# Fix: Enable credit for customers who already have credit_limit > 0 or current_balance > 0
+# These customers were clearly intended to use credit — the DEFAULT 0 was wrong for them
+try:
+    with db_manager.get_cursor() as cur:
+        cur.execute("""
+            UPDATE customers
+            SET is_credit_allowed = 1
+            WHERE (credit_limit > 0 OR current_balance > 0)
+              AND is_credit_allowed = 0
+        """)
+        if cur.rowcount > 0:
+            logger.info(
+                f"Startup fix: Enabled credit for {cur.rowcount} customers "
+                f"who already had credit_limit or balance."
+            )
+except Exception as e:
+    logger.error(f"Credit enablement fix failed: {e}")
+```
+
+### EXACT FIX C — `src/frontend/screens/customers/script.js` — Show credit status when adding customer
+
+When the customer creation form is shown, ensure `is_credit_allowed` defaults to `1`
+(enabled) for new customers so the cashier doesn't have to remember to toggle it.
+
+Find in the customer creation form rendering:
 ```js
-            lines.push(rightRow('Change:'.padEnd(20), 'Rs. ' + parseFloat(data.change || 0).toFixed(2)));
+is_credit_allowed: false,
 ```
 Change to:
 ```js
-            const chg = Math.max(0, parseFloat(data.change || 0));
-            lines.push(rightRow('Change:'.padEnd(20), 'Rs. ' + chg.toFixed(2)));
+is_credit_allowed: true,
+```
+
+If it's an HTML form with a checkbox, set it as `checked` by default:
+```html
+<input type="checkbox" name="is_credit_allowed" value="1" checked>
 ```
 
 ---
 
-## BUG 3: POS barcode lookup calls wrong endpoint URL
+## BUG 9: Invoice number collision — two sales within same millisecond bucket get same invoice
 
 ### Root Cause
-`src/frontend/screens/pos/script.js`:
-```js
-const response = await this.api.get(`/products/code/${barcode}`);
-```
-But the actual backend endpoint is `GET /pos/barcode/{barcode}`.
-`/products/code/{barcode}` doesn't exist → barcode scanning always fails silently.
-
-### EXACT FIX — `src/frontend/screens/pos/script.js`
-
-Find `handleBarcodeScanned()`:
-```js
-        const response = await this.api.get(`/products/code/${barcode}`);
+`src/backend/api/pos.py`:
+```python
+invoice_number = f"POS-{datetime.datetime.now().strftime('%Y%m%d')}{int(datetime.datetime.now().timestamp() * 1000) % 100000}"
 ```
 
+`% 100000` limits to 5 digits. Two sales within the same 100,000ms window (100 seconds)
+happening at the same millisecond get the same invoice number. `invoice_number` is UNIQUE
+so the second INSERT fails with `IntegrityError`.
+
+Same bug in `hold_sale`:
+```python
+invoice_number = f"HOLD-{datetime.datetime.now().strftime('%Y%m%d')}{int(datetime.datetime.now().timestamp() * 1000) % 100000}"
+```
+
+### EXACT FIX — `src/backend/api/pos.py`
+
+In `create_pos_transaction()`, find:
+```python
+invoice_number = f"POS-{datetime.datetime.now().strftime('%Y%m%d')}{int(datetime.datetime.now().timestamp() * 1000) % 100000}"
+```
 Replace with:
-```js
-        const response = await this.api.get(`/pos/barcode/${barcode}`);
+```python
+import secrets as _sec
+invoice_number = f"POS-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}-{_sec.token_hex(3).upper()}"
 ```
+
+In `hold_sale()`, find:
+```python
+invoice_number = f"HOLD-{datetime.datetime.now().strftime('%Y%m%d')}{int(datetime.datetime.now().timestamp() * 1000) % 100000}"
+```
+Replace with:
+```python
+import secrets as _sec
+invoice_number = f"HOLD-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}-{_sec.token_hex(3).upper()}"
+```
+
+This generates format like `POS-20250115143205-A3F9B2` — timestamp-based (sortable) +
+6-char hex suffix (collision-proof even for simultaneous sales).
 
 ---
 
-## BUG 4: Dashboard profit uses hardcoded 30% margin — wrong for every shop
+## BUG 10: `RateLimitMiddleware` uses in-memory dict — resets on restart, wrong on multi-worker
 
 ### Root Cause
-```js
-// Profit (30% assumption)
-this.data.todayProfit = todaySales * 0.30;
+`src/backend/core/security.py`:
+```python
+self.requests = defaultdict(list)
 ```
-The real profit is stored in `sale_items.line_profit`. Use it.
+Rate limit counts are stored in memory. On server restart, all counts reset (rate limit bypass).
+On multi-worker uvicorn, each worker has its own counter (rate limit is effectively N× the limit).
 
-### EXACT FIX — `src/frontend/screens/dashboard/script.js`
+### EXACT FIX — `src/backend/core/security.py`
+
+For a local desktop POS app, rate limiting should be light. Change to a more lenient limit
+and add a note about the in-memory limitation:
 
 Find:
-```js
-            // Profit (30% assumption)
-            this.data.todayProfit = todaySales * 0.30;
-            this.updateStatCard('todayProfit', this.app.formatCurrency(this.data.todayProfit));
+```python
+def __init__(self, app, max_requests: int = 1000, window_seconds: int = 60):
+```
+Change to:
+```python
+def __init__(self, app, max_requests: int = 5000, window_seconds: int = 60):
 ```
 
-Replace with:
-```js
-            // Actual profit from today's sales
-            let actualProfit = 0;
-            try {
-                const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-                const profitResp = await this.app.api.get(
-                    `/reports/profit-loss?start_date=${today}&end_date=${today}`
-                );
-                if (profitResp && profitResp.success) {
-                    actualProfit = profitResp.total_profit || profitResp.net_profit || 0;
-                }
-            } catch (e) {
-                // Fallback estimate if profit endpoint unavailable
-                actualProfit = todaySales * 0.20;
-                console.warn('[Dashboard] Profit API unavailable, using 20% estimate');
-            }
-            this.data.todayProfit = actualProfit;
-            this.updateStatCard('todayProfit', this.app.formatCurrency(this.data.todayProfit));
+5000 requests/minute for a local app is reasonable (it prevents runaway loops but not
+normal usage). The in-memory limitation is acceptable for a single-process desktop app.
+
+Add a docstring note:
+```python
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """
+    In-memory rate limiter. Suitable for single-process desktop POS.
+    NOTE: Counts reset on restart. For multi-worker deployment, use Redis-based limiting.
+    """
 ```
 
 ---
 
-## BUG 5: API request logging floods console — slows DevTools in production
+## VERIFICATION CHECKLIST
 
-### Root Cause
-`src/frontend/api_client.js` logs every request with full body:
-```js
-console.log('[APIClient] Request:', method, url, data ? { body: data } : {});
-```
-With 70+ products loading on POS init, this dumps huge objects to console.
+### Security
+- [ ] JWT secret is NOT hardcoded — it's loaded from file or env variable
+- [ ] Server generates and persists a new secure JWT secret on first run
+- [ ] Existing sessions still work (secret file persists across restarts)
+- [ ] `/pos/transaction` requires `pos.access` permission (comment removed)
 
-### EXACT FIX — `src/frontend/api_client.js`
+### Credit System Data Integrity
+- [ ] Credit sale inserts `balance_due = grand_total` (not 0)
+- [ ] Credit sale inserts `amount_paid = 0` (not total_amount)
+- [ ] Credit management screen shows correct "Amount Due" for all credit sales
+- [ ] Startup migration corrects existing credit sales with wrong balance_due
+- [ ] Customer `current_balance` increases on credit sale (existing behavior preserved)
+- [ ] Customers with `credit_limit > 0` have `is_credit_allowed = 1` after startup
 
-Find:
-```js
-        console.log('[APIClient] Request:', method, url, data ? { body: data } : {});
-```
-Replace with:
-```js
-        if (window.__DEBUG_API__) {
-            console.log('[APIClient] Request:', method, url, data ? { body: data } : {});
-        }
-```
+### Inventory Filtering
+- [ ] Inventory screen search box actually filters by name/code/barcode
+- [ ] Category filter in inventory actually filters results
+- [ ] Low stock filter works from inventory screen
+- [ ] `/inventory/stock` returns paginated results with `{success, products, total}`
 
-Find:
-```js
-        console.log('[APIClient] Response status:', response.status, response.statusText);
-```
-Replace with:
-```js
-        if (response.status >= 400 || window.__DEBUG_API__) {
-            console.log('[APIClient] Response:', response.status, response.statusText, url);
-        }
-```
+### Reports
+- [ ] Date filter on Inventory report sends dates to API
+- [ ] Filter buttons don't crash when report not yet loaded (null guard)
+- [ ] All report filter methods guard against null DOM elements
 
----
+### Sessions & Permissions
+- [ ] `shop_boy` can open a POS session (no 403)
+- [ ] `shop_boy` can close a POS session
+- [ ] `stock_boy` cannot create sales (pos.access blocked)
 
-## BUG 6: `loadRecentSales` uses trailing slash `/sales/?limit=10` — routing issue
+### Credit Customers
+- [ ] New customer form defaults `is_credit_allowed = true`
+- [ ] Credit sale correctly rejected if `is_credit_allowed = false`
+- [ ] Credit limit exceeded error shown in POS when limit would be breached
 
-### Root Cause
-`src/frontend/screens/dashboard/script.js` calls `/sales/?limit=10` with a trailing
-slash before `?`. FastAPI's `redirect_slashes=True` causes a 307 redirect from `/sales/`
-to `/sales`, which may drop query parameters.
-
-### EXACT FIX — `src/frontend/screens/dashboard/script.js`
-
-Find:
-```js
-const response = await this.app.api.get('/sales/?limit=10');
-```
-Replace with:
-```js
-const response = await this.app.api.get('/sales?limit=10&skip=0');
-```
-
-Find any other `/sales/?` patterns and remove the trailing slash:
-```js
-// Before:
-this.app.api.get(`/sales/?start_date=...`)
-// After:
-this.app.api.get(`/sales?start_date=...`)
-```
-
----
-
-## FINAL MASTER CHECKLIST — All 8 Prompts Combined
-
-### Must fix before client use (P1)
-- [ ] All 70+ products load in POS
-- [ ] POS search works across full catalog  
-- [ ] Receipts show correct Discount line, not negative Change
-- [ ] All 4 roles work: malik, munshi, shop_boy, stock_boy
-- [ ] Cashiers can complete sales — no 403
-- [ ] Custom items work — product_id=-1 stays as-is
-- [ ] Multi-item custom modal works — add 3 services at once
-- [ ] Reports date filter works — no SQL crash
-- [ ] Currency shows PKR not ₹
-
-### Fix this week (P2)
-- [ ] Stock doesn't go negative
-- [ ] Hold sale doesn't double-charge customer
-- [ ] Barcode scanning calls correct URL
-- [ ] Settings page loads for malik only; all others see blocked
-- [ ] Cashier only sees own held sales
-- [ ] Auto-backup runs hourly not per-sale
-- [ ] Inventory search & filter work
-- [ ] New inventory items appear on POS
-
-### Fix before month end (P3)
-- [ ] Dashboard shows real profit not 30% guess
-- [ ] Invoice number on receipt matches backend record
-- [ ] Token refresh loop fixed
-- [ ] Login redirect works in EXE
-- [ ] Password validation shows 6-char minimum
-- [ ] Console log spam removed
-- [ ] Date queries use DATE() wrapper
-- [ ] DB indexes created for performance
+### Invoice Numbers
+- [ ] Two simultaneous sales get different invoice numbers
+- [ ] Invoice format: `POS-YYYYMMDDHHMMSS-XXXXXX`
+- [ ] Hold sale invoice format: `HOLD-YYYYMMDDHHMMSS-XXXXXX`

@@ -47,7 +47,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' http://127.0.0.1:8000; connect-src 'self' http://127.0.0.1:8000; font-src 'self' data:; img-src 'self' data:;"
+        response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' http://127.0.0.1:8000 http://127.0.0.1:8001; style-src 'self' 'unsafe-inline' data:; font-src 'self' data:; img-src 'self' data: blob: http://127.0.0.1:8000 http://127.0.0.1:8001; connect-src 'self' http://127.0.0.1:8000 http://127.0.0.1:8001; script-src 'self' 'unsafe-inline' 'unsafe-eval';"
         
         # Log security events for failed requests
         if response.status_code >= 400 and response.status_code != 404:
@@ -103,7 +103,8 @@ class SecurityMiddleware(BaseHTTPMiddleware):
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
-    Rate limiting middleware for API endpoints.
+    In-memory rate limiter. Suitable for single-process desktop POS.
+    NOTE: Counts reset on restart. For multi-worker deployment, use Redis-based limiting.
     """
     # API prefixes that should be rate limited
     API_PREFIXES = [
@@ -113,7 +114,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         '/customer-payments', '/printers'
     ]
 
-    def __init__(self, app, max_requests: int = 1000, window_seconds: int = 60):
+    def __init__(self, app, max_requests: int = 5000, window_seconds: int = 60):
         super().__init__(app)
         self.max_requests = max_requests
         self.window_seconds = window_seconds
@@ -191,6 +192,6 @@ middleware = {
     'security': SecurityMiddleware,
     'rate_limit': {
         'class': RateLimitMiddleware,
-        'config': {'max_requests': 1000, 'window_seconds': 60}
+        'config': {'max_requests': 5000, 'window_seconds': 60}
     }
 }

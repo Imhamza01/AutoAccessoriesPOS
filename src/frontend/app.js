@@ -19,52 +19,54 @@ class AutoAccessoriesPOS {
     }
 
     async init() {
-        // INSTANT init - show loading briefly
         this.showLoading('Loading...');
 
+        // Hard safety net: force-show the app after 8 seconds no matter what
+        const safetyTimer = setTimeout(() => {
+            console.warn('[App] Safety timeout triggered — forcing app visible');
+            this.hideLoading();
+            const mainApp = document.getElementById('main-app');
+            if (mainApp) mainApp.style.display = 'flex';
+        }, 8000);
+
         try {
-            // Run auth check and app init in parallel, but don't block
             await Promise.race([
                 this.checkAuthentication(),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('Auth timeout')), 3000))
             ]).catch(err => {
                 console.warn('[App] Auth check issue:', err.message);
-                // Don't block - continue anyway
             });
 
-            // Initialize app without waiting
-            this.initializeApp().catch(err => {
-                console.error('[App] Init error:', err);
-            });
+            // If checkAuthentication triggered a redirect, stop here
+            if (!this.currentUser) {
+                clearTimeout(safetyTimer);
+                return;
+            }
 
-            // Hide loading quickly
-            setTimeout(() => {
-                this.hideLoading();
-            }, 100);
+            await this.initializeApp();
 
         } catch (error) {
             console.error('[App] Initialization error:', error);
+        } finally {
+            clearTimeout(safetyTimer);
             this.hideLoading();
         }
     }
 
     async checkAuthentication() {
-        const startTime = Date.now();
         const accessToken = localStorage.getItem('access_token');
         const userData = localStorage.getItem('user_data');
 
-        // INSTANT check - no API call yet
         if (!accessToken || !userData) {
             console.log('[Auth] No tokens found, redirecting to login');
             window.location.replace('/login.html');
-            return;
+            // Return a never-resolving promise so init() waits for the redirect
+            return new Promise(() => {});
         }
 
-        // Load user from localStorage immediately (don't wait for API)
         try {
             this.currentUser = JSON.parse(userData);
-            console.log(`[Auth] User loaded from cache in ${Date.now() - startTime}ms:`, this.currentUser.username);
-            // Notify RBAC that user role is now available
+            console.log('[Auth] User loaded from cache:', this.currentUser.username);
             if (window.rbac && window.rbac.notifyRoleReady) {
                 window.rbac.notifyRoleReady();
             }
@@ -72,23 +74,27 @@ class AutoAccessoriesPOS {
             console.error('[Auth] Failed to parse user data:', e);
             this.clearAuthData();
             window.location.replace('/login.html');
-            return;
+            return new Promise(() => {});
         }
 
         // Validate token in background (non-blocking)
         this.validateTokenInBackground().catch(err => {
             console.warn('[Auth] Background validation failed:', err.message);
-            // User is already logged in from cache, don't disrupt
         });
     }
 
     async validateTokenInBackground() {
         try {
-            await this.api.get('/auth/me');
+            const result = await this.api.get('/auth/me');
+            // Network errors return { success: false } — don't log out for those
+            if (result && result.success === false && result.error && result.error.includes('connect')) {
+                console.warn('[Auth] Backend unreachable, keeping cached session');
+                return;
+            }
             console.log('[Auth] Token validated successfully');
         } catch (error) {
             console.warn('[Auth] Token invalid, trying refresh...');
-            
+
             const refreshToken = localStorage.getItem('refresh_token');
             if (refreshToken) {
                 try {
@@ -99,7 +105,6 @@ class AutoAccessoriesPOS {
                     window.location.replace('/login.html');
                 }
             } else {
-                console.error('[Auth] No refresh token, clearing auth');
                 this.clearAuthData();
                 window.location.replace('/login.html');
             }
@@ -533,8 +538,7 @@ class AutoAccessoriesPOS {
                         const gstRate = settings.gst_rate !== undefined ? settings.gst_rate :
                                        currentSettings.gstRate || 0.17;
 
-                        const newSettings = {
-                            ...currentSettings,
+                        const newSettings = Object.assign({}, currentSettings, {
                             shopName: settings.shop_name,
                             shopAddress: settings.shop_address,
                             shopPhone: settings.shop_phone,
@@ -544,7 +548,7 @@ class AutoAccessoriesPOS {
                             currency: settings.currency,
                             logo_path: fullLogoPath,
                             gstRate: gstRate
-                        };
+                        });
                         localStorage.setItem('shop_settings', JSON.stringify(newSettings));
                         console.log('[App] Shop settings updated via localStorage fallback, GST Rate:', gstRate);
                     } catch (e) {
@@ -1151,10 +1155,12 @@ class AutoAccessoriesPOS {
 
     debounce(func, wait) {
         let timeout;
-        return function executedFunction(...args) {
+        return function executedFunction() {
+            var args = arguments;
+            var ctx = this;
             const later = () => {
                 clearTimeout(timeout);
-                func(...args);
+                func.apply(ctx, args);
             };
             clearTimeout(timeout);
             timeout = setTimeout(later, wait);

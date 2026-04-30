@@ -706,7 +706,7 @@ class ProductService:
                 JOIN products p ON si.product_id = p.id
                 JOIN categories c ON p.category_id = c.id
                 JOIN sales s ON si.sale_id = s.id
-                WHERE s.invoice_date >= DATE('now', '-30 days')
+                WHERE s.created_at >= DATE('now', '-30 days')
                 GROUP BY p.id, p.product_code, p.name, c.name
                 ORDER BY total_revenue DESC
                 LIMIT 20
@@ -717,14 +717,14 @@ class ProductService:
             # Sales trend by day
             cursor.execute('''
                 SELECT 
-                    DATE(s.invoice_date) as sale_date,
+                    DATE(s.created_at) as sale_date,
                     COUNT(DISTINCT s.id) as invoice_count,
                     SUM(si.quantity) as total_quantity,
                     SUM(si.line_total) as total_revenue
                 FROM sales s
                 JOIN sale_items si ON s.id = si.sale_id
-                WHERE s.invoice_date >= DATE('now', '-30 days')
-                GROUP BY DATE(s.invoice_date)
+                WHERE s.created_at >= DATE('now', '-30 days')
+                GROUP BY DATE(s.created_at)
                 ORDER BY sale_date
             ''')
             

@@ -86,8 +86,12 @@ class ReportsScreen {
 
     async loadInventoryReport(startDate = null, endDate = null) {
         try {
-            const res = await this.app.api.get('/reports/inventory-valuation');
-            
+            const params = new URLSearchParams();
+            if (startDate) params.append('start_date', startDate);
+            if (endDate) params.append('end_date', endDate);
+            const query = params.toString() ? '?' + params.toString() : '';
+            const res = await this.app.api.get(`/reports/inventory-valuation${query}`);
+
             let data = {};
             if (res && res.data) {
                 data = res.data;
@@ -224,27 +228,31 @@ class ReportsScreen {
     }
     // Filter methods
     filterSalesReport() {
-        const startDate = document.getElementById('sales-start-date').value;
-        const endDate = document.getElementById('sales-end-date').value;
-        this.loadSalesReport(startDate, endDate);
+        const startEl = document.getElementById('sales-start-date');
+        const endEl = document.getElementById('sales-end-date');
+        if (!startEl) { return; }  // Report not loaded yet
+        this.loadSalesReport(startEl.value || null, endEl.value || null);
     }
-    
+
     filterInventoryReport() {
-        const startDate = document.getElementById('inventory-start-date').value;
-        const endDate = document.getElementById('inventory-end-date').value;
-        this.loadInventoryReport(startDate, endDate);
+        const startEl = document.getElementById('inventory-start-date');
+        const endEl = document.getElementById('inventory-end-date');
+        if (!startEl) { return; }  // Report not loaded yet
+        this.loadInventoryReport(startEl.value || null, endEl.value || null);
     }
-    
+
     filterGSTReport() {
-        const startDate = document.getElementById('gst-start-date').value;
-        const endDate = document.getElementById('gst-end-date').value;
-        this.loadGSTReport(startDate, endDate);
+        const startEl = document.getElementById('gst-start-date');
+        const endEl = document.getElementById('gst-end-date');
+        if (!startEl) { return; }  // Report not loaded yet
+        this.loadGSTReport(startEl.value || null, endEl.value || null);
     }
-    
+
     filterProfitLossReport() {
-        const startDate = document.getElementById('pl-start-date').value;
-        const endDate = document.getElementById('pl-end-date').value;
-        this.loadProfitLossReport(startDate, endDate);
+        const startEl = document.getElementById('pl-start-date');
+        const endEl = document.getElementById('pl-end-date');
+        if (!startEl) { return; }  // Report not loaded yet
+        this.loadProfitLossReport(startEl.value || null, endEl.value || null);
     }
     
     // Export methods (placeholder - would use jsPDF or similar)

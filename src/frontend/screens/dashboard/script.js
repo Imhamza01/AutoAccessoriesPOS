@@ -121,53 +121,29 @@ class DashboardScreen {
     async loadDashboardStats() {
         try {
             console.log('[Dashboard] Starting loadDashboardStats...');
-            
-            // Get local date string in YYYY-MM-DD format
-            const now = new Date();
-            const year = now.getFullYear();
-            const month = String(now.getMonth() + 1).padStart(2, '0');
-            const day = String(now.getDate()).padStart(2, '0');
-            const today = `${year}-${month}-${day}`;
-            
-            const salesResponse = await this.app.api.get(`/sales/?start_date=${today}&end_date=${today}`);
-            
+
+            // Use dashboard analytics endpoint for today's stats
+            const analyticsResponse = await this.app.api.get('/reports/dashboard-analytics');
+
             // Debug logging
-            console.log('[Dashboard] Sales API Response:', salesResponse);
+            console.log('[Dashboard] Analytics API Response:', analyticsResponse);
 
             let todaySales = 0;
-            let todayCustomers = new Set();
+            let todayCustomers = 0;
 
-            // Handle API response properly
-            if (salesResponse && salesResponse.success) {
-                const salesData = salesResponse.sales || salesResponse.data || [];
-                
-                salesData.forEach(sale => {
-                    // Handle both object and array formats
-                    let saleAmount = 0;
-                    let customerId = null;
-                    
-                    if (typeof sale === 'object' && sale !== null) {
-                        saleAmount = sale.grand_total || sale.total_amount || 0;
-                        customerId = sale.customer_id;
-                    } else if (Array.isArray(sale)) {
-                        saleAmount = sale[22] || sale[2] || 0; // grand_total or fallback
-                        customerId = sale[1] || null; // customer_id
-                    }
-                    
-                    todaySales += parseFloat(saleAmount) || 0;
-                    if (customerId && customerId !== 'Walk-in' && customerId !== 0) {
-                        todayCustomers.add(customerId);
-                    }
-                });
+            // Handle API response
+            if (analyticsResponse && analyticsResponse.success && analyticsResponse.today) {
+                todaySales = analyticsResponse.today.sales || 0;
+                todayCustomers = analyticsResponse.today.customers || 0;
             } else {
-                console.warn('Sales API returned no data or error:', salesResponse);
+                console.warn('Analytics API returned no data or error:', analyticsResponse);
             }
 
             this.data.todaySales = todaySales;
-            this.data.todayCustomers = todayCustomers.size;
+            this.data.todayCustomers = todayCustomers;
 
             this.updateStatCard('todaySales', this.app.formatCurrency(todaySales));
-            this.updateStatCard('todayCustomers', todayCustomers.size.toString());
+            this.updateStatCard('todayCustomers', todayCustomers.toString());
 
             // Products stats
             const productsResponse = await this.app.api.get('/products?page=1&page_size=9999');

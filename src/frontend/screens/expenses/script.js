@@ -11,15 +11,22 @@ class ExpensesScreen {
 
     async refresh() {
         try {
-            const response = await this.app.api.get('/expenses?limit=10000&skip=0');
-            
+            // Build query with date filters if set
+            const params = new URLSearchParams({ limit: 500, skip: 0 });
+            const startDate = document.getElementById('expense-start-date')?.value;
+            const endDate = document.getElementById('expense-end-date')?.value;
+            const category = document.getElementById('expense-category-filter')?.value;
+            if (startDate) params.append('start_date', startDate);
+            if (endDate) params.append('end_date', endDate);
+            if (category) params.append('category', category);
+
+            const response = await this.app.api.get(`/expenses?${params.toString()}`);
+
             if (response && response.success) {
-                this.expenses = response.expenses || response.data || [];
+                this.expenses = response.expenses || [];
             } else {
-                console.error('Failed to load expenses:', response);
                 this.expenses = [];
             }
-            
             this.renderExpenses();
         } catch (error) {
             console.error('Failed to load expenses:', error);
@@ -29,24 +36,28 @@ class ExpensesScreen {
         }
     }
 
-    renderExpenses() {
+    renderExpenses(expenses) {
+        const data = expenses || this.expenses;  // ← use passed array or default
         const tbody = document.getElementById('expenses-table-body');
         if (!tbody) return;
 
-        if (this.expenses.length === 0) {
+        if (data.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="text-center">No expenses found</td></tr>';
             return;
         }
 
-        tbody.innerHTML = this.expenses.map(expense => `
+        tbody.innerHTML = data.map(expense => `
             <tr>
-                <td>${expense.date || expense[1]}</td>
-                <td><span class="status-badge info">${expense.category || expense[2]}</span></td>
-                <td>${expense.description || expense[3]}</td>
-                <td>${this.app.formatCurrency(expense.amount || expense[4])}</td>
-                <td>${expense.payment_method || expense[5] || '-'}</td>
+                <td>${expense.date || expense.expense_date || ''}</td>
+                <td><span class="status-badge info">${expense.category || ''}</span></td>
+                <td>${expense.description || ''}</td>
+                <td>${this.app.formatCurrency(expense.amount || 0)}</td>
+                <td>${expense.payment_method || '-'}</td>
                 <td>
-                    <button class="btn btn-small btn-danger" onclick="app.screens.expenses.deleteExpense(${expense.id || expense[0]})">Delete</button>
+                    <button class="btn btn-small btn-danger"
+                        onclick="app.screens.expenses.deleteExpense(${expense.id})">
+                        Delete
+                    </button>
                 </td>
             </tr>
         `).join('');
@@ -103,9 +114,25 @@ class ExpensesScreen {
     }
 
     filterExpenses() {
-        const search = document.getElementById('expense-search').value.toLowerCase();
-        // Implement filtering if needed, for now just re-render mock
-        this.renderExpenses();
+        const search = (document.getElementById('expense-search')?.value || '').toLowerCase().trim();
+
+        if (!search) {
+            this.renderExpenses(this.expenses);
+            return;
+        }
+
+        const filtered = this.expenses.filter(e => {
+            const category = (e.category || '').toLowerCase();
+            const description = (e.description || '').toLowerCase();
+            const paidTo = (e.paid_to || '').toLowerCase();
+            const reference = (e.reference || e.reference_number || '').toLowerCase();
+            return category.includes(search) ||
+                   description.includes(search) ||
+                   paidTo.includes(search) ||
+                   reference.includes(search);
+        });
+
+        this.renderExpenses(filtered);
     }
 }
 

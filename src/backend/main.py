@@ -125,14 +125,20 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
-# Mount uploads directory for user content (logos, etc)
-# MUST be mounted before "/" catch-all to ensure it's matched first
-from core.database import get_database_manager
-db_manager = get_database_manager()
-uploads_path = db_manager.app_data_path / "uploads"
-uploads_path.mkdir(parents=True, exist_ok=True)
+# Pre-create a minimal uploads path so the mount doesn't fail
+_default_uploads = Path.home() / "AppData" / "Roaming" / "AutoAccessoriesPOS" / "uploads"
+_default_uploads.mkdir(parents=True, exist_ok=True)
+
+# Try to get the actual path from db manager
+try:
+    from core.database import get_database_manager as _get_db_mgr
+    _db_tmp = _get_db_mgr()
+    uploads_path = _db_tmp.app_data_path / "uploads"
+    uploads_path.mkdir(parents=True, exist_ok=True)
+except Exception:
+    uploads_path = _default_uploads
+
 app.mount("/uploads", StaticFiles(directory=str(uploads_path)), name="uploads")
-logger.info(f"Mounted /uploads to {uploads_path}")
 
 # Mount static files (mounted after routes so API endpoints like /health take precedence)
 # When running as a frozen exe, FRONTEND_PATH env var is set by desktop/main.py
@@ -143,7 +149,27 @@ else:
     frontend_path = Path(__file__).parent.parent / "frontend"
 
 if frontend_path.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
+    from starlette.staticfiles import StaticFiles as _SF
+    from starlette.responses import Response
+    from starlette.types import ASGIApp, Receive, Scope, Send
+
+    class NoCacheStaticFiles(_SF):
+        """Static file server that disables all browser caching for JS/CSS."""
+        async def __call__(self, scope: Scope, receive: Receive, send: Send):
+            async def send_with_no_cache(message):
+                if message["type"] == "http.response.start":
+                    headers = dict(message.get("headers", []))
+                    path = scope.get("path", "")
+                    if path.endswith((".js", ".css", ".html")):
+                        headers[b"cache-control"] = b"no-store, no-cache, must-revalidate, max-age=0"
+                        headers[b"pragma"] = b"no-cache"
+                        headers[b"expires"] = b"0"
+                    message = dict(message)
+                    message["headers"] = list(headers.items())
+                await send(message)
+            await super().__call__(scope, receive, send_with_no_cache)
+
+    app.mount("/", NoCacheStaticFiles(directory=str(frontend_path), html=True), name="frontend")
 else:
     logger.warning(f"Frontend directory not found: {frontend_path}")
 
@@ -183,10 +209,64 @@ async def schedule_hourly_backups():
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database and other startup tasks."""
     try:
-        # Initialize database
+        from core.database import get_database_manager
+        db_manager = get_database_manager()
         db_manager.initialize_database()
+
+        # Fix: Set balance_due = grand_total for credit sales that were saved with balance_due = 0
+        try:
+            with db_manager.get_cursor() as cur:
+                cur.execute("""
+                    UPDATE sales
+                    SET balance_due = grand_total,
+                        amount_paid = 0
+                    WHERE payment_status = 'pending'
+                      AND balance_due = 0
+                      AND grand_total > 0
+                """)
+                fixed = cur.rowcount
+                if fixed > 0:
+                    logger.info(
+                        f"Startup fix: Corrected balance_due for {fixed} credit sales "
+                        f"that were incorrectly stored as 0."
+                    )
+        except Exception as e:
+            logger.error(f"balance_due fix failed: {e}")
+
+        # Fix: Enable credit for customers who already have credit_limit > 0 or current_balance > 0
+        # These customers were clearly intended to use credit — the DEFAULT 0 was wrong for them
+        try:
+            with db_manager.get_cursor() as cur:
+                cur.execute("""
+                    UPDATE customers
+                    SET is_credit_allowed = 1
+                    WHERE (credit_limit > 0 OR current_balance > 0)
+                      AND is_credit_allowed = 0
+                """)
+                if cur.rowcount > 0:
+                    logger.info(
+                        f"Startup fix: Enabled credit for {cur.rowcount} customers "
+                        f"who already had credit_limit or balance."
+                    )
+        except Exception as e:
+            logger.error(f"Credit enablement fix failed: {e}")
+
+        # Fix: Re-hash any bcrypt passwords to SHA-256 for consistency
+        try:
+            with db_manager.get_cursor() as cur:
+                cur.execute("SELECT id, password_hash FROM users WHERE password_hash LIKE '$2b$%' OR password_hash LIKE '$2a$%'")
+                bcrypt_users = cur.fetchall()
+                if bcrypt_users:
+                    logger.warning(f"Found {len(bcrypt_users)} users with bcrypt passwords — these users cannot log in. "
+                                  f"Admin must reset their passwords via the Users screen.")
+                    # We cannot re-hash without the original plaintext password.
+                    # Log the affected user IDs so admin knows who needs password reset.
+                    for u in bcrypt_users:
+                        uid = u[0] if not hasattr(u, 'keys') else u['id']
+                        logger.warning(f"User ID {uid} has bcrypt password hash — password reset required.")
+        except Exception as e:
+            logger.error(f"bcrypt user check failed: {e}")
 
         # Fix: Correct Indian Rupee symbol to PKR for Pakistani shops
         try:

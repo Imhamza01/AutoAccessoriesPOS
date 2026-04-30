@@ -159,7 +159,8 @@ class CustomersScreen {
             email: document.getElementById('customer-email').value,
             city: document.getElementById('customer-city').value,
             address: document.getElementById('customer-address').value,
-            credit_limit: parseFloat(document.getElementById('customer-credit-limit').value) || 0
+            credit_limit: parseFloat(document.getElementById('customer-credit-limit').value) || 0,
+            is_credit_allowed: true
         };
 
         this.app.showLoading('Saving customer...');
